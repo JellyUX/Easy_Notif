@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npm test
+
+  release:
+    name: Release
+    needs: build-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.x'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Install JPRM
+        run: pip install jprm
+
+      - name: Install semantic-release dependencies
+        run: npm install
+
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: npx semantic-release

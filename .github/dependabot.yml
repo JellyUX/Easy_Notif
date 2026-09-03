@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # The semantic-release chain is pinned to known-good versions (see TODO_V1.md 1.2).
+    # A broken toolchain bump would only surface at release time, so upgrades are handled
+    # deliberately, not by Dependabot.
+    ignore:
+      - dependency-name: "semantic-release"
+      - dependency-name: "@semantic-release/*"
+      - dependency-name: "conventional-changelog-conventionalcommits"
+
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

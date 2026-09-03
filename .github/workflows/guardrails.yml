@@ -1,0 +1,60 @@
+name: Guardrails
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    name: Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: No bare hex colour literals in web assets (R11)
+        shell: bash
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            while IFS=: read -r ln content; do
+              stripped=$(printf '%s' "$content" | sed -E 's/var\([^)]*\)//g')
+              if printf '%s' "$stripped" | grep -qE '#[0-9a-fA-F]{6}([^0-9a-fA-F]|$)|#[0-9a-fA-F]{3}([^0-9a-fA-F]|$)'; then
+                echo "::error file=$f,line=$ln::bare hex colour literal - use var(--jf-..., #fallback)"
+                echo "  $f:$ln:$content"
+                fail=1
+              fi
+            done < <(grep -nE '#[0-9a-fA-F]{3}' "$f" || true)
+          done < <(git ls-files 'src/*/Web/*.css' 'src/*/Web/*.html')
+          [ "$fail" -eq 0 ] && echo "OK - no bare hex in web assets"
+          exit $fail
+
+      - name: No em dash (U+2014) in tracked files (R11)
+        shell: bash
+        run: |
+          if LC_ALL=C git grep -n --fixed-strings $'\xe2\x80\x94' -- . ; then
+            echo "::error::em dash (U+2014) found - use a hyphen or restructure"
+            exit 1
+          fi
+          echo "OK - no em dash"
+
+      - name: Every web enotif-*.js has a Vitest file (R5)
+        shell: bash
+        run: |
+          fail=0
+          for js in $(git ls-files 'src/*/Web/enotif-*.js'); do
+            base=$(basename "$js" .js)
+            if git grep -qE "(import|require).*['\"][^'\"]*${base}(\.js)?['\"]" -- 'test/*.test.js'; then
+              echo "OK - $base is imported by a test"
+            else
+              echo "::error file=$js::no test/*.test.js imports this file"
+              fail=1
+            fi
+          done
+          exit $fail

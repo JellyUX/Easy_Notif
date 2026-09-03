@@ -1,0 +1,61 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "breaking": true, "release": "major" },
+          { "type": "feat",   "release": "minor" },
+          { "type": "fix",    "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat",     "section": "Features" },
+            { "type": "fix",      "section": "Bug Fixes" },
+            { "type": "revert",   "section": "Reverts" },
+            { "type": "refactor", "hidden": true },
+            { "type": "chore",    "hidden": true },
+            { "type": "docs",     "hidden": true },
+            { "type": "style",    "hidden": true },
+            { "type": "test",     "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      { "changelogFile": "CHANGELOG.md" }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "mkdir -p artifacts && python3 .github/scripts/set-plugin-version.py ${nextRelease.version} && jprm plugin build . --version=${nextRelease.version}.0 --output=./artifacts && python3 .github/scripts/update-manifest.py ${nextRelease.version}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "./artifacts/*.zip", "label": "Keep or Remove plugin" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md", "manifest.json"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]"
+      }
+    ]
+  ]
+}

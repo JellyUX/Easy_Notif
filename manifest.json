@@ -1,0 +1,12 @@
+[
+    {
+        "guid": "7a27339e-e774-4969-9755-8cd213dcc5e7",
+        "name": "Easy Notif",
+        "overview": "Send email notifications to your users: new-media newsletters, weekly watch recaps and manual admin emails.",
+        "description": "An internal email notification service for Jellyfin. Schedule a newsletter of newly added media, send each user a personalised weekly watch recap, and write one-off announcements from the dashboard. Uses Resend for delivery. Reads the library and playback data only, never modifies anything.",
+        "owner": "Samuellct",
+        "category": "General",
+        "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
+        "versions": []
+    }
+]

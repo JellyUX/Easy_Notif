@@ -1,0 +1,20 @@
+# Explicit project name: without it Compose derives the name from this file's parent
+# directory ("docker"), which collides with the sibling JellyUX compose files
+# (also .../docker/docker-compose.yml) and makes one `up` recreate the other's container.
+name: easynotif
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.11
+    container_name: easynotif-test
+    environment:
+      - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_PORT:-8099}
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - ./plugins:/config/plugins
+      - ${FILMS_PATH}:/media/films:ro
+      - ${SHOWS_PATH}:/media/shows:ro
+    ports:
+      - "${JELLYFIN_PORT:-8099}:8096"
+    restart: unless-stopped

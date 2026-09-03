@@ -219,7 +219,8 @@ public class EasyNotifController : ControllerBase
             publicServerUrl = cfg.PublicServerUrl,
             schedulerTimeZone = cfg.SchedulerTimeZone,
             resendApiKeySet = !string.IsNullOrEmpty(cfg.ResendApiKey),
-            webhookSigningSecretSet = !string.IsNullOrEmpty(cfg.WebhookSigningSecret)
+            webhookSigningSecretSet = !string.IsNullOrEmpty(cfg.WebhookSigningSecret),
+            startupWarning = cfg.StartupWarning
         });
     });
 

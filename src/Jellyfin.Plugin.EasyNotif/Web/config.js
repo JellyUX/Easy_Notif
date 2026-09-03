@@ -117,6 +117,10 @@
             _el('enotifWebhookSecret').value = '';
             _el('enotifApiKeyHint').textContent = _secretHint(dict, s.resendApiKeySet);
             _el('enotifWebhookSecretHint').textContent = _secretHint(dict, s.webhookSigningSecretSet);
+
+            var warning = _el('enotifStartupWarning');
+            warning.textContent = s.startupWarning || '';
+            warning.hidden = !s.startupWarning;
         });
     }
 

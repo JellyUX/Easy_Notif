@@ -233,6 +233,18 @@ public sealed class EasyNotifControllerTests
         Assert.IsType<NotFoundResult>(BuildController().GetStrings("de"));
     }
 
+    [Fact]
+    public void GetSettings_IncludesTheStartupWarning()
+    {
+        var config = new FakeConfig(new PluginConfiguration { StartupWarning = "FileTransformation missing" });
+        var controller = BuildController(config: config);
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetSettings());
+        var json = JsonSerializer.Serialize(ok.Value);
+
+        Assert.Contains("FileTransformation missing", json, StringComparison.Ordinal);
+    }
+
     // -------------------------------------------------------------------------
     // Wrap: storage/config failures map to 503
     // -------------------------------------------------------------------------

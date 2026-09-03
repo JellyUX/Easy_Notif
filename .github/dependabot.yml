@@ -5,7 +5,7 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    # The semantic-release chain is pinned to known-good versions (see TODO_V1.md 1.2).
+    # The semantic-release chain is pinned to known-good versions (see TODO_V1.md).
     # A broken toolchain bump would only surface at release time, so upgrades are handled
     # deliberately, not by Dependabot.
     ignore:
@@ -18,6 +18,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # The Jellyfin.* packages are pinned to 10.11.10, the declared minimum ABI (build.yaml
+    # targetAbi 10.11.10.0). Compiling against the lowest supported patch is deliberate: an API
+    # present in 10.11.10 is present in every later 10.11.x, not the reverse. Any pin change is a
+    # manual chore:/fix: commit with a written reason, never a Dependabot bump.
+    ignore:
+      - dependency-name: "Jellyfin.Controller"
+      - dependency-name: "Jellyfin.Model"
+      - dependency-name: "Jellyfin.Extensions"
 
   - package-ecosystem: "github-actions"
     directory: "/"

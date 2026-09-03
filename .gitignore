@@ -1,0 +1,72 @@
+# Deny everything by default.
+# Add explicit exceptions as the project grows.
+# Never add exceptions for: CLAUDE.md, .claude/, Synthèse.md, ROADMAP.md, TODO_V1.md,
+# tuto_resend.md, prompt_work.md, Audit*.md, docker/config/, docker/plugins/*, docker/cache/*,
+# docker/.env
+*
+
+!.gitignore
+
+# Project files
+!.github/
+!.github/dependabot.yml
+!.github/workflows/
+!.github/workflows/*.yml
+!.github/scripts/
+!.github/scripts/*.py
+!README.md
+!CHANGELOG.md
+!LICENSE.md
+!build.yaml
+!manifest.json
+!.releaserc.json
+!package.json
+!package-lock.json
+!vitest.config.js
+
+# Documentation assets
+!docs/
+docs/*
+!docs/icon.png
+!docs/banner.png
+!docs/screenshots/
+docs/screenshots/*
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
+
+# Docker dev environment
+!docker/
+docker/*
+!docker/docker-compose.yml
+!docker/.env.example
+!docker/scripts/
+docker/scripts/*
+!docker/scripts/deploy-plugin.ps1
+!docker/plugins/
+docker/plugins/*
+!docker/plugins/.gitkeep
+!docker/config/
+docker/config/*
+!docker/config/.gitkeep
+!docker/cache/
+docker/cache/*
+!docker/cache/.gitkeep
+
+# .NET solution and plugin source
+!EasyNotif.sln
+!src/
+src/**
+!src/**/
+!src/**/*.cs
+!src/**/*.csproj
+!src/**/*.js
+!src/**/*.css
+!src/**/*.html
+!src/**/*.json
+src/**/bin/
+src/**/obj/
+
+# Front-end tests
+!test/
+test/*
+!test/*.js

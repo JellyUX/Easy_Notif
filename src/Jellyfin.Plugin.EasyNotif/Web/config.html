@@ -5,22 +5,102 @@
 </head>
 <body>
 <div data-role="page" id="easyNotifConfigPage" class="page type-interior pluginConfigurationPage fullWidthContent">
+    <style>
+        /* Kept inside the page element: Jellyfin drops the document head when it loads a plugin config page. */
+        .enotif-tabs { display: flex; gap: 0.5em; margin-bottom: 1.5em; flex-wrap: wrap; }
+        .enotif-tab { background: none; border: none; border-bottom: 0.15em solid transparent; padding: 0.6em 0.9em; cursor: pointer; font: inherit; color: inherit; opacity: 0.65; }
+        .enotif-tab.enotif-active { border-bottom-color: var(--jf-palette-primary-main, #00a4dc); opacity: 1; }
+        .enotif-pref-table { width: 100%; border-collapse: collapse; }
+        .enotif-pref-table th, .enotif-pref-table td { text-align: left; padding: 0.45em 0.6em; }
+        .enotif-warn { color: var(--jf-palette-warning-main, #ffa726); font-weight: 600; }
+        .enotif-hint { font-weight: 600; }
+    </style>
     <div class="content-primary">
 
         <div class="verticalSection">
             <div class="sectionTitleContainer">
                 <h2 class="sectionTitle">Easy Notif</h2>
             </div>
-            <p class="fieldDescription">
-                Internal email notification service for this Jellyfin server: scheduled new-media
-                newsletters, personalised weekly watch recaps and manual admin emails.
-            </p>
-            <p class="fieldDescription">
-                Configuration tabs are added in a later build.
+            <p class="fieldDescription" data-i18n="page.intro">
+                Configure the email service and manage each user's notification preferences.
             </p>
         </div>
 
+        <div class="enotif-tabs">
+            <button type="button" class="enotif-tab" data-tab="settings" data-i18n="tab.settings">Settings</button>
+            <button type="button" class="enotif-tab" data-tab="preferences" data-i18n="tab.preferences">User preferences</button>
+        </div>
+
+        <div class="enotif-panel" data-panel="settings">
+            <form id="enotifSettingsForm">
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifFromEmail" data-i18n="settings.fromEmail">Sender address</label>
+                    <input is="emby-input" type="text" id="enotifFromEmail" />
+                    <div class="fieldDescription" data-i18n="settings.fromEmail.help">Must be on your verified Resend sending domain.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifFromName" data-i18n="settings.fromName">Sender name</label>
+                    <input is="emby-input" type="text" id="enotifFromName" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifReplyTo" data-i18n="settings.replyTo">Reply-To address</label>
+                    <input is="emby-input" type="text" id="enotifReplyTo" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifPublicUrl" data-i18n="settings.publicUrl">Public server URL</label>
+                    <input is="emby-input" type="text" id="enotifPublicUrl" placeholder="https://media.example.org" />
+                    <div class="fieldDescription" data-i18n="settings.publicUrl.help">Used to build poster images and deep links in emails. Leave blank to attach posters instead.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="selectLabel" for="enotifTimeZone" data-i18n="settings.timeZone">Schedule time zone</label>
+                    <select is="emby-select" id="enotifTimeZone" class="emby-select">
+                        <option value="Europe/Paris">Europe/Paris</option>
+                        <option value="Europe/London">Europe/London</option>
+                        <option value="Europe/Berlin">Europe/Berlin</option>
+                        <option value="Europe/Madrid">Europe/Madrid</option>
+                        <option value="Europe/Rome">Europe/Rome</option>
+                        <option value="Europe/Lisbon">Europe/Lisbon</option>
+                        <option value="UTC">UTC</option>
+                        <option value="America/New_York">America/New_York</option>
+                        <option value="America/Chicago">America/Chicago</option>
+                        <option value="America/Los_Angeles">America/Los_Angeles</option>
+                    </select>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
+                    <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />
+                    <div class="fieldDescription enotif-hint" id="enotifApiKeyHint"></div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifWebhookSecret" data-i18n="settings.webhookSecret">Webhook signing secret</label>
+                    <input is="emby-input" type="password" id="enotifWebhookSecret" autocomplete="off" />
+                    <div class="fieldDescription enotif-hint" id="enotifWebhookSecretHint"></div>
+                </div>
+                <button is="emby-button" type="submit" class="raised button-submit block" data-i18n="common.save">Save</button>
+            </form>
+        </div>
+
+        <div class="enotif-panel" data-panel="preferences" hidden>
+            <p class="fieldDescription" data-i18n="pref.intro">
+                Each user chooses what they receive from their own settings. You can override it here.
+                A user with no contact address is skipped at send time.
+            </p>
+            <table class="enotif-pref-table detailTable">
+                <thead>
+                    <tr>
+                        <th data-i18n="pref.col.user">User</th>
+                        <th data-i18n="pref.col.email">Contact email</th>
+                        <th data-i18n="pref.col.news">New media</th>
+                        <th data-i18n="pref.col.recap">Weekly recap</th>
+                        <th data-i18n="pref.col.updated">Updated</th>
+                    </tr>
+                </thead>
+                <tbody id="enotifPrefBody"></tbody>
+            </table>
+        </div>
+
     </div>
+    <script src="/EasyNotif/config.js"></script>
 </div>
 </body>
 </html>

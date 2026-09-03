@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\config.html" />
+    <EmbeddedResource Include="Web\config.js" />
+    <EmbeddedResource Include="Web\strings\en.json" />
+    <EmbeddedResource Include="Web\strings\fr.json" />
   </ItemGroup>
 
   <ItemGroup>

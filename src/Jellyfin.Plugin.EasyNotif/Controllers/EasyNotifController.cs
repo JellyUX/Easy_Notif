@@ -295,6 +295,24 @@ public class EasyNotifController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult GetConfigScript() => Asset("Web.config.js", "application/javascript");
 
+    /// <summary>Serves the embedded user settings panel script (injected into the web client).</summary>
+    /// <returns>The JavaScript file.</returns>
+    [HttpGet("enotif-user.js")]
+    [AllowAnonymous]
+    [Produces("application/javascript")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult GetUserScript() => Asset("Web.enotif-user.js", "application/javascript");
+
+    /// <summary>Serves the embedded user settings panel stylesheet.</summary>
+    /// <returns>The CSS file.</returns>
+    [HttpGet("enotif-user.css")]
+    [AllowAnonymous]
+    [Produces("text/css")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult GetUserStylesheet() => Asset("Web.enotif-user.css", "text/css");
+
     /// <summary>Serves the embedded UI string bundle for a language.</summary>
     /// <param name="lang">The language: "en" or "fr".</param>
     /// <returns>The JSON string bundle.</returns>

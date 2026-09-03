@@ -1,0 +1,30 @@
+.enotif-section {
+    max-width: 42em;
+}
+
+.enotif-section .checkboxContainer {
+    margin: 0.4em 0;
+}
+
+.enotif-section .checkboxContainer label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    cursor: pointer;
+}
+
+.enotif-status {
+    min-height: 1.2em;
+    margin-top: 0.3em;
+    font-size: 0.9em;
+    color: var(--jf-palette-success-main, #66bb6a);
+}
+
+.enotif-status-error {
+    color: var(--jf-palette-error-main, #c62828);
+}
+
+.enotif-notice {
+    margin-top: 1em;
+    opacity: 0.8;
+}

@@ -67,6 +67,8 @@ public sealed class EasyNotifControllerTests
     [Theory]
     [InlineData(nameof(EasyNotifController.GetConfigScript))]
     [InlineData(nameof(EasyNotifController.GetStrings))]
+    [InlineData(nameof(EasyNotifController.GetUserScript))]
+    [InlineData(nameof(EasyNotifController.GetUserStylesheet))]
     public void AssetEndpoints_AreAnonymous(string methodName)
     {
         Assert.NotNull(Method(methodName).GetCustomAttribute<AllowAnonymousAttribute>());

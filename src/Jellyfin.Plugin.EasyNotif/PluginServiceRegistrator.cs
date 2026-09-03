@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -20,5 +21,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IConfigAccessor, PluginConfigAccessor>();
         serviceCollection.AddSingleton<IPreferencesStore, PreferencesStore>();
         serviceCollection.AddSingleton<IPreferenceService, PreferenceService>();
+        serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
+        serviceCollection.AddHostedService<StartupService>();
     }
 }

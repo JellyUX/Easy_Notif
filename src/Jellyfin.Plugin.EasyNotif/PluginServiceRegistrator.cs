@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Services;
@@ -21,6 +22,9 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IConfigAccessor, PluginConfigAccessor>();
         serviceCollection.AddSingleton<IPreferencesStore, PreferencesStore>();
         serviceCollection.AddSingleton<IPreferenceService, PreferenceService>();
+        serviceCollection.AddHttpClient(ResendEmailSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
+        serviceCollection.AddSingleton<SendRateLimiter>();
+        serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddHostedService<StartupService>();
     }

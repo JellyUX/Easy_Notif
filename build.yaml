@@ -11,4 +11,7 @@ category: "General"
 imageUrl: "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png"
 artifacts:
   - "Jellyfin.Plugin.EasyNotif.dll"
+  - "Serilog.dll"
+  - "Serilog.Sinks.File.dll"
+  - "Serilog.Sinks.Async.dll"
 changelog: ""

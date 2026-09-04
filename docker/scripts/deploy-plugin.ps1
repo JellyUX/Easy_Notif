@@ -17,7 +17,8 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 $pluginsDir = Join-Path $scriptDir "..\plugins"
 $pluginOutputDir = Join-Path $pluginsDir $PluginName
-$builtDll = "$projectRoot\src\$PluginName\bin\$Configuration\net9.0\$PluginName.dll"
+$buildOutputDir = "$projectRoot\src\$PluginName\bin\$Configuration\net9.0"
+$builtDll = "$buildOutputDir\$PluginName.dll"
 
 Write-Host "Building $PluginName ($Configuration)..."
 dotnet build "$projectRoot\src\$PluginName\$PluginName.csproj" -c $Configuration
@@ -30,6 +31,13 @@ Get-ChildItem -Path $pluginsDir -Directory -Filter "Easy Notif_*" -ErrorAction S
 Write-Host "Deploying the dev build..."
 New-Item -ItemType Directory -Force $pluginOutputDir | Out-Null
 Copy-Item $builtDll $pluginOutputDir -Force
+
+# The plugin bundles its own copy of Serilog (not provided by the Jellyfin host, unlike
+# Newtonsoft.Json / Microsoft.Extensions.Http - see the Phase 6 build: commit for why).
+Get-ChildItem -Path $buildOutputDir -Filter "Serilog*.dll" | ForEach-Object {
+    Write-Host "  + $($_.Name)"
+    Copy-Item $_.FullName $pluginOutputDir -Force
+}
 
 $version = [System.Reflection.AssemblyName]::GetAssemblyName((Resolve-Path $builtDll)).Version.ToString()
 $meta = [ordered]@{

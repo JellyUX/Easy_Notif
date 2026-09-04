@@ -12,6 +12,7 @@
     <RepositoryType>GitHub</RepositoryType>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,11 +29,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.10" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.10" />
-    <PackageReference Include="Jellyfin.Extensions" Version="10.11.10" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.10" ExcludeAssets="runtime" />
+    <PackageReference Include="Jellyfin.Model" Version="10.11.10" ExcludeAssets="runtime" />
+    <PackageReference Include="Jellyfin.Extensions" Version="10.11.10" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.11" ExcludeAssets="runtime" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" ExcludeAssets="runtime" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="Serilog.Sinks.Async" Version="2.1.0" />
   </ItemGroup>
 
 </Project>

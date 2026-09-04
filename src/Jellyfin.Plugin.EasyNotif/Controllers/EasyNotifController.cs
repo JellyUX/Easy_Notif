@@ -1,8 +1,10 @@
 using System.Net.Mail;
 using System.Reflection;
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
@@ -29,6 +31,9 @@ public class EasyNotifController : ControllerBase
     private readonly IPreferenceService _preferences;
     private readonly IConfigAccessor _config;
     private readonly IAuthorizationContext _authContext;
+    private readonly IEmailSender _emailSender;
+    private readonly IQuotaGuard _quota;
+    private readonly ISendLog _sendLog;
     private readonly ILogger<EasyNotifController> _logger;
 
     /// <summary>
@@ -37,16 +42,25 @@ public class EasyNotifController : ControllerBase
     /// <param name="preferences">The preference service.</param>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="authContext">Jellyfin request authorization context.</param>
+    /// <param name="emailSender">The email transport.</param>
+    /// <param name="quota">The send quota guard.</param>
+    /// <param name="sendLog">The send log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
         IPreferenceService preferences,
         IConfigAccessor config,
         IAuthorizationContext authContext,
+        IEmailSender emailSender,
+        IQuotaGuard quota,
+        ISendLog sendLog,
         ILogger<EasyNotifController> logger)
     {
         _preferences = preferences;
         _config = config;
         _authContext = authContext;
+        _emailSender = emailSender;
+        _quota = quota;
+        _sendLog = sendLog;
         _logger = logger;
     }
 
@@ -128,12 +142,72 @@ public class EasyNotifController : ControllerBase
         });
     }
 
-    /// <summary>Sends the caller a test email. Wired to the real sender in a later build.</summary>
-    /// <returns>204.</returns>
+    /// <summary>Sends the caller a test email to their contact address.</summary>
+    /// <param name="body">Optional request body carrying the UI language.</param>
+    /// <returns>200 with <c>{ ok }</c>; 400 when the caller has no contact address; 503 when storage
+    /// is unavailable.</returns>
     [HttpPost("me/test")]
     [Authorize]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public ActionResult SendMyTestEmail() => NoContent();
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> SendMyTestEmail([FromBody] TestEmailRequest? body)
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+
+        string? address;
+        try
+        {
+            address = _preferences.GetOrCreate(userId).ContactEmail;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return BadRequest(new { error = "no-contact-email" });
+        }
+
+        var lang = string.Equals(body?.Lang, "fr", StringComparison.OrdinalIgnoreCase) ? "fr" : "en";
+        var (subject, html) = TestEmail.Build(lang);
+
+        var result = await _emailSender.SendAsync(
+            new EmailMessage
+            {
+                To = address,
+                Subject = subject,
+                Html = html,
+                ReplyTo = _config.Get().ReplyTo
+            },
+            HttpContext.RequestAborted).ConfigureAwait(false);
+
+        if (result.Success)
+        {
+            _quota.RecordSend();
+        }
+
+        try
+        {
+            _sendLog.Append(new SendLogEntry
+            {
+                Ts = DateTime.UtcNow,
+                Context = "test",
+                ToMasked = EmailMasker.Mask(address),
+                Subject = subject,
+                ResendId = result.ResendId,
+                Status = result.Success ? "sent" : "failed"
+            });
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "[EasyNotif] Could not record the test send in the send log.");
+        }
+
+        return Ok(new { ok = result.Success });
+    }
 
     // -------------------------------------------------------------------------
     // Admin - preferences
@@ -404,6 +478,13 @@ public sealed class ContactEmailUpdate
 {
     /// <summary>Gets or sets the contact address, or null/blank to clear it.</summary>
     public string? Email { get; set; }
+}
+
+/// <summary>Request body for <c>POST /EasyNotif/me/test</c>.</summary>
+public sealed class TestEmailRequest
+{
+    /// <summary>Gets or sets the UI language for the test message (<c>"fr"</c> or <c>"en"</c>).</summary>
+    public string? Lang { get; set; }
 }
 
 /// <summary>Request body for <c>PUT /EasyNotif/admin/settings</c>. A blank secret is ignored.</summary>

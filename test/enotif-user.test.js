@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import enotifUser from '../src/Jellyfin.Plugin.EasyNotif/Web/enotif-user.js';
 
-const { _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel, PLUGIN_ID } = enotifUser;
+const { _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel, DICT, PLUGIN_ID } = enotifUser;
 
 describe('_isPrefsMenu', () => {
     it('matches the settings menu route, with or without a query', () => {
@@ -86,11 +86,32 @@ describe('_buildPanel', () => {
         expect(panel.textContent).toContain('Notifications par email');
     });
 
+    it('renders a test button, disabled until a contact address is set', () => {
+        const withEmail = _buildPanel('en', { email: 'alice@example.org' });
+        const withoutEmail = _buildPanel('en', null);
+
+        expect(withEmail.querySelector('.enotif-test')).not.toBeNull();
+        expect(withEmail.querySelector('.enotif-test').disabled).toBe(false);
+        expect(withoutEmail.querySelector('.enotif-test').disabled).toBe(true);
+    });
+
     it('treats a hostile stored address as data, never markup', () => {
         const panel = _buildPanel('en', { email: '<img src=x onerror=alert(1)>' });
 
         expect(panel.querySelector('.enotif-user-email').value).toBe('<img src=x onerror=alert(1)>');
         expect(panel.innerHTML).not.toContain('<img');
+    });
+});
+
+describe('DICT', () => {
+    it('has the same keys in fr and en', () => {
+        expect(Object.keys(DICT.fr).sort()).toEqual(Object.keys(DICT.en).sort());
+    });
+
+    it('translates the test button per locale', () => {
+        expect(_t('fr', 'panel.test')).toBe('Envoyer un test');
+        expect(_t('en', 'panel.test')).toBe('Send a test');
+        expect(_t('fr', 'panel.test')).not.toBe(_t('en', 'panel.test'));
     });
 });
 

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
+using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using MediaBrowser.Common.Api;
@@ -246,6 +247,101 @@ public sealed class EasyNotifControllerTests
     }
 
     // -------------------------------------------------------------------------
+    // me/test: real send, quota and log
+    // -------------------------------------------------------------------------
+
+    private static Mock<IPreferenceService> ServiceWithContactEmail(string? email)
+    {
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetOrCreate(It.IsAny<Guid>()))
+            .Returns(new UserPreference { ContactEmail = email });
+        return service;
+    }
+
+    [Fact]
+    public async Task SendMyTestEmail_WithoutAContactAddress_Returns400_AndDoesNotSend()
+    {
+        var email = new Mock<IEmailSender>();
+        var controller = BuildController(ServiceWithContactEmail(null), emailSender: email);
+
+        var result = await controller.SendMyTestEmail(new TestEmailRequest());
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        email.Verify(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendMyTestEmail_OnSuccess_Sends_RecordsQuota_AndLogsMasked()
+    {
+        var email = new Mock<IEmailSender>();
+        email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendResult(true, "re_1", 200, null));
+        var quota = new Mock<IQuotaGuard>();
+        var sendLog = new Mock<ISendLog>();
+        SendLogEntry? logged = null;
+        sendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
+
+        var controller = BuildController(
+            ServiceWithContactEmail("someone@example.org"),
+            emailSender: email,
+            quota: quota,
+            sendLog: sendLog);
+
+        var result = await controller.SendMyTestEmail(new TestEmailRequest { Lang = "en" });
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Contains("ok = True", ok.Value!.ToString(), StringComparison.Ordinal);
+        email.Verify(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()), Times.Once);
+        quota.Verify(q => q.RecordSend(), Times.Once);
+        Assert.NotNull(logged);
+        Assert.Equal("sent", logged!.Status);
+        Assert.Equal("test", logged.Context);
+        Assert.DoesNotContain("someone@example.org", logged.ToMasked, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendMyTestEmail_OnFailure_DoesNotRecordQuota_AndLogsFailed()
+    {
+        var email = new Mock<IEmailSender>();
+        email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendResult(false, null, 422, "bad"));
+        var quota = new Mock<IQuotaGuard>();
+        var sendLog = new Mock<ISendLog>();
+        SendLogEntry? logged = null;
+        sendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
+
+        var controller = BuildController(
+            ServiceWithContactEmail("someone@example.org"),
+            emailSender: email,
+            quota: quota,
+            sendLog: sendLog);
+
+        var result = await controller.SendMyTestEmail(new TestEmailRequest());
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        Assert.Contains("ok = False", ok.Value!.ToString(), StringComparison.Ordinal);
+        quota.Verify(q => q.RecordSend(), Times.Never);
+        Assert.Equal("failed", logged!.Status);
+    }
+
+    [Fact]
+    public async Task SendMyTestEmail_UsesTheRequestedLanguageForTheSubject()
+    {
+        var captured = new List<EmailMessage>();
+        var email = new Mock<IEmailSender>();
+        email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendResult(true, "re_1", 200, null))
+            .Callback<EmailMessage, CancellationToken>((m, _) => captured.Add(m));
+
+        var fr = BuildController(ServiceWithContactEmail("a@b.co"), emailSender: email);
+        await fr.SendMyTestEmail(new TestEmailRequest { Lang = "fr" });
+        var en = BuildController(ServiceWithContactEmail("a@b.co"), emailSender: email);
+        await en.SendMyTestEmail(new TestEmailRequest { Lang = "en" });
+
+        Assert.NotEqual(captured[0].Subject, captured[1].Subject);
+    }
+
+    // -------------------------------------------------------------------------
     // Wrap: storage/config failures map to 503
     // -------------------------------------------------------------------------
 
@@ -284,12 +380,25 @@ public sealed class EasyNotifControllerTests
     private static EasyNotifController BuildController(
         Mock<IPreferenceService>? service = null,
         IConfigAccessor? config = null,
-        Mock<IAuthorizationContext>? auth = null) =>
-        new(
+        Mock<IAuthorizationContext>? auth = null,
+        Mock<IEmailSender>? emailSender = null,
+        Mock<IQuotaGuard>? quota = null,
+        Mock<ISendLog>? sendLog = null)
+    {
+        var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
             config ?? new FakeConfig(),
             (auth ?? AuthReturning(DefaultUserId)).Object,
+            (emailSender ?? new Mock<IEmailSender>()).Object,
+            (quota ?? new Mock<IQuotaGuard>()).Object,
+            (sendLog ?? new Mock<ISendLog>()).Object,
             NullLogger<EasyNotifController>.Instance);
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext()
+        };
+        return controller;
+    }
 
     private static Mock<IAuthorizationContext> AuthReturning(Guid userId)
     {

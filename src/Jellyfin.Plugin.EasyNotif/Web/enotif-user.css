@@ -24,6 +24,10 @@
     color: var(--jf-palette-error-main, #c62828);
 }
 
+.enotif-test {
+    margin-top: 0.8em;
+}
+
 .enotif-notice {
     margin-top: 1em;
     opacity: 0.8;

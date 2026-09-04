@@ -28,9 +28,13 @@
             'panel.cat.news': 'New media',
             'panel.cat.recap': 'Weekly recap',
             'panel.notice': 'Your address is stored by this plugin and sent to Resend (in the United States) to deliver the emails. It is deleted when the plugin is removed.',
+            'panel.test': 'Send a test',
             'status.saved': 'Saved.',
             'status.invalid': 'Invalid email address.',
-            'status.error': 'Could not save. Try again.'
+            'status.error': 'Could not save. Try again.',
+            'status.testSent': 'Test email sent.',
+            'status.testFailed': 'Could not send the test email.',
+            'status.testNoEmail': 'Set a contact address first.'
         },
         fr: {
             'panel.title': 'Notifications par email',
@@ -39,9 +43,13 @@
             'panel.cat.news': 'Nouveautés',
             'panel.cat.recap': 'Résumé de la semaine',
             'panel.notice': "Votre adresse est stockée par ce plugin et transmise à Resend (aux États-Unis) pour l'envoi des emails. Elle est supprimée à la désinstallation du plugin.",
+            'panel.test': 'Envoyer un test',
             'status.saved': 'Enregistré.',
             'status.invalid': 'Adresse email invalide.',
-            'status.error': 'Enregistrement impossible. Réessayez.'
+            'status.error': 'Enregistrement impossible. Réessayez.',
+            'status.testSent': 'Email de test envoyé.',
+            'status.testFailed': "Impossible d'envoyer l'email de test.",
+            'status.testNoEmail': "Renseignez d'abord une adresse de contact."
         }
     };
 
@@ -141,6 +149,14 @@
             section.appendChild(wrap);
         });
 
+        var testButton = document.createElement('button');
+        testButton.setAttribute('is', 'emby-button');
+        testButton.type = 'button';
+        testButton.className = 'raised enotif-test';
+        testButton.textContent = _t(locale, 'panel.test');
+        testButton.disabled = !(data && data.email);
+        section.appendChild(testButton);
+
         var notice = document.createElement('p');
         notice.className = 'fieldDescription enotif-notice';
         notice.textContent = _t(locale, 'panel.notice');
@@ -156,6 +172,7 @@
         _escHtml: _escHtml,
         _validEmail: _validEmail,
         _buildPanel: _buildPanel,
+        DICT: DICT,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -197,6 +214,16 @@
             url: _url(path),
             data: JSON.stringify(body),
             contentType: 'application/json'
+        });
+    }
+
+    function _postJson(path, body) {
+        return window.ApiClient.ajax({
+            type: 'POST',
+            url: _url(path),
+            data: JSON.stringify(body),
+            contentType: 'application/json',
+            dataType: 'json'
         });
     }
 
@@ -246,6 +273,28 @@
     function _bind(panel, locale) {
         var email = panel.querySelector('.enotif-user-email');
         var status = panel.querySelector('.enotif-status');
+        var testButton = panel.querySelector('.enotif-test');
+
+        function _refreshTestButton() {
+            testButton.disabled = !(state.data && state.data.email);
+        }
+
+        testButton.addEventListener('click', function () {
+            if (!(state.data && state.data.email)) {
+                _setStatus(status, _t(locale, 'status.testNoEmail'), true);
+                return;
+            }
+            testButton.disabled = true;
+            _postJson('me/test', { Lang: locale }).then(function (res) {
+                var ok = !res || res.ok !== false;
+                _setStatus(status, _t(locale, ok ? 'status.testSent' : 'status.testFailed'), !ok);
+            }).catch(function (err) {
+                console.warn('[EasyNotif] could not send the test email:', err);
+                _setStatus(status, _t(locale, 'status.testFailed'), true);
+            }).then(function () {
+                _refreshTestButton();
+            });
+        });
 
         email.addEventListener('blur', function () {
             var value = email.value.trim();
@@ -257,6 +306,7 @@
                 if (state.data) {
                     state.data.email = value || null;
                 }
+                _refreshTestButton();
                 _setStatus(status, _t(locale, 'status.saved'), false);
             }).catch(function (err) {
                 console.warn('[EasyNotif] could not save the contact address:', err);

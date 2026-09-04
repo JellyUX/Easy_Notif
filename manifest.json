@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.2.0.0",
+                "changelog": "### Features\n\n* inject the user email notification settings panel ([00cd7e6](https://github.com/JellyUX/Easy_Notif/commit/00cd7e67cac6ace2253b7bf2eb9080d8a4c4c1ca))\n* register the index.html transformation and generate the unsubscribe secret ([f1c641f](https://github.com/JellyUX/Easy_Notif/commit/f1c641fd55dfae78035a2a1df6c82acdaa300aa2))\n* show the startup warning on the config page ([c409f28](https://github.com/JellyUX/Easy_Notif/commit/c409f2833faadbebd550442d7b66d9cc2c0ffc6d))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.2.0/easy-notif_0.2.0.0.zip",
+                "checksum": "b09e63533935d808aa50fc18406b660e",
+                "timestamp": "2026-09-04T00:04:42Z"
+            },
+            {
                 "version": "0.1.0.0",
                 "changelog": "### Features\n\n* add the admin config page with settings and preferences tabs ([df38d45](https://github.com/JellyUX/Easy_Notif/commit/df38d4591361c0e1492d719196ac47f14635eb63))\n* add the preference service with recipient resolution ([5675679](https://github.com/JellyUX/Easy_Notif/commit/567567980f8ded91c3dfc675bedf322b8b3bfe71))\n* add the preferences and settings HTTP API ([ce7d8bc](https://github.com/JellyUX/Easy_Notif/commit/ce7d8bc7f38019726389b3e5cd2e6052d6afcf29))\n* add the user preferences store ([726655c](https://github.com/JellyUX/Easy_Notif/commit/726655c7eba04c21286c8363d4961eaf10bcd525))",
                 "targetAbi": "10.11.10.0",

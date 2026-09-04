@@ -1,3 +1,13 @@
+## [0.3.0](https://github.com/JellyUX/Easy_Notif/compare/v0.2.0...v0.3.0) (2026-09-04)
+
+### Features
+
+* add the Resend email sender with rate limiting and idempotency ([af44c7f](https://github.com/JellyUX/Easy_Notif/commit/af44c7fd16022e6f3dc3bc914ed342c7f73e00f2))
+* send a real test email from the user panel ([ab6ff1c](https://github.com/JellyUX/Easy_Notif/commit/ab6ff1c56b83c23604f2a1880964ecb3d54cd684))
+* show the Resend transport status on the settings tab ([339fd1f](https://github.com/JellyUX/Easy_Notif/commit/339fd1f670adba052719f21c1946c33da8644e52))
+* track the monthly send quota and log every send ([f8779b9](https://github.com/JellyUX/Easy_Notif/commit/f8779b93ad2f4c72481c41da447f184bf64bea34))
+* verify and record Resend delivery webhooks ([566d06b](https://github.com/JellyUX/Easy_Notif/commit/566d06b1a244fb9156beaf494d5f59caf5958635))
+
 ## [0.2.0](https://github.com/JellyUX/Easy_Notif/compare/v0.1.0...v0.2.0) (2026-09-04)
 
 ### Features

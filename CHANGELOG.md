@@ -1,3 +1,10 @@
+## [0.4.0](https://github.com/JellyUX/Easy_Notif/compare/v0.3.0...v0.4.0) (2026-09-04)
+
+### Features
+
+* add the manual email composer tab ([a375c45](https://github.com/JellyUX/Easy_Notif/commit/a375c451497212b6b09892be572b927dbe2509d9))
+* send manual admin emails to all or selected users ([786c8cb](https://github.com/JellyUX/Easy_Notif/commit/786c8cb5432b3819b8a7227bf53685a7c906e79f))
+
 ## [0.3.0](https://github.com/JellyUX/Easy_Notif/compare/v0.2.0...v0.3.0) (2026-09-04)
 
 ### Features

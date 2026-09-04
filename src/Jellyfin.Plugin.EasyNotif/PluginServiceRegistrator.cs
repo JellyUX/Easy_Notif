@@ -25,6 +25,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient(ResendEmailSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
         serviceCollection.AddSingleton<SendRateLimiter>();
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
+        serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
+        serviceCollection.AddSingleton<ISendLog, SendLog>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddHostedService<StartupService>();
     }

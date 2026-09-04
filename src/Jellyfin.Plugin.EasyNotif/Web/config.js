@@ -59,12 +59,84 @@
             + '</tr>';
     }
 
+    // Detached DOM built from the /admin/status payload. Every cell is set via textContent, so a
+    // hostile stored value (a masked address, a webhook type) is data, never markup.
+    function _buildStatus(dict, status) {
+        var root = document.createElement('div');
+        if (!status) {
+            return root;
+        }
+
+        var configured = document.createElement('p');
+        configured.textContent = _t(dict, status.configured ? 'status.configured' : 'status.notConfigured');
+        root.appendChild(configured);
+
+        var q = status.quota || {};
+        var quota = document.createElement('p');
+        quota.textContent = _t(dict, 'status.quota')
+            .replace('{m30}', q.last30d != null ? q.last30d : 0)
+            .replace('{mLimit}', q.monthlyLimit != null ? q.monthlyLimit : 0)
+            .replace('{d}', q.dailyToday != null ? q.dailyToday : 0)
+            .replace('{dLimit}', q.dailyLimit != null ? q.dailyLimit : 0);
+        root.appendChild(quota);
+
+        if (q.warn80) {
+            var warn = document.createElement('p');
+            warn.className = 'enotif-warn';
+            warn.textContent = _t(dict, 'status.warn');
+            root.appendChild(warn);
+        }
+
+        var webhook = document.createElement('p');
+        webhook.textContent = status.lastWebhookUtc
+            ? _t(dict, 'status.lastWebhook')
+                .replace('{type}', status.lastWebhookType || '')
+                .replace('{date}', String(status.lastWebhookUtc).slice(0, 19).replace('T', ' '))
+            : _t(dict, 'status.lastWebhookNone');
+        root.appendChild(webhook);
+
+        var recent = status.recent || [];
+        if (recent.length) {
+            var table = document.createElement('table');
+            var head = document.createElement('tr');
+            ['status.col.date', 'status.col.context', 'status.col.recipient', 'status.col.status'].forEach(function (key) {
+                var th = document.createElement('th');
+                th.textContent = _t(dict, key);
+                head.appendChild(th);
+            });
+            var thead = document.createElement('thead');
+            thead.appendChild(head);
+            table.appendChild(thead);
+
+            var tbody = document.createElement('tbody');
+            recent.forEach(function (entry) {
+                var tr = document.createElement('tr');
+                [
+                    String(entry.ts || '').slice(0, 10),
+                    entry.context || '',
+                    entry.toMasked || '',
+                    entry.status || ''
+                ].forEach(function (value) {
+                    var td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            root.appendChild(table);
+        }
+
+        return root;
+    }
+
     var api = {
         _escHtml: _escHtml,
         _pickLang: _pickLang,
         _t: _t,
         _secretHint: _secretHint,
         _buildPrefRow: _buildPrefRow,
+        _buildStatus: _buildStatus,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -124,6 +196,16 @@
         });
     }
 
+    function _loadStatus() {
+        return window.ApiClient.getJSON(_url('admin/status')).then(function (status) {
+            var body = _el('enotifStatusBody');
+            body.innerHTML = '';
+            body.appendChild(_buildStatus(dict, status));
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load the transport status:', err);
+        });
+    }
+
     function _saveSettings(e) {
         e.preventDefault();
         var body = {
@@ -145,7 +227,7 @@
         window.Dashboard.showLoadingMsg();
         _putJson('admin/settings', body).then(function () {
             window.Dashboard.alert(_t(dict, 'common.saved'));
-            return _loadSettings();
+            return _loadSettings().then(_loadStatus);
         }).catch(function (err) {
             console.error('[EasyNotif Config] could not save settings:', err);
             window.Dashboard.alert(_t(dict, 'common.saveError'));
@@ -195,7 +277,7 @@
             .then(function (loaded) {
                 dict = loaded || {};
                 _applyStrings(page);
-                _loadSettings();
+                _loadSettings().then(_loadStatus);
                 _loadPrefs();
             });
     }

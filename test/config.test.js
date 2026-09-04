@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import enotifConfig from '../src/Jellyfin.Plugin.EasyNotif/Web/config.js';
 
-const { _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, PLUGIN_ID } = enotifConfig;
+import enStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/en.json';
+import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
+
+const { _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, PLUGIN_ID } = enotifConfig;
 
 describe('_escHtml', () => {
     it('escapes HTML special characters', () => {
@@ -99,6 +102,61 @@ describe('_buildPrefRow', () => {
 
         expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
         expect(html).not.toContain('<script>');
+    });
+});
+
+describe('_buildStatus', () => {
+    const dict = enStrings;
+
+    it('shows no warning class for a nominal quota', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: { last30d: 3, dailyToday: 1, monthlyLimit: 3000, dailyLimit: 100, warn80: false, over: false },
+            lastWebhookUtc: null,
+            recent: []
+        });
+
+        expect(el.querySelector('.enotif-warn')).toBeNull();
+        expect(el.textContent).toContain('configured');
+    });
+
+    it('shows the warning when warn80 is set', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: { last30d: 2400, dailyToday: 10, monthlyLimit: 3000, dailyLimit: 100, warn80: true, over: false },
+            lastWebhookUtc: null,
+            recent: []
+        });
+
+        expect(el.querySelector('.enotif-warn')).not.toBeNull();
+    });
+
+    it('says no webhook when lastWebhookUtc is null', () => {
+        const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [] });
+
+        expect(el.textContent).toContain(dict['status.lastWebhookNone']);
+    });
+
+    it('renders a recent entry as text, never markup', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [{ ts: '2026-09-04T10:00:00Z', context: 'test', toMasked: '<img src=x onerror=alert(1)>', status: 'sent' }]
+        });
+
+        expect(el.innerHTML).not.toContain('<img');
+        expect(el.textContent).toContain('<img src=x onerror=alert(1)>');
+    });
+
+    it('returns an empty container for a null payload', () => {
+        expect(_buildStatus(dict, null).childNodes.length).toBe(0);
+    });
+});
+
+describe('string bundles', () => {
+    it('en.json and fr.json have the same keys', () => {
+        expect(Object.keys(frStrings).sort()).toEqual(Object.keys(enStrings).sort());
     });
 });
 

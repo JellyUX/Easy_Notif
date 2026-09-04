@@ -357,6 +357,48 @@ public class EasyNotifController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Gets the Resend transport status for the settings tab: whether it is configured, the rolling
+    /// send quota, the last webhook received, and the last few sends. Never returns a secret.
+    /// Administrators only.
+    /// </summary>
+    /// <returns>The status object.</returns>
+    [HttpGet("admin/status")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetStatus() => Wrap(() =>
+    {
+        var cfg = _config.Get();
+        var (lastWebhookUtc, lastWebhookType) = _sendLog.LastWebhook();
+        var quota = _quota.Snapshot();
+        return Ok(new
+        {
+            configured = !string.IsNullOrWhiteSpace(cfg.ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
+            fromEmail = cfg.FromEmail,
+            quota = new
+            {
+                last30d = quota.Last30d,
+                dailyToday = quota.DailyToday,
+                monthlyLimit = quota.MonthlyLimit,
+                dailyLimit = quota.DailyLimit,
+                warn80 = quota.Warn80,
+                over = quota.Over
+            },
+            lastWebhookUtc,
+            lastWebhookType,
+            recent = _sendLog.Recent(10).Select(e => new
+            {
+                ts = e.Ts,
+                context = e.Context,
+                toMasked = e.ToMasked,
+                category = e.Category,
+                subject = e.Subject,
+                status = e.Status
+            })
+        });
+    });
+
     // -------------------------------------------------------------------------
     // Static assets (embedded, anonymous)
     // -------------------------------------------------------------------------

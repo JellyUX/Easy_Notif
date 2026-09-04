@@ -22,5 +22,16 @@
   "pref.noEmail": "no contact address",
   "common.save": "Save",
   "common.saved": "Saved.",
-  "common.saveError": "Could not save. Check the values and try again."
+  "common.saveError": "Could not save. Check the values and try again.",
+  "status.title": "Transport status",
+  "status.configured": "Resend transport configured.",
+  "status.notConfigured": "Resend transport not configured yet.",
+  "status.quota": "Sent: {m30} / {mLimit} in the last 30 days, {d} / {dLimit} today.",
+  "status.warn": "You have used 80 percent of a sending limit.",
+  "status.lastWebhook": "Last webhook: {type} at {date} UTC.",
+  "status.lastWebhookNone": "No webhook received yet.",
+  "status.col.date": "Date",
+  "status.col.context": "Context",
+  "status.col.recipient": "Recipient",
+  "status.col.status": "Status"
 }

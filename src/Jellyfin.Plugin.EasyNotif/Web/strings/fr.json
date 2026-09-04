@@ -22,5 +22,16 @@
   "pref.noEmail": "pas d'adresse de contact",
   "common.save": "Enregistrer",
   "common.saved": "Enregistré.",
-  "common.saveError": "Enregistrement impossible. Vérifiez les valeurs et réessayez."
+  "common.saveError": "Enregistrement impossible. Vérifiez les valeurs et réessayez.",
+  "status.title": "État du transport",
+  "status.configured": "Transport Resend configuré.",
+  "status.notConfigured": "Transport Resend pas encore configuré.",
+  "status.quota": "Envoyés : {m30} / {mLimit} sur les 30 derniers jours, {d} / {dLimit} aujourd'hui.",
+  "status.warn": "Vous avez utilisé 80 pour cent d'une limite d'envoi.",
+  "status.lastWebhook": "Dernier webhook : {type} le {date} UTC.",
+  "status.lastWebhookNone": "Aucun webhook reçu pour l'instant.",
+  "status.col.date": "Date",
+  "status.col.context": "Contexte",
+  "status.col.recipient": "Destinataire",
+  "status.col.status": "Statut"
 }

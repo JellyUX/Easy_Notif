@@ -41,6 +41,7 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.PutUserPreferences))]
     [InlineData(nameof(EasyNotifController.GetSettings))]
     [InlineData(nameof(EasyNotifController.PutSettings))]
+    [InlineData(nameof(EasyNotifController.GetStatus))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -232,6 +233,45 @@ public sealed class EasyNotifControllerTests
     public void GetStrings_ForAnUnknownLanguage_Returns404()
     {
         Assert.IsType<NotFoundResult>(BuildController().GetStrings("de"));
+    }
+
+    [Fact]
+    public void GetStatus_NeverReturnsASecretValue()
+    {
+        var config = new FakeConfig(new PluginConfiguration
+        {
+            ResendApiKey = "re_supersecret",
+            WebhookSigningSecret = "whsec_supersecret",
+            FromEmail = "from@example.org"
+        });
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(3, 1, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+        var controller = BuildController(config: config, quota: quota, sendLog: sendLog);
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetStatus());
+        var json = JsonSerializer.Serialize(ok.Value);
+
+        Assert.DoesNotContain("supersecret", json, StringComparison.Ordinal);
+        Assert.Contains("\"configured\":true", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetStatus_ReportsNotConfigured_WhenTheApiKeyIsMissing()
+    {
+        var config = new FakeConfig(new PluginConfiguration { FromEmail = "from@example.org" });
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+        var controller = BuildController(config: config, quota: quota, sendLog: sendLog);
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetStatus());
+
+        Assert.Contains("\"configured\":false", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
     }
 
     [Fact]

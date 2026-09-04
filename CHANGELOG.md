@@ -1,3 +1,10 @@
+## [0.5.0](https://github.com/JellyUX/Easy_Notif/compare/v0.4.0...v0.5.0) (2026-09-04)
+
+### Features
+
+* add a dedicated rolling log file ([4ba2e13](https://github.com/JellyUX/Easy_Notif/commit/4ba2e1378b719774b2c8c812b608d8321b6b9cd7))
+* instrument the plugin events and expose a logs tab ([a5599d4](https://github.com/JellyUX/Easy_Notif/commit/a5599d442eca53c54771396f66c8c6274be0a0bc))
+
 ## [0.4.0](https://github.com/JellyUX/Easy_Notif/compare/v0.3.0...v0.4.0) (2026-09-04)
 
 ### Features

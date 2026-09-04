@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.5.0.0",
+                "changelog": "### Features\n\n* add a dedicated rolling log file ([4ba2e13](https://github.com/JellyUX/Easy_Notif/commit/4ba2e1378b719774b2c8c812b608d8321b6b9cd7))\n* instrument the plugin events and expose a logs tab ([a5599d4](https://github.com/JellyUX/Easy_Notif/commit/a5599d442eca53c54771396f66c8c6274be0a0bc))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.5.0/easy-notif_0.5.0.0.zip",
+                "checksum": "ee08463e4d0e51a2581ed7ddb06d0004",
+                "timestamp": "2026-09-04T16:45:43Z"
+            },
+            {
                 "version": "0.4.0.0",
                 "changelog": "### Features\n\n* add the manual email composer tab ([a375c45](https://github.com/JellyUX/Easy_Notif/commit/a375c451497212b6b09892be572b927dbe2509d9))\n* send manual admin emails to all or selected users ([786c8cb](https://github.com/JellyUX/Easy_Notif/commit/786c8cb5432b3819b8a7227bf53685a7c906e79f))",
                 "targetAbi": "10.11.10.0",

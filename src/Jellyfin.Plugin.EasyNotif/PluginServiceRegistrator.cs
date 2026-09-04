@@ -2,6 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Controller;
@@ -19,6 +20,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<IFileSystem, FileSystem>();
+        serviceCollection.AddSingleton<IEasyNotifLog, EasyNotifLog>();
         serviceCollection.AddSingleton<IConfigAccessor, PluginConfigAccessor>();
         serviceCollection.AddSingleton<IPreferencesStore, PreferencesStore>();
         serviceCollection.AddSingleton<IPreferenceService, PreferenceService>();

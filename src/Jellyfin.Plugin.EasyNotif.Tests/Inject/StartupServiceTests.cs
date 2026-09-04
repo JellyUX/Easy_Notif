@@ -16,8 +16,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Inject;
 /// </summary>
 public sealed class StartupServiceTests
 {
-    private static StartupService Build(Mock<IFileTransformationDetector> detector, FakeConfigAccessor config)
-        => new(NullLogger<StartupService>.Instance, detector.Object, config);
+    private static StartupService Build(Mock<IFileTransformationDetector> detector, FakeConfigAccessor config, FakeEasyNotifLog? easyNotifLog = null)
+        => new(NullLogger<StartupService>.Instance, detector.Object, config, easyNotifLog ?? new FakeEasyNotifLog());
 
     private static Mock<IFileTransformationDetector> Detector(bool available)
     {
@@ -99,5 +99,52 @@ public sealed class StartupServiceTests
         await Build(Detector(available: true), config).StartAsync(CancellationToken.None);
 
         Assert.Equal("keep-me", config.Config.UnsubscribeSecret);
+    }
+
+    [Fact]
+    public async Task StartAsync_LogsAStartupEvent_ReflectingWhetherThePublicUrlIsSet()
+    {
+        var easyNotifLog = new FakeEasyNotifLog();
+        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set", PublicServerUrl = "https://media.example.org" });
+
+        await Build(Detector(available: true), config, easyNotifLog).StartAsync(CancellationToken.None);
+
+        var startup = Assert.Single(easyNotifLog.Entries, e => e.EventType == "plugin.startup");
+        Assert.Equal("Info", startup.Level);
+        Assert.Equal(true, startup.Fields!["publicServerUrlSet"]);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenDetectorUnavailable_LogsAnErrorEvent()
+    {
+        var easyNotifLog = new FakeEasyNotifLog();
+        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" });
+
+        await Build(Detector(available: false), config, easyNotifLog).StartAsync(CancellationToken.None);
+
+        var entry = Assert.Single(easyNotifLog.Entries, e => e.EventType == "filetransformation.missing");
+        Assert.Equal("Error", entry.Level);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenDetectorAvailable_LogsADetectedEvent()
+    {
+        var easyNotifLog = new FakeEasyNotifLog();
+        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" });
+
+        await Build(Detector(available: true), config, easyNotifLog).StartAsync(CancellationToken.None);
+
+        Assert.Contains(easyNotifLog.Entries, e => e.EventType == "filetransformation.detected" && e.Level == "Info");
+    }
+
+    [Fact]
+    public async Task StopAsync_LogsAShutdownEvent()
+    {
+        var easyNotifLog = new FakeEasyNotifLog();
+        var service = Build(Detector(available: true), new FakeConfigAccessor(), easyNotifLog);
+
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Contains(easyNotifLog.Entries, e => e.EventType == "plugin.shutdown" && e.Level == "Info");
     }
 }

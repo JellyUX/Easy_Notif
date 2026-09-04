@@ -2,6 +2,7 @@ using System.Net.Mail;
 using System.Reflection;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Util;
@@ -35,6 +36,7 @@ public class EasyNotifController : ControllerBase
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
     private readonly IManualEmailService _manualEmail;
+    private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
     /// <summary>
@@ -47,6 +49,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="manualEmail">The manual admin email service.</param>
+    /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
         IPreferenceService preferences,
@@ -56,6 +59,7 @@ public class EasyNotifController : ControllerBase
         IQuotaGuard quota,
         ISendLog sendLog,
         IManualEmailService manualEmail,
+        IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
         _preferences = preferences;
@@ -65,6 +69,7 @@ public class EasyNotifController : ControllerBase
         _quota = quota;
         _sendLog = sendLog;
         _manualEmail = manualEmail;
+        _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
 
@@ -357,6 +362,12 @@ public class EasyNotifController : ControllerBase
             }
 
             _config.Save();
+            _easyNotifLog.Info("settings.updated", new Dictionary<string, object?>
+            {
+                ["fromEmail"] = cfg.FromEmail,
+                ["resendApiKeySet"] = !string.IsNullOrEmpty(cfg.ResendApiKey),
+                ["webhookSigningSecretSet"] = !string.IsNullOrEmpty(cfg.WebhookSigningSecret)
+            });
             return NoContent();
         });
     }
@@ -402,6 +413,15 @@ public class EasyNotifController : ControllerBase
             })
         });
     });
+
+    /// <summary>Gets the last lines of the plugin's dedicated log file. Administrators only.</summary>
+    /// <param name="tail">How many lines to return at most (default 200, clamped 1-2000).</param>
+    /// <returns>The lines, oldest first; an empty array when no log file exists yet.</returns>
+    [HttpGet("admin/logs")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetLogs([FromQuery] int tail = 200)
+        => Ok(_easyNotifLog.Tail(Math.Clamp(tail, 1, 2000)));
 
     /// <summary>
     /// Sends a one-off manual email (plain text or HTML, with optional attachments) to all users

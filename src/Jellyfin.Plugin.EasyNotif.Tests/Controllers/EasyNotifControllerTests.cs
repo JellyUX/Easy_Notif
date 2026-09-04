@@ -6,6 +6,7 @@ using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
@@ -43,6 +44,7 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.PutSettings))]
     [InlineData(nameof(EasyNotifController.GetStatus))]
     [InlineData(nameof(EasyNotifController.SendManualEmail))]
+    [InlineData(nameof(EasyNotifController.GetLogs))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -228,6 +230,29 @@ public sealed class EasyNotifControllerTests
         Assert.Equal("reply@example.org", config.Config.ReplyTo);
         Assert.Equal("https://media.example.org", config.Config.PublicServerUrl);
         Assert.Equal("Europe/Paris", config.Config.SchedulerTimeZone);
+    }
+
+    [Fact]
+    public void PutSettings_OnSuccess_LogsAnUpdateEvent_WithoutTheKey()
+    {
+        var easyNotifLog = new FakeEasyNotifLog();
+        var controller = BuildController(easyNotifLog: easyNotifLog);
+
+        controller.PutSettings(new SettingsUpdate { FromEmail = "from@example.org", ResendApiKey = "re_supersecret" });
+
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Info", entry.Level);
+        Assert.Equal("settings.updated", entry.EventType);
+        Assert.Equal(true, entry.Fields!["resendApiKeySet"]);
+        Assert.DoesNotContain(entry.Fields.Values, v => Equals(v, "re_supersecret"));
+    }
+
+    [Fact]
+    public void GetLogs_WhenNoLogFileExists_ReturnsEmptyArray()
+    {
+        var ok = Assert.IsType<OkObjectResult>(BuildController().GetLogs());
+
+        Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<string>>(ok.Value));
     }
 
     [Fact]
@@ -509,7 +534,8 @@ public sealed class EasyNotifControllerTests
         Mock<IEmailSender>? emailSender = null,
         Mock<IQuotaGuard>? quota = null,
         Mock<ISendLog>? sendLog = null,
-        Mock<IManualEmailService>? manualEmail = null)
+        Mock<IManualEmailService>? manualEmail = null,
+        FakeEasyNotifLog? easyNotifLog = null)
     {
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
@@ -519,6 +545,7 @@ public sealed class EasyNotifControllerTests
             (quota ?? new Mock<IQuotaGuard>()).Object,
             (sendLog ?? new Mock<ISendLog>()).Object,
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
+            easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext
         {

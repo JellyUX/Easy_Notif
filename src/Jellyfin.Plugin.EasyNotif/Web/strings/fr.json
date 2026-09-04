@@ -57,5 +57,15 @@
   "manual.error.recipients": "Sélectionnez au moins un utilisateur.",
   "manual.error.testAddress": "Saisissez une adresse de test valide.",
   "manual.error.attachmentSize": "Les pièces jointes dépassent 10 Mo.",
-  "manual.error.send": "Envoi impossible. Vérifiez les réglages du transport et réessayez."
+  "manual.error.send": "Envoi impossible. Vérifiez les réglages du transport et réessayez.",
+  "logs.tab": "Journaux",
+  "logs.intro": "Le fichier de journalisation propre au plugin. Rafraîchissez pour charger les dernières lignes.",
+  "logs.level.label": "Niveau",
+  "logs.level.all": "Tous les niveaux",
+  "logs.level.debug": "Débogage",
+  "logs.level.info": "Info",
+  "logs.level.warn": "Avertissement",
+  "logs.level.error": "Erreur",
+  "logs.refresh": "Rafraîchir",
+  "logs.empty": "Aucune ligne de journal pour l'instant."
 }

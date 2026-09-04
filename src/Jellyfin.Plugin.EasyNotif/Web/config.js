@@ -203,6 +203,18 @@
         return root;
     }
 
+    // Client-side level filter for the Logs tab. Lines are produced by EasyNotifLog with a fixed
+    // "[DBG]"/"[INF]"/"[WRN]"/"[ERR]" marker, so no parsing beyond a substring check is needed.
+    var LOG_LEVEL_MARKERS = { debug: '[DBG]', info: '[INF]', warn: '[WRN]', error: '[ERR]' };
+
+    function _filterLogLines(lines, level) {
+        var marker = LOG_LEVEL_MARKERS[level];
+        if (!marker) {
+            return lines || [];
+        }
+        return (lines || []).filter(function (line) { return line.indexOf(marker) !== -1; });
+    }
+
     var api = {
         _escHtml: _escHtml,
         _pickLang: _pickLang,
@@ -216,6 +228,7 @@
         _previewSrcdoc: _previewSrcdoc,
         _fmtBytes: _fmtBytes,
         _manualResult: _manualResult,
+        _filterLogLines: _filterLogLines,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -329,6 +342,7 @@
     // ---- Manual email tab (browser) ---------------------------------------
 
     var manualFiles = [];
+    var logLines = [];
 
     function _postJson(path, body) {
         return window.ApiClient.ajax({
@@ -499,6 +513,28 @@
         });
     }
 
+    // ---- Logs tab (browser) -------------------------------------------------
+
+    function _renderLogView() {
+        var level = _el('enotifLogLevel').value;
+        var filtered = _filterLogLines(logLines, level);
+        _el('enotifLogView').textContent = filtered.length ? filtered.join('\n') : _t(dict, 'logs.empty');
+    }
+
+    function _loadLogs() {
+        return window.ApiClient.getJSON(_url('admin/logs?tail=200')).then(function (lines) {
+            logLines = lines || [];
+            _renderLogView();
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load logs:', err);
+        });
+    }
+
+    function _bindLogs() {
+        _el('enotifLogRefresh').addEventListener('click', _loadLogs);
+        _el('enotifLogLevel').addEventListener('change', _renderLogView);
+    }
+
     function _onCatToggle(e) {
         var box = e.target;
         if (!box.classList || !box.classList.contains('enotif-cat')) {
@@ -531,6 +567,7 @@
                 _applyStrings(page);
                 _loadSettings().then(_loadStatus);
                 _loadPrefs();
+                _loadLogs();
                 _loadManualUsers().then(function () {
                     var addr = _el('enotifManualTestAddress');
                     if (!addr.value) {
@@ -554,6 +591,7 @@
         _el('enotifSettingsForm').addEventListener('submit', _saveSettings);
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
         _bindManual();
+        _bindLogs();
         _selectTab('settings');
     }
 

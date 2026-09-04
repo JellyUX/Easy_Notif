@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Util;
 using Microsoft.Extensions.Logging;
 
@@ -28,6 +30,7 @@ public sealed class ResendEmailSender : IEmailSender
     private readonly IConfigAccessor _config;
     private readonly SendRateLimiter _rateLimiter;
     private readonly ILogger<ResendEmailSender> _logger;
+    private readonly IEasyNotifLog _easyNotifLog;
     private readonly Func<TimeSpan, CancellationToken, Task> _retryDelay;
 
     /// <summary>Initializes a new instance of the <see cref="ResendEmailSender"/> class.</summary>
@@ -35,12 +38,14 @@ public sealed class ResendEmailSender : IEmailSender
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="rateLimiter">The shared send rate limiter.</param>
     /// <param name="logger">Logger.</param>
+    /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     public ResendEmailSender(
         IHttpClientFactory httpClientFactory,
         IConfigAccessor config,
         SendRateLimiter rateLimiter,
-        ILogger<ResendEmailSender> logger)
-        : this(httpClientFactory, config, rateLimiter, logger, Task.Delay)
+        ILogger<ResendEmailSender> logger,
+        IEasyNotifLog easyNotifLog)
+        : this(httpClientFactory, config, rateLimiter, logger, easyNotifLog, Task.Delay)
     {
     }
 
@@ -49,12 +54,14 @@ public sealed class ResendEmailSender : IEmailSender
         IConfigAccessor config,
         SendRateLimiter rateLimiter,
         ILogger<ResendEmailSender> logger,
+        IEasyNotifLog easyNotifLog,
         Func<TimeSpan, CancellationToken, Task> retryDelay)
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
         _rateLimiter = rateLimiter;
         _logger = logger;
+        _easyNotifLog = easyNotifLog;
         _retryDelay = retryDelay;
     }
 
@@ -68,12 +75,20 @@ public sealed class ResendEmailSender : IEmailSender
         {
             _logger.LogWarning(
                 "[EasyNotif] Cannot send email: the Resend transport is not configured (API key or sender address missing).");
+            _easyNotifLog.Error("email.failed", new Dictionary<string, object?>
+            {
+                ["subject"] = message.Subject,
+                ["to"] = message.To,
+                ["error"] = NotConfigured.Error
+            });
             return NotConfigured;
         }
 
         var payload = BuildPayload(message, cfg);
+        var stopwatch = Stopwatch.StartNew();
         var result = await PostWithRetryAsync(EmailsEndpoint, payload, message.IdempotencyKey, cfg.ResendApiKey!, ExtractId, cancellationToken)
             .ConfigureAwait(false);
+        stopwatch.Stop();
 
         if (result.Success)
         {
@@ -82,6 +97,14 @@ public sealed class ResendEmailSender : IEmailSender
                 message.Subject,
                 EmailMasker.Mask(message.To),
                 result.ResendId);
+            _easyNotifLog.Info("email.sent", new Dictionary<string, object?>
+            {
+                ["subject"] = message.Subject,
+                ["to"] = message.To,
+                ["resendId"] = result.ResendId,
+                ["httpStatus"] = result.StatusCode,
+                ["durationMs"] = stopwatch.ElapsedMilliseconds
+            });
         }
         else
         {
@@ -91,6 +114,14 @@ public sealed class ResendEmailSender : IEmailSender
                 EmailMasker.Mask(message.To),
                 result.StatusCode,
                 result.Error);
+            _easyNotifLog.Error("email.failed", new Dictionary<string, object?>
+            {
+                ["subject"] = message.Subject,
+                ["to"] = message.To,
+                ["httpStatus"] = result.StatusCode,
+                ["error"] = result.Error,
+                ["durationMs"] = stopwatch.ElapsedMilliseconds
+            });
         }
 
         return result;

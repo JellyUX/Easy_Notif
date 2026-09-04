@@ -57,5 +57,15 @@
   "manual.error.recipients": "Select at least one user.",
   "manual.error.testAddress": "Enter a valid test address.",
   "manual.error.attachmentSize": "The attachments exceed 10 MB.",
-  "manual.error.send": "Could not send. Check the transport settings and try again."
+  "manual.error.send": "Could not send. Check the transport settings and try again.",
+  "logs.tab": "Logs",
+  "logs.intro": "The plugin's own dedicated log file. Refresh to load the latest lines.",
+  "logs.level.label": "Level",
+  "logs.level.all": "All levels",
+  "logs.level.debug": "Debug",
+  "logs.level.info": "Info",
+  "logs.level.warn": "Warning",
+  "logs.level.error": "Error",
+  "logs.refresh": "Refresh",
+  "logs.empty": "No log lines yet."
 }

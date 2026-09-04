@@ -7,6 +7,7 @@ import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 const {
     _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus,
     _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
+    _filterLogLines,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -208,6 +209,31 @@ describe('manual email helpers', () => {
         expect(_fmtBytes(512)).toBe('512 B');
         expect(_fmtBytes(2048)).toBe('2.0 KB');
         expect(_fmtBytes(3 * 1024 * 1024)).toBe('3.0 MB');
+    });
+});
+
+describe('_filterLogLines', () => {
+    const lines = [
+        '2026-09-04 [DBG] tick a=1',
+        '2026-09-04 [INF] plugin.startup version=0.5.0.0',
+        '2026-09-04 [WRN] quota.threshold last30d=2400',
+        '2026-09-04 [ERR] email.failed httpStatus=401'
+    ];
+
+    it('returns every line for "all"', () => {
+        expect(_filterLogLines(lines, 'all')).toEqual(lines);
+    });
+
+    it('keeps only the lines matching the requested level', () => {
+        expect(_filterLogLines(lines, 'error')).toEqual([lines[3]]);
+        expect(_filterLogLines(lines, 'warn')).toEqual([lines[2]]);
+        expect(_filterLogLines(lines, 'info')).toEqual([lines[1]]);
+        expect(_filterLogLines(lines, 'debug')).toEqual([lines[0]]);
+    });
+
+    it('handles an empty or missing line list', () => {
+        expect(_filterLogLines([], 'error')).toEqual([]);
+        expect(_filterLogLines(undefined, 'all')).toEqual([]);
     });
 });
 

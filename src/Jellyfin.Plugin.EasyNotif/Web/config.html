@@ -24,6 +24,7 @@
         .enotif-radio-row { margin: 0.4em 0; }
         .enotif-file-list { list-style: none; padding-left: 0; }
         .enotif-file-list li { display: flex; gap: 0.6em; align-items: center; margin: 0.2em 0; }
+        .enotif-log-view { font-family: monospace; white-space: pre-wrap; max-height: 24em; overflow-y: auto; border: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12)); padding: 0.6em; margin-top: 0.8em; }
     </style>
     <div class="content-primary">
 
@@ -41,6 +42,7 @@
             <button type="button" class="enotif-tab" data-tab="settings" data-i18n="tab.settings">Settings</button>
             <button type="button" class="enotif-tab" data-tab="manual" data-i18n="manual.tab">Manual email</button>
             <button type="button" class="enotif-tab" data-tab="preferences" data-i18n="tab.preferences">User preferences</button>
+            <button type="button" class="enotif-tab" data-tab="logs" data-i18n="logs.tab">Logs</button>
         </div>
 
         <div class="enotif-panel" data-panel="settings">
@@ -157,6 +159,24 @@
                 </thead>
                 <tbody id="enotifPrefBody"></tbody>
             </table>
+        </div>
+
+        <div class="enotif-panel" data-panel="logs" hidden>
+            <p class="fieldDescription" data-i18n="logs.intro">
+                The plugin's own dedicated log file. Refresh to load the latest lines.
+            </p>
+            <div class="inputContainer">
+                <label class="selectLabel" for="enotifLogLevel" data-i18n="logs.level.label">Level</label>
+                <select is="emby-select" id="enotifLogLevel" class="emby-select">
+                    <option value="all" data-i18n="logs.level.all">All levels</option>
+                    <option value="debug" data-i18n="logs.level.debug">Debug</option>
+                    <option value="info" data-i18n="logs.level.info">Info</option>
+                    <option value="warn" data-i18n="logs.level.warn">Warning</option>
+                    <option value="error" data-i18n="logs.level.error">Error</option>
+                </select>
+            </div>
+            <button is="emby-button" type="button" id="enotifLogRefresh" class="raised" data-i18n="logs.refresh">Refresh</button>
+            <pre id="enotifLogView" class="enotif-log-view"></pre>
         </div>
 
     </div>

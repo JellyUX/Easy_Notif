@@ -25,19 +25,21 @@ public class ResendEmailSenderTests
         ReplyTo = "reply@example.com"
     };
 
-    private static (ResendEmailSender Sender, StubHttpMessageHandler Http, CapturingLogger<ResendEmailSender> Logger) Build(
+    private static (ResendEmailSender Sender, StubHttpMessageHandler Http, CapturingLogger<ResendEmailSender> Logger, FakeEasyNotifLog EasyNotifLog) Build(
         PluginConfiguration? config = null)
     {
         var http = new StubHttpMessageHandler();
         var logger = new CapturingLogger<ResendEmailSender>();
+        var easyNotifLog = new FakeEasyNotifLog();
         var limiter = new SendRateLimiter(TimeSpan.Zero, () => DateTimeOffset.UtcNow, (_, _) => Task.CompletedTask);
         var sender = new ResendEmailSender(
             http,
             new FakeConfigAccessor(config ?? Config()),
             limiter,
             logger,
+            easyNotifLog,
             (_, _) => Task.CompletedTask);
-        return (sender, http, logger);
+        return (sender, http, logger, easyNotifLog);
     }
 
     private static EmailMessage Message(string? idempotencyKey = null) => new()
@@ -51,7 +53,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_OnSuccess_ReturnsTheResendId()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"abc-123\"}");
 
         var result = await sender.SendAsync(Message(), CancellationToken.None);
@@ -64,7 +66,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_BuildsTheExpectedRequestBody()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"x\"}");
 
         await sender.SendAsync(Message(), CancellationToken.None);
@@ -85,7 +87,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_On422_ReturnsFailureWithoutThrowing()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.UnprocessableEntity, "{\"message\":\"Invalid from address\",\"name\":\"validation_error\"}");
 
         var result = await sender.SendAsync(Message(), CancellationToken.None);
@@ -99,7 +101,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_On429_RetriesOnceThenSucceeds()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.TooManyRequests, "{\"message\":\"rate limited\"}", retryAfterSeconds: 1);
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"after-retry\"}");
 
@@ -113,7 +115,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_On500_RetriesOnce()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.InternalServerError, "{}");
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"ok\"}");
 
@@ -126,7 +128,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_On401_DoesNotRetry()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.Unauthorized, "{\"message\":\"bad key\"}");
 
         var result = await sender.SendAsync(Message(), CancellationToken.None);
@@ -138,7 +140,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_WithIdempotencyKey_SetsTheHeader_OtherwiseOmitsIt()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"1\"}");
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"2\"}");
 
@@ -152,7 +154,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_WithHtmlOnly_GeneratesANonEmptyPlainTextPart()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"x\"}");
 
         await sender.SendAsync(
@@ -169,7 +171,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_WhenNotConfigured_MakesNoHttpRequest()
     {
-        var (sender, http, _) = Build(new PluginConfiguration { ResendApiKey = null, FromEmail = "sender@example.com" });
+        var (sender, http, _, _) = Build(new PluginConfiguration { ResendApiKey = null, FromEmail = "sender@example.com" });
 
         var result = await sender.SendAsync(Message(), CancellationToken.None);
 
@@ -180,7 +182,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_OnNetworkFailure_ReturnsFailureWithoutThrowing()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueNetworkFailure();
 
         var result = await sender.SendAsync(Message(), CancellationToken.None);
@@ -192,7 +194,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_NeverLogsTheApiKey_AndMasksTheRecipient()
     {
-        var (sender, http, logger) = Build();
+        var (sender, http, logger, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"abc\"}");
 
         await sender.SendAsync(Message(), CancellationToken.None);
@@ -205,7 +207,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendAsync_OnFailure_NeverLogsTheApiKey()
     {
-        var (sender, http, logger) = Build();
+        var (sender, http, logger, _) = Build();
         http.EnqueueJson(HttpStatusCode.Unauthorized, "{\"message\":\"nope\"}");
 
         await sender.SendAsync(Message(), CancellationToken.None);
@@ -216,7 +218,7 @@ public class ResendEmailSenderTests
     [Fact]
     public async Task SendBatchAsync_PostsOnceToTheBatchEndpoint()
     {
-        var (sender, http, _) = Build();
+        var (sender, http, _, _) = Build();
         http.EnqueueJson(HttpStatusCode.OK, "{\"data\":[{\"id\":\"a\"},{\"id\":\"b\"}]}");
 
         var results = await sender.SendBatchAsync(
@@ -234,5 +236,93 @@ public class ResendEmailSenderTests
             results,
             r => Assert.Equal("a", r.ResendId),
             r => Assert.Equal("b", r.ResendId));
+    }
+
+    [Fact]
+    public async Task SendAsync_OnSuccess_LogsAnEmailSentEvent_WithDuration()
+    {
+        var (sender, http, _, easyNotifLog) = Build();
+        http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"abc-123\"}");
+
+        await sender.SendAsync(Message(), CancellationToken.None);
+
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Info", entry.Level);
+        Assert.Equal("email.sent", entry.EventType);
+        Assert.Equal("abc-123", entry.Fields!["resendId"]);
+        Assert.True((long)entry.Fields["durationMs"]! >= 0);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenNotConfigured_LogsAnEmailFailedEvent_WithNoHttpRequest()
+    {
+        var (sender, http, _, easyNotifLog) = Build(new PluginConfiguration { ResendApiKey = null, FromEmail = "sender@example.com" });
+
+        await sender.SendAsync(Message(), CancellationToken.None);
+
+        Assert.Empty(http.Requests);
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Error", entry.Level);
+        Assert.Equal("email.failed", entry.EventType);
+    }
+
+    [Fact]
+    public async Task SendAsync_OnFailure_LogsAnEmailFailedEvent()
+    {
+        var (sender, http, _, easyNotifLog) = Build();
+        http.EnqueueJson(HttpStatusCode.Unauthorized, "{\"message\":\"bad key\"}");
+
+        await sender.SendAsync(Message(), CancellationToken.None);
+
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Error", entry.Level);
+        Assert.Equal("email.failed", entry.EventType);
+        Assert.Equal(401, entry.Fields!["httpStatus"]);
+    }
+
+    [Fact]
+    public async Task SendAsync_ThroughARealEasyNotifLog_MasksTheRecipientOnDisk()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "enotif-sender-log-tests-" + Guid.NewGuid());
+        var paths = new Moq.Mock<MediaBrowser.Common.Configuration.IApplicationPaths>();
+        paths.Setup(p => p.DataPath).Returns(tempDir);
+        var configManager = new Moq.Mock<MediaBrowser.Controller.Configuration.IServerConfigurationManager>();
+        configManager.Setup(c => c.Configuration).Returns(new MediaBrowser.Model.Configuration.ServerConfiguration());
+        using var realLog = new Jellyfin.Plugin.EasyNotif.Logging.EasyNotifLog(
+            paths.Object,
+            configManager.Object,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Jellyfin.Plugin.EasyNotif.Logging.EasyNotifLog>.Instance);
+
+        try
+        {
+            var http = new StubHttpMessageHandler();
+            http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"1\"}");
+            var limiter = new SendRateLimiter(TimeSpan.Zero, () => DateTimeOffset.UtcNow, (_, _) => Task.CompletedTask);
+            var sender = new ResendEmailSender(
+                http,
+                new FakeConfigAccessor(Config()),
+                limiter,
+                new CapturingLogger<ResendEmailSender>(),
+                realLog,
+                (_, _) => Task.CompletedTask);
+
+            await sender.SendAsync(Message(), CancellationToken.None);
+            realLog.Dispose();
+
+            var logFile = Directory.GetFiles(Path.Combine(tempDir, "Jellyfin.Plugin.EasyNotif", "logs"), "easynotif-*.log").Single();
+            var text = File.ReadAllText(logFile);
+            Assert.DoesNotContain("alice.recipient@example.org", text, StringComparison.Ordinal);
+            Assert.Contains("a***t@example.org", text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
     }
 }

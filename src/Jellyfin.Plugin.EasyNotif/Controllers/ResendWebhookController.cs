@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Webhooks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -26,16 +27,19 @@ public class ResendWebhookController : ControllerBase
     private readonly IConfigAccessor _config;
     private readonly ISendLog _sendLog;
     private readonly ILogger<ResendWebhookController> _logger;
+    private readonly IEasyNotifLog _easyNotifLog;
 
     /// <summary>Initializes a new instance of the <see cref="ResendWebhookController"/> class.</summary>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="logger">Logger.</param>
-    public ResendWebhookController(IConfigAccessor config, ISendLog sendLog, ILogger<ResendWebhookController> logger)
+    /// <param name="easyNotifLog">The plugin's dedicated log.</param>
+    public ResendWebhookController(IConfigAccessor config, ISendLog sendLog, ILogger<ResendWebhookController> logger, IEasyNotifLog easyNotifLog)
     {
         _config = config;
         _sendLog = sendLog;
         _logger = logger;
+        _easyNotifLog = easyNotifLog;
     }
 
     /// <summary>Handles one Resend webhook delivery.</summary>
@@ -81,13 +85,16 @@ public class ResendWebhookController : ControllerBase
             if (!string.IsNullOrEmpty(type) && !string.IsNullOrEmpty(emailId))
             {
                 var matched = _sendLog.UpdateStatus(emailId, type);
+                var fields = new Dictionary<string, object?> { ["type"] = type, ["resendId"] = emailId, ["matched"] = matched };
                 if (type is "email.bounced" or "email.complained")
                 {
                     _logger.LogWarning("[EasyNotif] Resend reported {Type} for a delivered message.", type);
+                    _easyNotifLog.Warn("webhook.received", fields);
                 }
                 else
                 {
                     _logger.LogInformation("[EasyNotif] Recorded Resend webhook {Type} (matched an existing send: {Matched}).", type, matched);
+                    _easyNotifLog.Info("webhook.received", fields);
                 }
             }
         }

@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,11 +21,15 @@ public sealed class QuotaGuardTests : IDisposable
 
     private string DataDir => Path.Combine(_tempDir, "Jellyfin.Plugin.EasyNotif");
 
+    /// <summary>Gets the <see cref="FakeEasyNotifLog"/> passed to the most recently built guard.</summary>
+    public FakeEasyNotifLog EasyNotifLog { get; private set; } = new();
+
     private QuotaGuard Build(ILogger<QuotaGuard>? logger = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
-        var guard = new QuotaGuard(paths.Object, new FileSystem(), logger ?? NullLogger<QuotaGuard>.Instance, () => _now);
+        EasyNotifLog = new FakeEasyNotifLog();
+        var guard = new QuotaGuard(paths.Object, new FileSystem(), logger ?? NullLogger<QuotaGuard>.Instance, EasyNotifLog, () => _now);
         _guards.Add(guard);
         return guard;
     }
@@ -98,9 +103,26 @@ public sealed class QuotaGuardTests : IDisposable
         }
 
         Assert.False(guard.Snapshot().Warn80);
+        Assert.Empty(EasyNotifLog.Entries);
 
         guard.RecordSend();
         Assert.True(guard.Snapshot().Warn80);
+        var entry = Assert.Single(EasyNotifLog.Entries);
+        Assert.Equal("Warn", entry.Level);
+        Assert.Equal("quota.threshold", entry.EventType);
+    }
+
+    [Fact]
+    public void RecordSend_BelowTheThreshold_NeverLogsAWarning()
+    {
+        var guard = Build();
+        for (var i = 0; i < 50; i++)
+        {
+            guard.RecordSend();
+        }
+
+        Assert.False(guard.Snapshot().Warn80);
+        Assert.Empty(EasyNotifLog.Entries);
     }
 
     [Fact]

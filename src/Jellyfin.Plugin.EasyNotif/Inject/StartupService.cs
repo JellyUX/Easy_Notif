@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -18,6 +19,7 @@ public sealed class StartupService : IHostedService
     private readonly ILogger<StartupService> _logger;
     private readonly IFileTransformationDetector _detector;
     private readonly IConfigAccessor _config;
+    private readonly IEasyNotifLog _easyNotifLog;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupService"/> class.
@@ -25,14 +27,17 @@ public sealed class StartupService : IHostedService
     /// <param name="logger">Logger.</param>
     /// <param name="detector">FileTransformation reflection bridge.</param>
     /// <param name="config">Plugin configuration accessor.</param>
+    /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     public StartupService(
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
-        IConfigAccessor config)
+        IConfigAccessor config,
+        IEasyNotifLog easyNotifLog)
     {
         _logger = logger;
         _detector = detector;
         _config = config;
+        _easyNotifLog = easyNotifLog;
     }
 
     /// <inheritdoc/>
@@ -45,6 +50,13 @@ public sealed class StartupService : IHostedService
             _logger.LogInformation("[EasyNotif] Generated the unsubscribe signing secret.");
         }
 
+        _easyNotifLog.Info("plugin.startup", new Dictionary<string, object?>
+        {
+            ["version"] = Plugin.Instance?.Version?.ToString() ?? "unknown",
+            ["publicServerUrlSet"] = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
+            ["timeZone"] = cfg.SchedulerTimeZone
+        });
+
         if (!_detector.IsAvailable())
         {
             const string Warning =
@@ -53,17 +65,23 @@ public sealed class StartupService : IHostedService
                 + "Jellyfin. The plugin's HTTP API still works.";
 
             _logger.LogError("[EasyNotif] {Warning}", Warning);
+            _easyNotifLog.Error("filetransformation.missing", new Dictionary<string, object?> { ["present"] = false });
             SetStartupWarning(Warning);
             return Task.CompletedTask;
         }
 
         SetStartupWarning(null);
         RegisterIndexHtmlTransformation();
+        _easyNotifLog.Info("filetransformation.detected", new Dictionary<string, object?> { ["present"] = true });
         return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _easyNotifLog.Info("plugin.shutdown");
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Fills <see cref="PluginConfiguration.UnsubscribeSecret"/> with a fresh 32-byte base64url

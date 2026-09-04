@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -48,19 +49,29 @@ public sealed class QuotaGuard : JsonFileStore<QuotaFile>, IQuotaGuard
     private static readonly TimeSpan Window = TimeSpan.FromDays(30);
 
     private readonly Func<DateTimeOffset> _now;
+    private readonly IEasyNotifLog _easyNotifLog;
 
     /// <summary>Initializes a new instance of the <see cref="QuotaGuard"/> class.</summary>
     /// <param name="applicationPaths">Provides the application data directory path.</param>
     /// <param name="fileSystem">File system abstraction.</param>
     /// <param name="logger">Logger.</param>
-    public QuotaGuard(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<QuotaGuard> logger)
-        : this(applicationPaths, fileSystem, logger, () => DateTimeOffset.UtcNow)
+    /// <param name="easyNotifLog">The plugin's dedicated log.</param>
+    public QuotaGuard(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<QuotaGuard> logger, IEasyNotifLog easyNotifLog)
+        : this(applicationPaths, fileSystem, logger, easyNotifLog, () => DateTimeOffset.UtcNow)
     {
     }
 
-    internal QuotaGuard(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<QuotaGuard> logger, Func<DateTimeOffset> now)
+    internal QuotaGuard(
+        IApplicationPaths applicationPaths,
+        IFileSystem fileSystem,
+        ILogger<QuotaGuard> logger,
+        IEasyNotifLog easyNotifLog,
+        Func<DateTimeOffset> now)
         : base(applicationPaths, fileSystem, logger, "quota.json")
-        => _now = now;
+    {
+        _easyNotifLog = easyNotifLog;
+        _now = now;
+    }
 
     /// <inheritdoc/>
     public void RecordSend()
@@ -73,6 +84,19 @@ public sealed class QuotaGuard : JsonFileStore<QuotaFile>, IQuotaGuard
             file.Sends.Add(nowMs);
             return true;
         });
+
+        var snapshot = Snapshot();
+        if (snapshot.Warn80)
+        {
+            _easyNotifLog.Warn("quota.threshold", new Dictionary<string, object?>
+            {
+                ["last30d"] = snapshot.Last30d,
+                ["dailyToday"] = snapshot.DailyToday,
+                ["monthlyLimit"] = snapshot.MonthlyLimit,
+                ["dailyLimit"] = snapshot.DailyLimit,
+                ["over"] = snapshot.Over
+            });
+        }
     }
 
     /// <inheritdoc/>

@@ -27,10 +27,10 @@ public sealed class ResendWebhookControllerTests
         return "v1," + Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{timestamp}.{body}")));
     }
 
-    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret)
+    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null)
     {
         var config = new FakeConfigAccessor(new PluginConfiguration { WebhookSigningSecret = secret });
-        return new ResendWebhookController(config, sendLog.Object, NullLogger<ResendWebhookController>.Instance)
+        return new ResendWebhookController(config, sendLog.Object, NullLogger<ResendWebhookController>.Instance, easyNotifLog ?? new FakeEasyNotifLog())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -141,5 +141,39 @@ public sealed class ResendWebhookControllerTests
         var result = await controller.Resend();
 
         Assert.IsType<OkResult>(result);
+    }
+
+    [Fact]
+    public async Task Resend_WithValidSignature_LogsAnInfoEvent()
+    {
+        var sendLog = new Mock<ISendLog>();
+        var easyNotifLog = new FakeEasyNotifLog();
+        var controller = Build(sendLog, easyNotifLog: easyNotifLog);
+        var ts = NowTimestamp();
+        const string Body = "{\"type\":\"email.delivered\",\"data\":{\"email_id\":\"re_abc\"}}";
+        SetRequest(controller, Body, "msg_1", ts, Sign("msg_1", ts, Body));
+
+        await controller.Resend();
+
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Info", entry.Level);
+        Assert.Equal("webhook.received", entry.EventType);
+    }
+
+    [Fact]
+    public async Task Resend_ForABounce_LogsAWarnEvent()
+    {
+        var sendLog = new Mock<ISendLog>();
+        var easyNotifLog = new FakeEasyNotifLog();
+        var controller = Build(sendLog, easyNotifLog: easyNotifLog);
+        var ts = NowTimestamp();
+        const string Body = "{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"re_abc\"}}";
+        SetRequest(controller, Body, "msg_1", ts, Sign("msg_1", ts, Body));
+
+        await controller.Resend();
+
+        var entry = Assert.Single(easyNotifLog.Entries);
+        Assert.Equal("Warn", entry.Level);
+        Assert.Equal("webhook.received", entry.EventType);
     }
 }

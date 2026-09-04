@@ -62,6 +62,14 @@ public interface IPreferenceService
     IReadOnlyList<Recipient> GetRecipients(EmailCategory category);
 
     /// <summary>
+    /// Returns every user with a valid contact address, ignoring category preferences. Used for
+    /// manual admin emails, which are not subject to opt-in (Synthese.md section 7.1).
+    /// </summary>
+    /// <param name="userIds">When given, restricts the result to these users; null means all.</param>
+    /// <returns>The contactable recipients.</returns>
+    IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null);
+
+    /// <summary>
     /// Returns one row per Jellyfin user for the admin table, including users who have never set a
     /// preference. Contact addresses are masked.
     /// </summary>

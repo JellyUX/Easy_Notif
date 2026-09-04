@@ -27,6 +27,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();
+        serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddHostedService<StartupService>();
     }

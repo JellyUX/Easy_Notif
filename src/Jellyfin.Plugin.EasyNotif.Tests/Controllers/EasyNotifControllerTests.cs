@@ -42,6 +42,7 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetSettings))]
     [InlineData(nameof(EasyNotifController.PutSettings))]
     [InlineData(nameof(EasyNotifController.GetStatus))]
+    [InlineData(nameof(EasyNotifController.SendManualEmail))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -382,6 +383,90 @@ public sealed class EasyNotifControllerTests
     }
 
     // -------------------------------------------------------------------------
+    // admin/send: manual email
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task SendManualEmail_WithNullBody_Returns400()
+    {
+        var result = await BuildController().SendManualEmail(null);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_WithBlankSubject_Returns400_AndDoesNotCallTheService()
+    {
+        var manual = new Mock<IManualEmailService>();
+        var controller = BuildController(manualEmail: manual);
+
+        var result = await controller.SendManualEmail(new ManualSendRequest { Subject = "  ", Text = "x" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        manual.Verify(m => m.SendAsync(It.IsAny<ManualEmailRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_WithUndecodableAttachment_Returns400()
+    {
+        var result = await BuildController().SendManualEmail(new ManualSendRequest
+        {
+            Subject = "Hi",
+            Text = "x",
+            Attachments = [new AttachmentDto { FileName = "a.bin", ContentBase64 = "not base64!!!" }]
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_OnSuccess_ReturnsTheSummary()
+    {
+        var manual = new Mock<IManualEmailService>();
+        manual.Setup(m => m.SendAsync(It.IsAny<ManualEmailRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ManualEmailResult(2, 0, 1, [new ManualSendDetail("a***e@example.org", "sent")]));
+        var controller = BuildController(manualEmail: manual);
+
+        var ok = Assert.IsType<OkObjectResult>(await controller.SendManualEmail(new ManualSendRequest
+        {
+            Subject = "Hi",
+            Text = "Body",
+            RecipientMode = "all"
+        }));
+        var json = JsonSerializer.Serialize(ok.Value);
+
+        Assert.Contains("\"sent\":2", json, StringComparison.Ordinal);
+        Assert.Contains("\"skippedNoEmail\":1", json, StringComparison.Ordinal);
+        Assert.Contains("a***e@example.org", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_WhenTheServiceRejectsTheRequest_Returns400()
+    {
+        var manual = new Mock<IManualEmailService>();
+        manual.Setup(m => m.SendAsync(It.IsAny<ManualEmailRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new ArgumentException("Select at least one user."));
+        var controller = BuildController(manualEmail: manual);
+
+        var result = await controller.SendManualEmail(new ManualSendRequest { Subject = "Hi", Text = "x", RecipientMode = "selected" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_WhenStorageFails_Returns503()
+    {
+        var manual = new Mock<IManualEmailService>();
+        manual.Setup(m => m.SendAsync(It.IsAny<ManualEmailRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("disk gone"));
+        var controller = BuildController(manualEmail: manual);
+
+        var result = await controller.SendManualEmail(new ManualSendRequest { Subject = "Hi", Text = "x" });
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<StatusCodeResult>(result).StatusCode);
+    }
+
+    // -------------------------------------------------------------------------
     // Wrap: storage/config failures map to 503
     // -------------------------------------------------------------------------
 
@@ -423,7 +508,8 @@ public sealed class EasyNotifControllerTests
         Mock<IAuthorizationContext>? auth = null,
         Mock<IEmailSender>? emailSender = null,
         Mock<IQuotaGuard>? quota = null,
-        Mock<ISendLog>? sendLog = null)
+        Mock<ISendLog>? sendLog = null,
+        Mock<IManualEmailService>? manualEmail = null)
     {
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
@@ -432,6 +518,7 @@ public sealed class EasyNotifControllerTests
             (emailSender ?? new Mock<IEmailSender>()).Object,
             (quota ?? new Mock<IQuotaGuard>()).Object,
             (sendLog ?? new Mock<ISendLog>()).Object,
+            (manualEmail ?? new Mock<IManualEmailService>()).Object,
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext
         {

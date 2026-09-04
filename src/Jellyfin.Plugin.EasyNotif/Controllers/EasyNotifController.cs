@@ -34,6 +34,7 @@ public class EasyNotifController : ControllerBase
     private readonly IEmailSender _emailSender;
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
+    private readonly IManualEmailService _manualEmail;
     private readonly ILogger<EasyNotifController> _logger;
 
     /// <summary>
@@ -45,6 +46,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="emailSender">The email transport.</param>
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
+    /// <param name="manualEmail">The manual admin email service.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
         IPreferenceService preferences,
@@ -53,6 +55,7 @@ public class EasyNotifController : ControllerBase
         IEmailSender emailSender,
         IQuotaGuard quota,
         ISendLog sendLog,
+        IManualEmailService manualEmail,
         ILogger<EasyNotifController> logger)
     {
         _preferences = preferences;
@@ -61,6 +64,7 @@ public class EasyNotifController : ControllerBase
         _emailSender = emailSender;
         _quota = quota;
         _sendLog = sendLog;
+        _manualEmail = manualEmail;
         _logger = logger;
     }
 
@@ -399,6 +403,73 @@ public class EasyNotifController : ControllerBase
         });
     });
 
+    /// <summary>
+    /// Sends a one-off manual email (plain text or HTML, with optional attachments) to all users
+    /// with a contact address, a chosen subset, or a single test address. Not subject to category
+    /// preferences. Administrators only.
+    /// </summary>
+    /// <param name="body">The composed email and its audience.</param>
+    /// <returns>200 with a per-recipient summary; 400 on an invalid request; 503 on a storage failure.</returns>
+    [HttpPost("admin/send")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> SendManualEmail([FromBody] ManualSendRequest? body)
+    {
+        if (body is null || string.IsNullOrWhiteSpace(body.Subject))
+        {
+            return BadRequest(new { error = "subject-required" });
+        }
+
+        List<EmailAttachment> attachments;
+        try
+        {
+            attachments = (body.Attachments ?? [])
+                .Select(a => new EmailAttachment
+                {
+                    FileName = string.IsNullOrWhiteSpace(a.FileName) ? "attachment" : a.FileName!,
+                    Content = Convert.FromBase64String(a.ContentBase64 ?? string.Empty),
+                    ContentType = Trimmed(a.ContentType)
+                })
+                .ToList();
+        }
+        catch (FormatException)
+        {
+            return BadRequest(new { error = "attachment-invalid" });
+        }
+
+        var request = new ManualEmailRequest(
+            body.Subject.Trim(),
+            body.Html,
+            body.Text,
+            Trimmed(body.RecipientMode) ?? "all",
+            body.RecipientUserIds,
+            Trimmed(body.TestAddress),
+            attachments.Count > 0 ? attachments : null);
+
+        try
+        {
+            var result = await _manualEmail.SendAsync(request, HttpContext.RequestAborted).ConfigureAwait(false);
+            return Ok(new
+            {
+                sent = result.Sent,
+                failed = result.Failed,
+                skippedNoEmail = result.SkippedNoEmail,
+                details = result.Details.Select(d => new { maskedTo = d.MaskedTo, status = d.Status })
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Static assets (embedded, anonymous)
     // -------------------------------------------------------------------------
@@ -527,6 +598,44 @@ public sealed class TestEmailRequest
 {
     /// <summary>Gets or sets the UI language for the test message (<c>"fr"</c> or <c>"en"</c>).</summary>
     public string? Lang { get; set; }
+}
+
+/// <summary>Request body for <c>POST /EasyNotif/admin/send</c>.</summary>
+public sealed class ManualSendRequest
+{
+    /// <summary>Gets or sets the subject line.</summary>
+    public string? Subject { get; set; }
+
+    /// <summary>Gets or sets the HTML body.</summary>
+    public string? Html { get; set; }
+
+    /// <summary>Gets or sets the plain-text body (generated from the HTML when absent).</summary>
+    public string? Text { get; set; }
+
+    /// <summary>Gets or sets the audience: <c>all</c>, <c>selected</c> or <c>test</c>.</summary>
+    public string? RecipientMode { get; set; }
+
+    /// <summary>Gets or sets the chosen user ids when the mode is <c>selected</c>.</summary>
+    public List<Guid>? RecipientUserIds { get; set; }
+
+    /// <summary>Gets or sets the single address when the mode is <c>test</c>.</summary>
+    public string? TestAddress { get; set; }
+
+    /// <summary>Gets or sets the attachments.</summary>
+    public List<AttachmentDto>? Attachments { get; set; }
+}
+
+/// <summary>One attachment on a manual email.</summary>
+public sealed class AttachmentDto
+{
+    /// <summary>Gets or sets the file name shown to the recipient.</summary>
+    public string? FileName { get; set; }
+
+    /// <summary>Gets or sets the base64-encoded file content.</summary>
+    public string? ContentBase64 { get; set; }
+
+    /// <summary>Gets or sets the MIME type, or null.</summary>
+    public string? ContentType { get; set; }
 }
 
 /// <summary>Request body for <c>PUT /EasyNotif/admin/settings</c>. A blank secret is ignored.</summary>

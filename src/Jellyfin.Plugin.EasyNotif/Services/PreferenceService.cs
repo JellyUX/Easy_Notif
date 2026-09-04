@@ -88,6 +88,13 @@ public sealed class PreferenceService : IPreferenceService
             .ToList();
 
     /// <inheritdoc/>
+    public IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null)
+        => _store.ReadAll()
+            .Where(p => (userIds is null || userIds.Contains(p.UserId)) && MailAddress.TryCreate(p.ContactEmail, out _))
+            .Select(p => new Recipient(p.UserId, p.ContactEmail!))
+            .ToList();
+
+    /// <inheritdoc/>
     public IReadOnlyList<AdminPreferenceRow> GetAllForAdmin()
     {
         var byId = _store.ReadAll().ToDictionary(p => p.UserId);

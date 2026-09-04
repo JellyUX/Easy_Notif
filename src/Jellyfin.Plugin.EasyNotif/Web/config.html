@@ -13,10 +13,17 @@
         .enotif-pref-table { width: 100%; border-collapse: collapse; }
         .enotif-pref-table th, .enotif-pref-table td { text-align: left; padding: 0.45em 0.6em; }
         .enotif-warn { color: var(--jf-palette-warning-main, #ffa726); font-weight: 600; }
+        #enotifManualResult.enotif-status-error { color: var(--jf-palette-error-main, #c62828); font-weight: 600; }
         .enotif-hint { font-weight: 600; }
         .enotif-status-block { margin-top: 2em; }
         .enotif-status-block table { width: 100%; border-collapse: collapse; margin-top: 0.6em; }
         .enotif-status-block th, .enotif-status-block td { text-align: left; padding: 0.35em 0.6em; }
+        .enotif-manual-body { width: 100%; min-height: 12em; font-family: monospace; }
+        .enotif-manual-preview { width: 100%; height: 16em; border: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12)); background: var(--jf-palette-background-paper, #ffffff); }
+        .enotif-manual-users { margin: 0.4em 0 0 0.4em; }
+        .enotif-radio-row { margin: 0.4em 0; }
+        .enotif-file-list { list-style: none; padding-left: 0; }
+        .enotif-file-list li { display: flex; gap: 0.6em; align-items: center; margin: 0.2em 0; }
     </style>
     <div class="content-primary">
 
@@ -32,6 +39,7 @@
 
         <div class="enotif-tabs">
             <button type="button" class="enotif-tab" data-tab="settings" data-i18n="tab.settings">Settings</button>
+            <button type="button" class="enotif-tab" data-tab="manual" data-i18n="manual.tab">Manual email</button>
             <button type="button" class="enotif-tab" data-tab="preferences" data-i18n="tab.preferences">User preferences</button>
         </div>
 
@@ -87,6 +95,49 @@
                 <h3 class="sectionTitle" data-i18n="status.title">Transport status</h3>
                 <div id="enotifStatusBody"></div>
             </div>
+        </div>
+
+        <div class="enotif-panel" data-panel="manual" hidden>
+            <p class="fieldDescription" data-i18n="manual.intro">
+                Write a one-off email. It is sent to every user with a contact address (or a chosen
+                subset), regardless of their category preferences.
+            </p>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enotifManualSubject" data-i18n="manual.subject">Subject</label>
+                <input is="emby-input" type="text" id="enotifManualSubject" />
+            </div>
+            <div class="enotif-radio-row">
+                <label><input type="radio" name="enotifManualMode" value="text" checked /> <span data-i18n="manual.mode.text">Plain text</span></label>
+                <label style="margin-left: 1em"><input type="radio" name="enotifManualMode" value="html" /> <span data-i18n="manual.mode.html">HTML</span></label>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enotifManualBody" data-i18n="manual.body">Body</label>
+                <textarea id="enotifManualBody" class="emby-textarea enotif-manual-body"></textarea>
+            </div>
+            <button is="emby-button" type="button" id="enotifManualPreviewBtn" class="raised" data-i18n="manual.preview">Refresh preview</button>
+            <iframe id="enotifManualPreview" class="enotif-manual-preview" sandbox="" referrerpolicy="no-referrer" title="preview"></iframe>
+
+            <div class="enotif-radio-row">
+                <label><input type="radio" name="enotifManualRcpt" value="all" checked /> <span data-i18n="manual.recipients.all">All users</span></label>
+                <label style="margin-left: 1em"><input type="radio" name="enotifManualRcpt" value="selected" /> <span data-i18n="manual.recipients.selected">Selected users</span></label>
+            </div>
+            <div id="enotifManualUsers" class="enotif-manual-users" hidden></div>
+
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enotifManualTestAddress" data-i18n="manual.testAddress">Test address</label>
+                <input is="emby-input" type="email" id="enotifManualTestAddress" autocomplete="off" />
+            </div>
+
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enotifManualFiles" data-i18n="manual.attachments">Attachments</label>
+                <input type="file" id="enotifManualFiles" multiple />
+                <div class="fieldDescription" data-i18n="manual.attachments.limit">Up to 10 MB total.</div>
+                <ul id="enotifManualFileList" class="enotif-file-list"></ul>
+            </div>
+
+            <button is="emby-button" type="button" id="enotifManualTestBtn" class="raised" data-i18n="manual.test">Send a test</button>
+            <button is="emby-button" type="button" id="enotifManualSendBtn" class="raised button-submit block" data-i18n="manual.send">Send</button>
+            <div id="enotifManualResult" class="fieldDescription" role="status"></div>
         </div>
 
         <div class="enotif-panel" data-panel="preferences" hidden>

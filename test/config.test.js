@@ -4,7 +4,11 @@ import enotifConfig from '../src/Jellyfin.Plugin.EasyNotif/Web/config.js';
 import enStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/en.json';
 import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
-const { _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, PLUGIN_ID } = enotifConfig;
+const {
+    _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus,
+    _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
+    PLUGIN_ID
+} = enotifConfig;
 
 describe('_escHtml', () => {
     it('escapes HTML special characters', () => {
@@ -157,6 +161,53 @@ describe('_buildStatus', () => {
 describe('string bundles', () => {
     it('en.json and fr.json have the same keys', () => {
         expect(Object.keys(frStrings).sort()).toEqual(Object.keys(enStrings).sort());
+    });
+});
+
+describe('manual email helpers', () => {
+    it('_manualBody maps mode to the right payload field', () => {
+        expect(_manualBody('html', '<p>x</p>')).toEqual({ html: '<p>x</p>' });
+        expect(_manualBody('text', 'hi')).toEqual({ text: 'hi' });
+    });
+
+    it('_manualRecipients returns all, or selected with ids', () => {
+        expect(_manualRecipients('all', ['a'])).toEqual({ recipientMode: 'all' });
+        expect(_manualRecipients('selected', ['a', 'b'])).toEqual({ recipientMode: 'selected', recipientUserIds: ['a', 'b'] });
+    });
+
+    it('_validateManual returns null for a valid form', () => {
+        expect(_validateManual({ subject: 'Hi', body: 'Body', mode: 'send', recipientMode: 'all', attachmentBytes: 0 })).toBeNull();
+    });
+
+    it('_validateManual flags each problem', () => {
+        expect(_validateManual({ subject: ' ', body: 'x', recipientMode: 'all' })).toBe('manual.error.subject');
+        expect(_validateManual({ subject: 'Hi', body: '', recipientMode: 'all' })).toBe('manual.error.body');
+        expect(_validateManual({ subject: 'Hi', body: 'x', recipientMode: 'selected', checkedIds: [] })).toBe('manual.error.recipients');
+        expect(_validateManual({ subject: 'Hi', body: 'x', mode: 'test', testAddress: 'nope' })).toBe('manual.error.testAddress');
+        expect(_validateManual({ subject: 'Hi', body: 'x', mode: 'test', testAddress: 'a@b.co' })).toBeNull();
+        expect(_validateManual({ subject: 'Hi', body: 'x', recipientMode: 'all', attachmentBytes: 11 * 1024 * 1024 })).toBe('manual.error.attachmentSize');
+    });
+
+    it('_previewSrcdoc passes HTML through and escapes text mode', () => {
+        expect(_previewSrcdoc('html', '<h1>Hi</h1>')).toBe('<h1>Hi</h1>');
+        const text = _previewSrcdoc('text', '<script>alert(1)</script>');
+        expect(text).not.toContain('<script>');
+        expect(text).toContain('&lt;script&gt;');
+    });
+
+    it('_manualResult renders a hostile maskedTo as text, not markup', () => {
+        const el = _manualResult(enStrings, {
+            sent: 1, failed: 0, skippedNoEmail: 0,
+            details: [{ maskedTo: '<img src=x onerror=alert(1)>', status: 'sent' }]
+        });
+        expect(el.innerHTML).not.toContain('<img');
+        expect(el.textContent).toContain('<img src=x onerror=alert(1)>');
+    });
+
+    it('_fmtBytes is human readable', () => {
+        expect(_fmtBytes(512)).toBe('512 B');
+        expect(_fmtBytes(2048)).toBe('2.0 KB');
+        expect(_fmtBytes(3 * 1024 * 1024)).toBe('3.0 MB');
     });
 });
 

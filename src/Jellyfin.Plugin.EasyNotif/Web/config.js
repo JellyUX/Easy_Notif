@@ -130,6 +130,79 @@
         return root;
     }
 
+    // ---- Manual email tab (pure helpers) ------------------------------------
+
+    var MANUAL_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+    function _manualBody(mode, value) {
+        return mode === 'html' ? { html: value } : { text: value };
+    }
+
+    function _manualRecipients(mode, checkedIds) {
+        return mode === 'selected'
+            ? { recipientMode: 'selected', recipientUserIds: checkedIds }
+            : { recipientMode: 'all' };
+    }
+
+    function _validEmail(value) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+    }
+
+    // Returns an error key, or null when the form is ready to send.
+    function _validateManual(state) {
+        if (!String(state.subject || '').trim()) {
+            return 'manual.error.subject';
+        }
+        if (!String(state.body || '').trim()) {
+            return 'manual.error.body';
+        }
+        if (state.mode === 'test') {
+            if (!_validEmail(state.testAddress)) {
+                return 'manual.error.testAddress';
+            }
+        } else if (state.recipientMode === 'selected' && (!state.checkedIds || state.checkedIds.length === 0)) {
+            return 'manual.error.recipients';
+        }
+        if ((state.attachmentBytes || 0) > MANUAL_MAX_ATTACHMENT_BYTES) {
+            return 'manual.error.attachmentSize';
+        }
+        return null;
+    }
+
+    // Content for the sandboxed <iframe srcdoc>. HTML mode passes through (the iframe has an empty
+    // sandbox, so scripts never run); text mode is escaped inside a <pre>.
+    function _previewSrcdoc(mode, value) {
+        return mode === 'html'
+            ? String(value || '')
+            : '<pre style="white-space:pre-wrap;font-family:inherit">' + _escHtml(value) + '</pre>';
+    }
+
+    function _fmtBytes(n) {
+        if (n < 1024) { return n + ' B'; }
+        if (n < 1024 * 1024) { return (n / 1024).toFixed(1) + ' KB'; }
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // Detached DOM for the send result. textContent only.
+    function _manualResult(dict, summary) {
+        var root = document.createElement('div');
+        if (!summary) { return root; }
+
+        var line = document.createElement('p');
+        line.textContent = _t(dict, 'manual.result.summary')
+            .replace('{sent}', summary.sent != null ? summary.sent : 0)
+            .replace('{failed}', summary.failed != null ? summary.failed : 0)
+            .replace('{skipped}', summary.skippedNoEmail != null ? summary.skippedNoEmail : 0);
+        root.appendChild(line);
+
+        (summary.details || []).forEach(function (d) {
+            var item = document.createElement('div');
+            item.textContent = (d.maskedTo || '') + ' - ' + (d.status || '');
+            root.appendChild(item);
+        });
+        return root;
+    }
+
     var api = {
         _escHtml: _escHtml,
         _pickLang: _pickLang,
@@ -137,6 +210,12 @@
         _secretHint: _secretHint,
         _buildPrefRow: _buildPrefRow,
         _buildStatus: _buildStatus,
+        _manualBody: _manualBody,
+        _manualRecipients: _manualRecipients,
+        _validateManual: _validateManual,
+        _previewSrcdoc: _previewSrcdoc,
+        _fmtBytes: _fmtBytes,
+        _manualResult: _manualResult,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -247,6 +326,179 @@
         });
     }
 
+    // ---- Manual email tab (browser) ---------------------------------------
+
+    var manualFiles = [];
+
+    function _postJson(path, body) {
+        return window.ApiClient.ajax({
+            type: 'POST',
+            url: _url(path),
+            data: JSON.stringify(body),
+            contentType: 'application/json',
+            dataType: 'json'
+        });
+    }
+
+    function _manualMode() {
+        var checked = document.querySelector('input[name="enotifManualMode"]:checked');
+        return checked ? checked.value : 'text';
+    }
+
+    function _manualRcptMode() {
+        var checked = document.querySelector('input[name="enotifManualRcpt"]:checked');
+        return checked ? checked.value : 'all';
+    }
+
+    function _manualCheckedIds() {
+        return Array.prototype.map.call(
+            document.querySelectorAll('#enotifManualUsers input[type="checkbox"]:checked'),
+            function (b) { return b.getAttribute('data-user-id'); });
+    }
+
+    function _loadManualUsers() {
+        return window.ApiClient.getJSON(_url('admin/preferences')).then(function (rows) {
+            var host = _el('enotifManualUsers');
+            host.innerHTML = '';
+            (rows || []).forEach(function (r) {
+                var label = document.createElement('label');
+                label.className = 'checkboxContainer';
+                var box = document.createElement('input');
+                box.type = 'checkbox';
+                box.setAttribute('data-user-id', r.userId);
+                box.disabled = !r.hasEmail;
+                var text = document.createElement('span');
+                text.textContent = r.userName + (r.hasEmail ? '' : ' (' + _t(dict, 'manual.recipients.noEmail') + ')');
+                label.appendChild(box);
+                label.appendChild(text);
+                host.appendChild(label);
+            });
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load users:', err);
+        });
+    }
+
+    function _readAttachments(fileList) {
+        return Promise.all(Array.prototype.map.call(fileList, function (file) {
+            return new Promise(function (resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function () {
+                    var result = String(reader.result || '');
+                    var comma = result.indexOf(',');
+                    resolve({
+                        fileName: file.name,
+                        contentBase64: comma >= 0 ? result.slice(comma + 1) : result,
+                        contentType: file.type || null,
+                        size: file.size
+                    });
+                };
+                reader.onerror = function () { reject(reader.error); };
+                reader.readAsDataURL(file);
+            });
+        }));
+    }
+
+    function _renderFileList() {
+        var host = _el('enotifManualFileList');
+        host.innerHTML = '';
+        manualFiles.forEach(function (f, i) {
+            var li = document.createElement('li');
+            var name = document.createElement('span');
+            name.textContent = f.fileName + ' (' + _fmtBytes(f.size) + ')';
+            var remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'raised';
+            remove.textContent = _t(dict, 'manual.attachments.remove');
+            remove.addEventListener('click', function () {
+                manualFiles.splice(i, 1);
+                _renderFileList();
+            });
+            li.appendChild(name);
+            li.appendChild(remove);
+            host.appendChild(li);
+        });
+    }
+
+    function _refreshManualPreview() {
+        _el('enotifManualPreview').srcdoc = _previewSrcdoc(_manualMode(), _el('enotifManualBody').value);
+    }
+
+    function _setManualResult(text, isError) {
+        var result = _el('enotifManualResult');
+        result.innerHTML = '';
+        result.textContent = text;
+        result.classList.toggle('enotif-status-error', !!isError);
+    }
+
+    function _sendManual(isTest) {
+        var mode = _manualMode();
+        var rcptMode = isTest ? 'test' : _manualRcptMode();
+        var state = {
+            subject: _el('enotifManualSubject').value,
+            body: _el('enotifManualBody').value,
+            mode: isTest ? 'test' : mode,
+            recipientMode: rcptMode,
+            checkedIds: _manualCheckedIds(),
+            testAddress: _el('enotifManualTestAddress').value,
+            attachmentBytes: manualFiles.reduce(function (sum, f) { return sum + f.size; }, 0)
+        };
+
+        var error = _validateManual(state);
+        if (error) {
+            _setManualResult(_t(dict, error), true);
+            return;
+        }
+
+        var payload = { subject: state.subject };
+        var bodyPart = _manualBody(mode, state.body);
+        payload.html = bodyPart.html || null;
+        payload.text = bodyPart.text || null;
+        payload.attachments = manualFiles.map(function (f) {
+            return { fileName: f.fileName, contentBase64: f.contentBase64, contentType: f.contentType };
+        });
+
+        if (isTest) {
+            payload.recipientMode = 'test';
+            payload.testAddress = state.testAddress;
+        } else {
+            var rcpt = _manualRecipients(rcptMode, state.checkedIds);
+            payload.recipientMode = rcpt.recipientMode;
+            payload.recipientUserIds = rcpt.recipientUserIds || null;
+        }
+
+        _setManualResult(_t(dict, 'manual.sending'), false);
+        window.Dashboard.showLoadingMsg();
+        _postJson('admin/send', payload).then(function (summary) {
+            var result = _el('enotifManualResult');
+            result.innerHTML = '';
+            result.classList.remove('enotif-status-error');
+            result.appendChild(_manualResult(dict, summary));
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] manual send failed:', err);
+            _setManualResult(_t(dict, 'manual.error.send'), true);
+        }).then(function () {
+            window.Dashboard.hideLoadingMsg();
+        });
+    }
+
+    function _bindManual() {
+        _el('enotifManualPreviewBtn').addEventListener('click', _refreshManualPreview);
+        _el('enotifManualTestBtn').addEventListener('click', function () { _sendManual(true); });
+        _el('enotifManualSendBtn').addEventListener('click', function () { _sendManual(false); });
+        document.querySelectorAll('input[name="enotifManualRcpt"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                _el('enotifManualUsers').hidden = _manualRcptMode() !== 'selected';
+            });
+        });
+        _el('enotifManualFiles').addEventListener('change', function (e) {
+            _readAttachments(e.target.files).then(function (files) {
+                manualFiles = manualFiles.concat(files);
+                e.target.value = '';
+                _renderFileList();
+            });
+        });
+    }
+
     function _onCatToggle(e) {
         var box = e.target;
         if (!box.classList || !box.classList.contains('enotif-cat')) {
@@ -279,6 +531,14 @@
                 _applyStrings(page);
                 _loadSettings().then(_loadStatus);
                 _loadPrefs();
+                _loadManualUsers().then(function () {
+                    var addr = _el('enotifManualTestAddress');
+                    if (!addr.value) {
+                        window.ApiClient.getJSON(_url('me/contact-email'))
+                            .then(function (r) { if (r && r.email) { addr.value = r.email; } })
+                            .catch(function () { /* optional */ });
+                    }
+                });
             });
     }
 
@@ -293,6 +553,7 @@
         });
         _el('enotifSettingsForm').addEventListener('submit', _saveSettings);
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
+        _bindManual();
         _selectTab('settings');
     }
 

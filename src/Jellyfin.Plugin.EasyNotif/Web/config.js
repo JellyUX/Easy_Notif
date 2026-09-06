@@ -215,6 +215,71 @@
         return (lines || []).filter(function (line) { return line.indexOf(marker) !== -1; });
     }
 
+    // ---- Campaigns tab (pure helpers) ------------------------------------
+
+    var SCHEDULE_KINDS = ['daily', 'weekly', 'monthly', 'everyNDays'];
+    var DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    // Which conditional inputs a recurrence kind needs, on top of the always-present time field.
+    function _scheduleFieldsForKind(kind) {
+        if (kind === 'weekly') { return ['time', 'dayOfWeek']; }
+        if (kind === 'monthly') { return ['time', 'dayOfMonth']; }
+        if (kind === 'everyNDays') { return ['time', 'intervalDays']; }
+        return ['time'];
+    }
+
+    function _validTime(value) {
+        return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ''));
+    }
+
+    // Returns an error key, or null when the schedule form is valid.
+    function _validateSchedule(state) {
+        if (!_validTime(state.time)) {
+            return 'campaigns.error.time';
+        }
+        if (state.kind === 'weekly' && DOW.indexOf(state.dayOfWeek) === -1) {
+            return 'campaigns.error.dayOfWeek';
+        }
+        if (state.kind === 'monthly' && !(state.dayOfMonth >= 1 && state.dayOfMonth <= 31)) {
+            return 'campaigns.error.dayOfMonth';
+        }
+        if (state.kind === 'everyNDays' && !(state.intervalDays >= 1)) {
+            return 'campaigns.error.intervalDays';
+        }
+        return null;
+    }
+
+    // The { kind, time, ... } payload for PUT /admin/campaigns/{id}, keyed to the chosen kind only.
+    function _scheduleFromForm(state) {
+        var out = { kind: state.kind, time: state.time };
+        if (state.kind === 'weekly') { out.dayOfWeek = state.dayOfWeek; }
+        if (state.kind === 'monthly') { out.dayOfMonth = state.dayOfMonth; }
+        if (state.kind === 'everyNDays') { out.intervalDays = state.intervalDays; }
+        return out;
+    }
+
+    // Human-readable one-liner for a schedule object from GET /admin/campaigns.
+    function _fmtSchedule(dict, schedule) {
+        if (!schedule) { return ''; }
+        var time = schedule.time || '';
+        if (schedule.kind === 'Weekly') {
+            return _t(dict, 'campaigns.fmt.weekly')
+                .replace('{day}', _t(dict, 'campaigns.dow.' + String(schedule.dayOfWeek || '').toLowerCase()))
+                .replace('{time}', time);
+        }
+        if (schedule.kind === 'Monthly') {
+            return _t(dict, 'campaigns.fmt.monthly').replace('{day}', schedule.dayOfMonth).replace('{time}', time);
+        }
+        if (schedule.kind === 'EveryNDays') {
+            return _t(dict, 'campaigns.fmt.everyNDays').replace('{n}', schedule.intervalDays).replace('{time}', time);
+        }
+        return _t(dict, 'campaigns.fmt.daily').replace('{time}', time);
+    }
+
+    function _fmtDateTime(value) {
+        return value ? String(value).slice(0, 16).replace('T', ' ') : null;
+    }
+
     var api = {
         _escHtml: _escHtml,
         _pickLang: _pickLang,
@@ -229,6 +294,11 @@
         _fmtBytes: _fmtBytes,
         _manualResult: _manualResult,
         _filterLogLines: _filterLogLines,
+        _scheduleFieldsForKind: _scheduleFieldsForKind,
+        _validateSchedule: _validateSchedule,
+        _scheduleFromForm: _scheduleFromForm,
+        _fmtSchedule: _fmtSchedule,
+        _fmtDateTime: _fmtDateTime,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -535,6 +605,197 @@
         _el('enotifLogLevel').addEventListener('change', _renderLogView);
     }
 
+    // ---- Campaigns tab (browser) -----------------------------------------
+
+    function _campaignFormState(root) {
+        return {
+            kind: root.querySelector('.enotif-campaign-kind').value,
+            time: root.querySelector('.enotif-campaign-time').value,
+            dayOfWeek: root.querySelector('.enotif-campaign-dow').value,
+            dayOfMonth: parseInt(root.querySelector('.enotif-campaign-dom').value, 10),
+            intervalDays: parseInt(root.querySelector('.enotif-campaign-interval').value, 10)
+        };
+    }
+
+    function _applyKindVisibility(root) {
+        var fields = _scheduleFieldsForKind(root.querySelector('.enotif-campaign-kind').value);
+        root.querySelector('.enotif-campaign-dow-row').hidden = fields.indexOf('dayOfWeek') === -1;
+        root.querySelector('.enotif-campaign-dom-row').hidden = fields.indexOf('dayOfMonth') === -1;
+        root.querySelector('.enotif-campaign-interval-row').hidden = fields.indexOf('intervalDays') === -1;
+    }
+
+    function _labeledRow(cls, labelKey, control) {
+        var row = document.createElement('div');
+        row.className = 'enotif-campaign-row ' + cls;
+        var label = document.createElement('label');
+        label.setAttribute('data-i18n', labelKey);
+        label.textContent = _t(dict, labelKey);
+        row.appendChild(label);
+        row.appendChild(control);
+        return row;
+    }
+
+    function _select(cls, options) {
+        var sel = document.createElement('select');
+        sel.className = 'emby-select ' + cls;
+        options.forEach(function (o) {
+            var opt = document.createElement('option');
+            opt.value = o.value;
+            opt.textContent = o.label;
+            sel.appendChild(opt);
+        });
+        return sel;
+    }
+
+    function _numberInput(cls, min, max) {
+        var input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'emby-input ' + cls;
+        input.min = String(min);
+        if (max != null) { input.max = String(max); }
+        return input;
+    }
+
+    function _buildCampaignCard(campaign) {
+        var root = document.createElement('div');
+        root.className = 'enotif-campaign';
+        root.setAttribute('data-campaign-id', campaign.id);
+
+        var title = document.createElement('h3');
+        title.className = 'enotif-campaign-title';
+        title.textContent = _t(dict, 'campaigns.name.' + campaign.id);
+        root.appendChild(title);
+
+        var enabled = document.createElement('input');
+        enabled.type = 'checkbox';
+        enabled.className = 'enotif-campaign-enabled';
+        enabled.checked = !!campaign.enabled;
+        root.appendChild(_labeledRow('', 'campaigns.enabled', enabled));
+
+        var lang = _select('enotif-campaign-lang', [{ value: 'fr', label: 'Francais' }, { value: 'en', label: 'English' }]);
+        lang.value = campaign.mailLanguage || 'fr';
+        root.appendChild(_labeledRow('', 'campaigns.language', lang));
+
+        var kind = _select('enotif-campaign-kind', SCHEDULE_KINDS.map(function (k) {
+            return { value: k, label: _t(dict, 'campaigns.kind.' + k) };
+        }));
+        var kindName = String(campaign.schedule.kind || 'Daily');
+        kind.value = kindName.charAt(0).toLowerCase() + kindName.slice(1);
+        root.appendChild(_labeledRow('', 'campaigns.recurrence', kind));
+
+        var time = document.createElement('input');
+        time.type = 'time';
+        time.className = 'emby-input enotif-campaign-time';
+        time.value = campaign.schedule.time || '09:00';
+        root.appendChild(_labeledRow('', 'campaigns.time', time));
+
+        var dow = _select('enotif-campaign-dow', DOW.map(function (d) {
+            return { value: d, label: _t(dict, 'campaigns.dow.' + d.toLowerCase()) };
+        }));
+        dow.value = campaign.schedule.dayOfWeek || 'Monday';
+        root.appendChild(_labeledRow('enotif-campaign-dow-row', 'campaigns.dayOfWeek', dow));
+
+        var dom = _numberInput('enotif-campaign-dom', 1, 31);
+        dom.value = String(campaign.schedule.dayOfMonth || 1);
+        root.appendChild(_labeledRow('enotif-campaign-dom-row', 'campaigns.dayOfMonth', dom));
+
+        var interval = _numberInput('enotif-campaign-interval', 1, null);
+        interval.value = String(campaign.schedule.intervalDays || 1);
+        root.appendChild(_labeledRow('enotif-campaign-interval-row', 'campaigns.intervalDays', interval));
+
+        var meta = document.createElement('div');
+        meta.className = 'enotif-campaign-meta';
+        meta.textContent = _t(dict, 'campaigns.lastRun').replace('{value}', _fmtDateTime(campaign.lastSentUtc) || _t(dict, 'campaigns.never'))
+            + '  |  '
+            + _t(dict, 'campaigns.nextRun').replace('{value}', _fmtDateTime(campaign.nextRunUtc) || _t(dict, 'campaigns.never'));
+        root.appendChild(meta);
+
+        var actions = document.createElement('div');
+        actions.className = 'enotif-campaign-row';
+        var save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'raised button-submit enotif-campaign-save';
+        save.textContent = _t(dict, 'campaigns.save');
+        var run = document.createElement('button');
+        run.type = 'button';
+        run.className = 'raised enotif-campaign-run';
+        run.textContent = _t(dict, 'campaigns.run');
+        actions.appendChild(save);
+        actions.appendChild(run);
+        root.appendChild(actions);
+
+        var result = document.createElement('div');
+        result.className = 'enotif-campaign-result';
+        result.setAttribute('role', 'status');
+        root.appendChild(result);
+
+        kind.addEventListener('change', function () { _applyKindVisibility(root); });
+        save.addEventListener('click', function () { _saveCampaign(campaign.id, root); });
+        run.addEventListener('click', function () { _runCampaign(campaign.id, root); });
+        _applyKindVisibility(root);
+        return root;
+    }
+
+    function _loadCampaigns() {
+        return window.ApiClient.getJSON(_url('admin/campaigns')).then(function (campaigns) {
+            var host = _el('enotifCampaignList');
+            host.innerHTML = '';
+            (campaigns || []).forEach(function (c) { host.appendChild(_buildCampaignCard(c)); });
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load campaigns:', err);
+        });
+    }
+
+    function _saveCampaign(id, root) {
+        var state = _campaignFormState(root);
+        var error = _validateSchedule(state);
+        var result = root.querySelector('.enotif-campaign-result');
+        if (error) {
+            result.classList.add('enotif-status-error');
+            result.textContent = _t(dict, error);
+            return;
+        }
+
+        var body = {
+            enabled: root.querySelector('.enotif-campaign-enabled').checked,
+            mailLanguage: root.querySelector('.enotif-campaign-lang').value,
+            schedule: _scheduleFromForm(state)
+        };
+
+        window.Dashboard.showLoadingMsg();
+        _putJson('admin/campaigns/' + id, body).then(function () {
+            result.classList.remove('enotif-status-error');
+            result.textContent = _t(dict, 'campaigns.saved');
+            return _loadCampaigns();
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not save a campaign:', err);
+            result.classList.add('enotif-status-error');
+            result.textContent = _t(dict, 'common.saveError');
+        }).then(function () {
+            window.Dashboard.hideLoadingMsg();
+        });
+    }
+
+    function _runCampaign(id, root) {
+        var result = root.querySelector('.enotif-campaign-result');
+        result.classList.remove('enotif-status-error');
+        result.textContent = _t(dict, 'manual.sending');
+        window.Dashboard.showLoadingMsg();
+        _postJson('admin/campaigns/' + id + '/run', {}).then(function (summary) {
+            result.textContent = _t(dict, 'campaigns.runResult')
+                .replace('{sent}', summary.sent != null ? summary.sent : 0)
+                .replace('{failed}', summary.failed != null ? summary.failed : 0)
+                .replace('{skipped}', summary.skippedNoEmail != null ? summary.skippedNoEmail : 0);
+            return _loadCampaigns();
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not run a campaign:', err);
+            result.classList.add('enotif-status-error');
+            result.textContent = _t(dict, 'manual.error.send');
+        }).then(function () {
+            window.Dashboard.hideLoadingMsg();
+        });
+    }
+
     function _onCatToggle(e) {
         var box = e.target;
         if (!box.classList || !box.classList.contains('enotif-cat')) {
@@ -568,6 +829,7 @@
                 _loadSettings().then(_loadStatus);
                 _loadPrefs();
                 _loadLogs();
+                _loadCampaigns();
                 _loadManualUsers().then(function () {
                     var addr = _el('enotifManualTestAddress');
                     if (!addr.value) {

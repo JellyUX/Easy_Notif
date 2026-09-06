@@ -8,6 +8,7 @@ const {
     _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus,
     _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
     _filterLogLines,
+    _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -234,6 +235,46 @@ describe('_filterLogLines', () => {
     it('handles an empty or missing line list', () => {
         expect(_filterLogLines([], 'error')).toEqual([]);
         expect(_filterLogLines(undefined, 'all')).toEqual([]);
+    });
+});
+
+describe('campaign schedule helpers', () => {
+    it('_scheduleFieldsForKind returns the conditional fields per kind', () => {
+        expect(_scheduleFieldsForKind('daily')).toEqual(['time']);
+        expect(_scheduleFieldsForKind('weekly')).toEqual(['time', 'dayOfWeek']);
+        expect(_scheduleFieldsForKind('monthly')).toEqual(['time', 'dayOfMonth']);
+        expect(_scheduleFieldsForKind('everyNDays')).toEqual(['time', 'intervalDays']);
+    });
+
+    it('_validateSchedule flags each branch and passes a valid form', () => {
+        expect(_validateSchedule({ kind: 'daily', time: '9:00' })).toBe('campaigns.error.time');
+        expect(_validateSchedule({ kind: 'daily', time: '09:00' })).toBeNull();
+        expect(_validateSchedule({ kind: 'weekly', time: '09:00', dayOfWeek: 'Funday' })).toBe('campaigns.error.dayOfWeek');
+        expect(_validateSchedule({ kind: 'weekly', time: '09:00', dayOfWeek: 'Friday' })).toBeNull();
+        expect(_validateSchedule({ kind: 'monthly', time: '09:00', dayOfMonth: 0 })).toBe('campaigns.error.dayOfMonth');
+        expect(_validateSchedule({ kind: 'monthly', time: '09:00', dayOfMonth: 15 })).toBeNull();
+        expect(_validateSchedule({ kind: 'everyNDays', time: '09:00', intervalDays: 0 })).toBe('campaigns.error.intervalDays');
+        expect(_validateSchedule({ kind: 'everyNDays', time: '09:00', intervalDays: 3 })).toBeNull();
+    });
+
+    it('_scheduleFromForm only carries the fields the kind needs', () => {
+        expect(_scheduleFromForm({ kind: 'weekly', time: '09:00', dayOfWeek: 'Friday', dayOfMonth: 5 }))
+            .toEqual({ kind: 'weekly', time: '09:00', dayOfWeek: 'Friday' });
+        expect(_scheduleFromForm({ kind: 'daily', time: '08:00', dayOfWeek: 'Friday' }))
+            .toEqual({ kind: 'daily', time: '08:00' });
+    });
+
+    it('_fmtSchedule builds a readable label and tolerates a partial dict', () => {
+        expect(_fmtSchedule(enStrings, { kind: 'Weekly', dayOfWeek: 'Friday', time: '09:00' }))
+            .toBe('Every Friday at 09:00');
+        expect(_fmtSchedule(enStrings, { kind: 'EveryNDays', intervalDays: 3, time: '08:00' }))
+            .toBe('Every 3 days at 08:00');
+        expect(() => _fmtSchedule({}, { kind: 'Daily', time: '07:00' })).not.toThrow();
+    });
+
+    it('_fmtDateTime formats or returns null', () => {
+        expect(_fmtDateTime('2026-09-06T14:30:00Z')).toBe('2026-09-06 14:30');
+        expect(_fmtDateTime(null)).toBeNull();
     });
 });
 

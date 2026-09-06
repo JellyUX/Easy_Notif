@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.7.0.0",
+                "changelog": "### Features\n\n* add the new-media digest service ([a262811](https://github.com/JellyUX/Easy_Notif/commit/a262811f9f8ffbbe40b87976e413dde65f390eb4))\n* add the templating engine and the newsletter template ([d9de1b9](https://github.com/JellyUX/Easy_Notif/commit/d9de1b93b6c1e1bf9ca23f56c6aea74049db5fac))\n* track new media by server add-time via the ItemAdded event ([00fa82e](https://github.com/JellyUX/Easy_Notif/commit/00fa82e4add13736cc9db56d080f2ede8f897b5c))\n* wire the newsletter campaign and its preview ([2a55e4c](https://github.com/JellyUX/Easy_Notif/commit/2a55e4c7c361cde7837517265aa4a1b31cda6706))\n\n### Bug Fixes\n\n* key idempotency by the scheduled slot, preview a fresh 7-day window ([3642468](https://github.com/JellyUX/Easy_Notif/commit/3642468ae46cc3e91cb0f944f763e598d04bf5e5))\n* treat a 409 idempotency conflict as a deduplicated send ([850a7e9](https://github.com/JellyUX/Easy_Notif/commit/850a7e9e7560ecb7499b4a4ae40c2d25925f9ea7))\n* window the newsletter digest by DateCreated in memory ([ac769cf](https://github.com/JellyUX/Easy_Notif/commit/ac769cf8329de8c0f163710b5a455d4c53e9a371))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.7.0/easy-notif_0.7.0.0.zip",
+                "checksum": "0f2f32c6836db2617420035d915f35a9",
+                "timestamp": "2026-09-06T20:27:00Z"
+            },
+            {
                 "version": "0.6.0.0",
                 "changelog": "### Features\n\n* add the campaign store with the two system campaigns ([ec851e8](https://github.com/JellyUX/Easy_Notif/commit/ec851e8a515753587dbfa17569b41f5b6a7ab3e5))\n* add the campaigns config tab ([6f7df1b](https://github.com/JellyUX/Easy_Notif/commit/6f7df1b67bf996d82d7f5115e798268ea7bab550))\n* add the dispatch service and its scheduled task ([20e793a](https://github.com/JellyUX/Easy_Notif/commit/20e793a6048474a894d230e02a567762dd36f4d6))\n* add the recurrence schedule value object ([91eada4](https://github.com/JellyUX/Easy_Notif/commit/91eada4af4cfd5db5c874cbb24f887d2f3f1c7e9))\n\n### Bug Fixes\n\n* make the campaign enabled toggle reliably clickable ([eb5bbac](https://github.com/JellyUX/Easy_Notif/commit/eb5bbac758e4f7c22f44fa044cd6d5e426a31660))\n* show campaign run times in the configured time zone ([2034183](https://github.com/JellyUX/Easy_Notif/commit/2034183f548c8d1efa630f1dd89fe63c7dabe91f))",
                 "targetAbi": "10.11.10.0",

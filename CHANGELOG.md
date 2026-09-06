@@ -1,3 +1,18 @@
+## [0.7.0](https://github.com/JellyUX/Easy_Notif/compare/v0.6.0...v0.7.0) (2026-09-06)
+
+### Features
+
+* add the new-media digest service ([a262811](https://github.com/JellyUX/Easy_Notif/commit/a262811f9f8ffbbe40b87976e413dde65f390eb4))
+* add the templating engine and the newsletter template ([d9de1b9](https://github.com/JellyUX/Easy_Notif/commit/d9de1b93b6c1e1bf9ca23f56c6aea74049db5fac))
+* track new media by server add-time via the ItemAdded event ([00fa82e](https://github.com/JellyUX/Easy_Notif/commit/00fa82e4add13736cc9db56d080f2ede8f897b5c))
+* wire the newsletter campaign and its preview ([2a55e4c](https://github.com/JellyUX/Easy_Notif/commit/2a55e4c7c361cde7837517265aa4a1b31cda6706))
+
+### Bug Fixes
+
+* key idempotency by the scheduled slot, preview a fresh 7-day window ([3642468](https://github.com/JellyUX/Easy_Notif/commit/3642468ae46cc3e91cb0f944f763e598d04bf5e5))
+* treat a 409 idempotency conflict as a deduplicated send ([850a7e9](https://github.com/JellyUX/Easy_Notif/commit/850a7e9e7560ecb7499b4a4ae40c2d25925f9ea7))
+* window the newsletter digest by DateCreated in memory ([ac769cf](https://github.com/JellyUX/Easy_Notif/commit/ac769cf8329de8c0f163710b5a455d4c53e9a371))
+
 ## [0.6.0](https://github.com/JellyUX/Easy_Notif/compare/v0.5.0...v0.6.0) (2026-09-06)
 
 ### Features

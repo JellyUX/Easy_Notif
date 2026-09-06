@@ -3,6 +3,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -32,6 +33,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ISendLog, SendLog>();
         serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
+        serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
+        serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<IEmailContentBuilder, StubEmailContentBuilder>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();

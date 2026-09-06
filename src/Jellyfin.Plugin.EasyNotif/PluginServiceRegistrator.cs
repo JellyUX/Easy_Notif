@@ -30,6 +30,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();
         serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
+        serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddHostedService<StartupService>();
     }

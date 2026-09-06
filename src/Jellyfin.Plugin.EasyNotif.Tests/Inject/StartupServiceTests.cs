@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Inject;
+using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -16,8 +18,17 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Inject;
 /// </summary>
 public sealed class StartupServiceTests
 {
-    private static StartupService Build(Mock<IFileTransformationDetector> detector, FakeConfigAccessor config, FakeEasyNotifLog? easyNotifLog = null)
-        => new(NullLogger<StartupService>.Instance, detector.Object, config, easyNotifLog ?? new FakeEasyNotifLog());
+    private static StartupService Build(
+        Mock<IFileTransformationDetector> detector,
+        FakeConfigAccessor config,
+        FakeEasyNotifLog? easyNotifLog = null,
+        FakeCampaignStore? campaigns = null)
+        => new(
+            NullLogger<StartupService>.Instance,
+            detector.Object,
+            config,
+            easyNotifLog ?? new FakeEasyNotifLog(),
+            campaigns ?? new FakeCampaignStore());
 
     private static Mock<IFileTransformationDetector> Detector(bool available)
     {
@@ -135,6 +146,59 @@ public sealed class StartupServiceTests
         await Build(Detector(available: true), config, easyNotifLog).StartAsync(CancellationToken.None);
 
         Assert.Contains(easyNotifLog.Entries, e => e.EventType == "filetransformation.detected" && e.Level == "Info");
+    }
+
+    [Fact]
+    public async Task StartAsync_SchedulesAnEnabledCampaignThatHasNoNextRun()
+    {
+        var campaigns = new FakeCampaignStore(new Campaign
+        {
+            Id = "newsletter",
+            Schedule = RecurrenceSchedule.Daily(new TimeOnly(9, 0)),
+            Enabled = true,
+            NextRunUtc = null
+        });
+        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set", SchedulerTimeZone = "Europe/Paris" });
+
+        await Build(Detector(available: true), config, new FakeEasyNotifLog(), campaigns).StartAsync(CancellationToken.None);
+
+        Assert.NotNull(campaigns.Campaigns[0].NextRunUtc);
+        Assert.True(campaigns.Campaigns[0].NextRunUtc > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async Task StartAsync_LeavesAPastNextRunUntouched()
+    {
+        var past = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var campaigns = new FakeCampaignStore(new Campaign
+        {
+            Id = "newsletter",
+            Schedule = RecurrenceSchedule.Daily(new TimeOnly(9, 0)),
+            Enabled = true,
+            NextRunUtc = past
+        });
+
+        await Build(Detector(available: true), new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }), new FakeEasyNotifLog(), campaigns)
+            .StartAsync(CancellationToken.None);
+
+        Assert.Equal(past, campaigns.Campaigns[0].NextRunUtc);
+    }
+
+    [Fact]
+    public async Task StartAsync_DoesNotScheduleADisabledCampaign()
+    {
+        var campaigns = new FakeCampaignStore(new Campaign
+        {
+            Id = "newsletter",
+            Schedule = RecurrenceSchedule.Daily(new TimeOnly(9, 0)),
+            Enabled = false,
+            NextRunUtc = null
+        });
+
+        await Build(Detector(available: true), new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }), new FakeEasyNotifLog(), campaigns)
+            .StartAsync(CancellationToken.None);
+
+        Assert.Null(campaigns.Campaigns[0].NextRunUtc);
     }
 
     [Fact]

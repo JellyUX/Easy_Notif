@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Scheduling;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -20,6 +22,7 @@ public sealed class StartupService : IHostedService
     private readonly IFileTransformationDetector _detector;
     private readonly IConfigAccessor _config;
     private readonly IEasyNotifLog _easyNotifLog;
+    private readonly ICampaignStore _campaigns;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupService"/> class.
@@ -28,16 +31,19 @@ public sealed class StartupService : IHostedService
     /// <param name="detector">FileTransformation reflection bridge.</param>
     /// <param name="config">Plugin configuration accessor.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
+    /// <param name="campaigns">The campaign store.</param>
     public StartupService(
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
         IConfigAccessor config,
-        IEasyNotifLog easyNotifLog)
+        IEasyNotifLog easyNotifLog,
+        ICampaignStore campaigns)
     {
         _logger = logger;
         _detector = detector;
         _config = config;
         _easyNotifLog = easyNotifLog;
+        _campaigns = campaigns;
     }
 
     /// <inheritdoc/>
@@ -56,6 +62,8 @@ public sealed class StartupService : IHostedService
             ["publicServerUrlSet"] = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
             ["timeZone"] = cfg.SchedulerTimeZone
         });
+
+        ScheduleEnabledCampaigns(cfg);
 
         if (!_detector.IsAvailable())
         {
@@ -102,6 +110,29 @@ public sealed class StartupService : IHostedService
             .Replace('/', '_')
             .TrimEnd('=');
         return true;
+    }
+
+    /// <summary>
+    /// Fills a first <see cref="Campaign.NextRunUtc"/> for every enabled campaign that has none. A
+    /// value already in the past (missed while the server was down) is left untouched: the next tick
+    /// fires it once, then re-anchors from that run.
+    /// </summary>
+    /// <param name="cfg">The plugin configuration (for the scheduler time zone).</param>
+    private void ScheduleEnabledCampaigns(PluginConfiguration cfg)
+    {
+        var tz = RecurrenceSchedule.ResolveTimeZone(cfg.SchedulerTimeZone);
+        var now = DateTime.UtcNow;
+
+        foreach (var campaign in _campaigns.All().Where(c => c.Enabled && c.NextRunUtc is null))
+        {
+            var next = campaign.Schedule.NextRunUtc(now, tz);
+            _campaigns.Update(campaign.Id, c => c.NextRunUtc = next);
+            _easyNotifLog.Info("campaign.scheduled", new Dictionary<string, object?>
+            {
+                ["campaignId"] = campaign.Id,
+                ["nextRunUtc"] = next
+            });
+        }
     }
 
     private void RegisterIndexHtmlTransformation()

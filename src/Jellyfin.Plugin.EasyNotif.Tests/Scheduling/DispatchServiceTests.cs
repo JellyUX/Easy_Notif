@@ -29,7 +29,7 @@ public sealed class DispatchServiceTests
 
         public Mock<IPreferenceService> Preferences { get; } = new();
 
-        public Mock<IEmailContentBuilder> Content { get; } = new();
+        public Mock<IEmailComposer> Composer { get; } = new();
 
         public Mock<IEmailSender> Sender { get; } = new();
 
@@ -59,8 +59,12 @@ public sealed class DispatchServiceTests
                 ReplyTo = "reply@example.org"
             });
 
-            Content.Setup(c => c.BuildAsync(It.IsAny<Campaign>(), It.IsAny<Recipient>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new EmailContent("Subject", "<p>Body</p>", "Body"));
+            Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new PreparedCampaign
+                {
+                    ShouldSend = true,
+                    Render = _ => new EmailContent("Subject", "<p>Body</p>", "Body")
+                });
 
             Sender.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
                 .Returns<EmailMessage, CancellationToken>(async (m, _) =>
@@ -83,7 +87,7 @@ public sealed class DispatchServiceTests
             Service = new DispatchService(
                 Campaigns,
                 Preferences.Object,
-                Content.Object,
+                Composer.Object,
                 Sender.Object,
                 Quota.Object,
                 SendLog.Object,
@@ -345,5 +349,65 @@ public sealed class DispatchServiceTests
         await harness.Service.RunDueAsync(CancellationToken.None);
 
         Assert.Null(harness.Sent[0].Headers);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_EmptyDigest_DoesNotSend_ButAdvancesNextRun()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob);
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = false,
+                SkipReason = "empty-digest",
+                Render = _ => new EmailContent("x", null, null)
+            });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Sent);
+        harness.Preferences.Verify(p => p.GetRecipients(It.IsAny<EmailCategory>()), Times.Never);
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.Equal(Now, campaign.LastSentUtc);
+        Assert.True(campaign.NextRunUtc > Now);
+        Assert.Contains(harness.Log.Entries, e => e.EventType == "dispatch.campaign" && (string?)e.Fields?["skipped"] == "empty-digest");
+    }
+
+    [Fact]
+    public async Task PreviewAsync_SendsOneMailToTheGivenAddress_WithoutAdvancing()
+    {
+        var harness = new Harness();
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = _ => new EmailContent("Newsletter", "<p>b</p>", "b"),
+                MovieCount = 2,
+                SeriesCount = 1
+            });
+        SendLogEntry? logged = null;
+        harness.SendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
+        var before = harness.Campaigns.Get("newsletter")!.NextRunUtc;
+
+        var result = await harness.Service.PreviewAsync("newsletter", "admin@example.org", CancellationToken.None);
+
+        Assert.True(result.Found);
+        Assert.True(result.Sent);
+        Assert.Equal(2, result.Movies);
+        var msg = Assert.Single(harness.Sent);
+        Assert.Equal("admin@example.org", msg.To);
+        Assert.StartsWith("[Preview]", msg.Subject);
+        Assert.Equal(0, harness.Campaigns.UpdateCount);
+        Assert.Equal(before, harness.Campaigns.Get("newsletter")!.NextRunUtc);
+        Assert.Equal("preview", logged!.Context);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_UnknownId_ReturnsNotFound()
+    {
+        var result = await new Harness().Service.PreviewAsync("nope", "admin@example.org", CancellationToken.None);
+
+        Assert.False(result.Found);
     }
 }

@@ -646,6 +646,53 @@ public class EasyNotifController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Sends the current content of one campaign to the calling administrator's contact address as a
+    /// preview. Does not advance the campaign schedule. Administrators only.
+    /// </summary>
+    /// <param name="id">The campaign id.</param>
+    /// <returns>200 with the digest counts; 400 when the caller has no contact address; 404 for an
+    /// unknown id; 503 on a storage failure.</returns>
+    [HttpPost("admin/campaigns/{id}/preview")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> PreviewCampaign([FromRoute] string id)
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+
+        string? address;
+        try
+        {
+            address = _preferences.GetOrCreate(userId).ContactEmail;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return BadRequest(new { error = "no-contact-email" });
+        }
+
+        try
+        {
+            var r = await _dispatch.PreviewAsync(id, address, HttpContext.RequestAborted).ConfigureAwait(false);
+            return r.Found
+                ? Ok(new { sent = r.Sent, movies = r.Movies, series = r.Series })
+                : NotFound();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Static assets (embedded, anonymous)
     // -------------------------------------------------------------------------

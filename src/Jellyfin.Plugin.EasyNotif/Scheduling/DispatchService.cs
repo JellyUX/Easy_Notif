@@ -30,7 +30,24 @@ public interface IDispatchService
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The run summary; <see cref="CampaignRunResult.Found"/> is false for an unknown id.</returns>
     Task<CampaignRunResult> RunCampaignNowAsync(string campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sends the current content of one campaign to a single address as a preview, without touching
+    /// <see cref="Campaign.LastSentUtc"/> or <see cref="Campaign.NextRunUtc"/>.
+    /// </summary>
+    /// <param name="campaignId">The campaign id.</param>
+    /// <param name="toEmail">The address to send the preview to.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The preview outcome; <see cref="CampaignPreviewResult.Found"/> is false for an unknown id.</returns>
+    Task<CampaignPreviewResult> PreviewAsync(string campaignId, string toEmail, CancellationToken cancellationToken);
 }
+
+/// <summary>The outcome of a campaign preview send.</summary>
+/// <param name="Found">Whether the campaign exists.</param>
+/// <param name="Sent">Whether the provider accepted the preview.</param>
+/// <param name="Movies">Movies in the previewed digest.</param>
+/// <param name="Series">Series in the previewed digest.</param>
+public sealed record CampaignPreviewResult(bool Found, bool Sent, int Movies, int Series);
 
 /// <summary>The outcome of running one campaign.</summary>
 /// <param name="CampaignId">The campaign id.</param>
@@ -49,7 +66,7 @@ public sealed class DispatchService : IDispatchService
 {
     private readonly ICampaignStore _campaigns;
     private readonly IPreferenceService _preferences;
-    private readonly IEmailContentBuilder _contentBuilder;
+    private readonly IEmailComposer _composer;
     private readonly IEmailSender _sender;
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
@@ -62,7 +79,7 @@ public sealed class DispatchService : IDispatchService
     /// <summary>Initializes a new instance of the <see cref="DispatchService"/> class.</summary>
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="preferences">The preference service (recipient resolution).</param>
-    /// <param name="contentBuilder">The email content builder.</param>
+    /// <param name="composer">The campaign email composer.</param>
     /// <param name="sender">The email transport.</param>
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
@@ -72,21 +89,21 @@ public sealed class DispatchService : IDispatchService
     public DispatchService(
         ICampaignStore campaigns,
         IPreferenceService preferences,
-        IEmailContentBuilder contentBuilder,
+        IEmailComposer composer,
         IEmailSender sender,
         IQuotaGuard quota,
         ISendLog sendLog,
         IConfigAccessor config,
         IEasyNotifLog easyNotifLog,
         ILogger<DispatchService> logger)
-        : this(campaigns, preferences, contentBuilder, sender, quota, sendLog, config, easyNotifLog, logger, () => DateTime.UtcNow)
+        : this(campaigns, preferences, composer, sender, quota, sendLog, config, easyNotifLog, logger, () => DateTime.UtcNow)
     {
     }
 
     internal DispatchService(
         ICampaignStore campaigns,
         IPreferenceService preferences,
-        IEmailContentBuilder contentBuilder,
+        IEmailComposer composer,
         IEmailSender sender,
         IQuotaGuard quota,
         ISendLog sendLog,
@@ -97,7 +114,7 @@ public sealed class DispatchService : IDispatchService
     {
         _campaigns = campaigns;
         _preferences = preferences;
-        _contentBuilder = contentBuilder;
+        _composer = composer;
         _sender = sender;
         _quota = quota;
         _sendLog = sendLog;
@@ -163,6 +180,67 @@ public sealed class DispatchService : IDispatchService
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<CampaignPreviewResult> PreviewAsync(string campaignId, string toEmail, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var campaign = _campaigns.Get(campaignId);
+            if (campaign is null)
+            {
+                return new CampaignPreviewResult(false, false, 0, 0);
+            }
+
+            var now = _now();
+            var cfg = _config.Get();
+            var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken).ConfigureAwait(false);
+            var content = prepared.Render(new Recipient(Guid.Empty, toEmail));
+
+            var result = await _sender.SendAsync(
+                new EmailMessage
+                {
+                    To = toEmail,
+                    Subject = "[Preview] " + content.Subject,
+                    Html = content.Html,
+                    Text = content.Text,
+                    ReplyTo = cfg.ReplyTo,
+                    Tags = [new EmailTag("context", "preview"), new EmailTag("campaignId", campaign.Id)],
+                    IdempotencyKey = null
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            if (result.Success)
+            {
+                _quota.RecordSend();
+            }
+
+            try
+            {
+                _sendLog.Append(new SendLogEntry
+                {
+                    Ts = now,
+                    Context = "preview",
+                    Category = campaign.Category.ToString(),
+                    ToMasked = EmailMasker.Mask(toEmail),
+                    Subject = content.Subject,
+                    ResendId = result.ResendId,
+                    Status = result.Success ? "sent" : "failed"
+                });
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "[EasyNotif] Could not record a campaign preview in the send log.");
+            }
+
+            return new CampaignPreviewResult(true, result.Success, prepared.MovieCount, prepared.SeriesCount);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private TimeZoneInfo ResolveTimeZone(string? ianaId)
     {
         var tz = RecurrenceSchedule.ResolveTimeZone(ianaId);
@@ -199,6 +277,25 @@ public sealed class DispatchService : IDispatchService
                 ["reason"] = "quota-over"
             });
             return new CampaignRunResult(campaign.Id, 0, 0, 0, campaign.NextRunUtc) { Found = true };
+        }
+
+        var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken).ConfigureAwait(false);
+        if (!prepared.ShouldSend)
+        {
+            var skippedNext = campaign.Schedule.NextRunUtc(now, tz);
+            _campaigns.Update(campaign.Id, c =>
+            {
+                c.LastSentUtc = now;
+                c.NextRunUtc = skippedNext;
+            });
+            _easyNotifLog.Info("dispatch.campaign", new Dictionary<string, object?>
+            {
+                ["campaignId"] = campaign.Id,
+                ["sent"] = 0,
+                ["skipped"] = prepared.SkipReason,
+                ["nextRunUtc"] = skippedNext
+            });
+            return new CampaignRunResult(campaign.Id, 0, 0, 0, skippedNext) { Found = true };
         }
 
         IReadOnlyList<Recipient> recipients;
@@ -241,7 +338,7 @@ public sealed class DispatchService : IDispatchService
                 break;
             }
 
-            var content = await _contentBuilder.BuildAsync(campaign, recipient, cancellationToken).ConfigureAwait(false);
+            var content = prepared.Render(recipient);
             var category = campaign.Category.ToString().ToLowerInvariant();
             var message = new EmailMessage
             {

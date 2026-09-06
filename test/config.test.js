@@ -9,6 +9,7 @@ const {
     _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
+    _previewResult,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -275,6 +276,12 @@ describe('campaign schedule helpers', () => {
     it('_fmtDateTime formats or returns null', () => {
         expect(_fmtDateTime('2026-09-06T14:30:00Z')).toBe('2026-09-06 14:30');
         expect(_fmtDateTime(null)).toBeNull();
+    });
+
+    it('_previewResult fills the movie and series counts', () => {
+        expect(_previewResult(enStrings, { movies: 3, series: 1 })).toBe('Preview sent: 3 movie(s), 1 series.');
+        expect(_previewResult(enStrings, {})).toBe('Preview sent: 0 movie(s), 0 series.');
+        expect(_previewResult(enStrings, null)).toBe('Preview sent: 0 movie(s), 0 series.');
     });
 });
 

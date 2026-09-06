@@ -37,7 +37,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();
         serviceCollection.AddSingleton<NewsletterComposer>();
-        serviceCollection.AddSingleton<IEmailContentBuilder, StubEmailContentBuilder>();
+        serviceCollection.AddSingleton<IEmailComposer, EmailComposer>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddHostedService<StartupService>();

@@ -280,6 +280,14 @@
         return value ? String(value).slice(0, 16).replace('T', ' ') : null;
     }
 
+    // Result line for the newsletter preview: how many movies / series were in the sent digest.
+    function _previewResult(dict, summary) {
+        summary = summary || {};
+        return _t(dict, 'campaigns.previewSent')
+            .replace('{movies}', summary.movies != null ? summary.movies : 0)
+            .replace('{series}', summary.series != null ? summary.series : 0);
+    }
+
     var api = {
         _escHtml: _escHtml,
         _pickLang: _pickLang,
@@ -299,6 +307,7 @@
         _scheduleFromForm: _scheduleFromForm,
         _fmtSchedule: _fmtSchedule,
         _fmtDateTime: _fmtDateTime,
+        _previewResult: _previewResult,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -734,6 +743,16 @@
         run.textContent = _t(dict, 'campaigns.run');
         actions.appendChild(save);
         actions.appendChild(run);
+
+        var preview = null;
+        if (campaign.type === 'Newsletter') {
+            preview = document.createElement('button');
+            preview.type = 'button';
+            preview.className = 'raised enotif-campaign-preview';
+            preview.textContent = _t(dict, 'campaigns.preview');
+            actions.appendChild(preview);
+        }
+
         root.appendChild(actions);
 
         var result = document.createElement('div');
@@ -744,6 +763,9 @@
         kind.addEventListener('change', function () { _applyKindVisibility(root); });
         save.addEventListener('click', function () { _saveCampaign(campaign.id, root); });
         run.addEventListener('click', function () { _runCampaign(campaign.id, root); });
+        if (preview) {
+            preview.addEventListener('click', function () { _previewCampaign(campaign.id, root); });
+        }
         _applyKindVisibility(root);
         return root;
     }
@@ -803,6 +825,23 @@
             console.error('[EasyNotif Config] could not run a campaign:', err);
             result.classList.add('enotif-status-error');
             result.textContent = _t(dict, 'manual.error.send');
+        }).then(function () {
+            window.Dashboard.hideLoadingMsg();
+        });
+    }
+
+    function _previewCampaign(id, root) {
+        var result = root.querySelector('.enotif-campaign-result');
+        result.classList.remove('enotif-status-error');
+        result.textContent = _t(dict, 'manual.sending');
+        window.Dashboard.showLoadingMsg();
+        _postJson('admin/campaigns/' + id + '/preview', {}).then(function (summary) {
+            result.textContent = _previewResult(dict, summary);
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not preview a campaign:', err);
+            result.classList.add('enotif-status-error');
+            var key = (err && err.status === 400) ? 'campaigns.error.noContactEmail' : 'manual.error.send';
+            result.textContent = _t(dict, key);
         }).then(function () {
             window.Dashboard.hideLoadingMsg();
         });

@@ -50,6 +50,7 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetCampaigns))]
     [InlineData(nameof(EasyNotifController.PutCampaign))]
     [InlineData(nameof(EasyNotifController.RunCampaign))]
+    [InlineData(nameof(EasyNotifController.PreviewCampaign))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -648,6 +649,41 @@ public sealed class EasyNotifControllerTests
             .ReturnsAsync(new CampaignRunResult("x", 0, 0, 0, null) { Found = false });
 
         Assert.IsType<NotFoundResult>(await BuildController(dispatch: dispatch).RunCampaign("x"));
+    }
+
+    [Fact]
+    public async Task PreviewCampaign_WithoutAContactAddress_Returns400()
+    {
+        var controller = BuildController(ServiceWithContactEmail(null));
+
+        var result = await controller.PreviewCampaign("newsletter");
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("no-contact-email", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreviewCampaign_UnknownId_Returns404()
+    {
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.PreviewAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CampaignPreviewResult(false, false, 0, 0));
+
+        var result = await BuildController(ServiceWithContactEmail("admin@example.org"), dispatch: dispatch).PreviewCampaign("x");
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public async Task PreviewCampaign_Success_ReturnsDigestCounts()
+    {
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.PreviewAsync("newsletter", "admin@example.org", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CampaignPreviewResult(true, true, 3, 1));
+
+        var ok = Assert.IsType<OkObjectResult>(
+            await BuildController(ServiceWithContactEmail("admin@example.org"), dispatch: dispatch).PreviewCampaign("newsletter"));
+        Assert.Contains("\"movies\":3", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
     }
 
     // -------------------------------------------------------------------------

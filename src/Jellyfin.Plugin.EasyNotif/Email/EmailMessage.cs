@@ -63,4 +63,12 @@ public sealed class EmailAttachment
 /// <param name="ResendId">The provider message id on success, used to correlate webhooks; null otherwise.</param>
 /// <param name="StatusCode">The HTTP status from the provider, or 0 when the request never left.</param>
 /// <param name="Error">A short human-readable failure reason, or null on success.</param>
-public sealed record SendResult(bool Success, string? ResendId, int StatusCode, string? Error);
+public sealed record SendResult(bool Success, string? ResendId, int StatusCode, string? Error)
+{
+    /// <summary>
+    /// Gets a value indicating whether the provider rejected the send only because an identical
+    /// idempotency key was already used (HTTP 409). The message was not delivered again, but this is
+    /// not a real failure - the original send stands.
+    /// </summary>
+    public bool Deduplicated { get; init; }
+}

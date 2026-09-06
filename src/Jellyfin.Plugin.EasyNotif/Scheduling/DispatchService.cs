@@ -322,6 +322,7 @@ public sealed class DispatchService : IDispatchService
 
         var sent = 0;
         var failed = 0;
+        var deduplicated = 0;
         var quotaStoppedMidRun = false;
 
         foreach (var recipient in recipients)
@@ -358,14 +359,22 @@ public sealed class DispatchService : IDispatchService
             };
 
             var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            string status;
             if (result.Success)
             {
                 _quota.RecordSend();
                 sent++;
+                status = "sent";
+            }
+            else if (result.Deduplicated)
+            {
+                deduplicated++;
+                status = "deduplicated";
             }
             else
             {
                 failed++;
+                status = "failed";
             }
 
             try
@@ -378,7 +387,7 @@ public sealed class DispatchService : IDispatchService
                     ToMasked = EmailMasker.Mask(recipient.Email),
                     Subject = content.Subject,
                     ResendId = result.ResendId,
-                    Status = result.Success ? "sent" : "failed"
+                    Status = status
                 });
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException)
@@ -404,6 +413,7 @@ public sealed class DispatchService : IDispatchService
             ["campaignId"] = campaign.Id,
             ["sent"] = sent,
             ["failed"] = failed,
+            ["deduplicated"] = deduplicated,
             ["nextRunUtc"] = next
         });
 

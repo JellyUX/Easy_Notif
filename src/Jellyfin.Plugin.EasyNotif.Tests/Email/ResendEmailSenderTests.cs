@@ -99,6 +99,22 @@ public class ResendEmailSenderTests
     }
 
     [Fact]
+    public async Task SendAsync_On409_IsDeduplicatedNotFailed_AndLogsSoftly()
+    {
+        var (sender, http, _, easyNotifLog) = Build();
+        http.EnqueueJson(HttpStatusCode.Conflict, "{\"message\":\"This idempotency key has been used\"}");
+
+        var result = await sender.SendAsync(Message(), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.True(result.Deduplicated);
+        Assert.Equal(409, result.StatusCode);
+        Assert.Single(http.Requests);
+        Assert.Contains(easyNotifLog.Entries, e => e.EventType == "email.deduplicated" && e.Level == "Info");
+        Assert.DoesNotContain(easyNotifLog.Entries, e => e.EventType == "email.failed");
+    }
+
+    [Fact]
     public async Task SendAsync_On429_RetriesOnceThenSucceeds()
     {
         var (sender, http, _, _) = Build();

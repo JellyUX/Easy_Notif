@@ -410,4 +410,26 @@ public sealed class DispatchServiceTests
 
         Assert.False(result.Found);
     }
+
+    [Fact]
+    public async Task RunDueAsync_DeduplicatedSend_IsNotAFailure_AndTheCampaignStillAdvances()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob);
+        harness.Sender.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .Returns<EmailMessage, CancellationToken>((m, _) =>
+            {
+                harness.Sent.Add(m);
+                return Task.FromResult(new SendResult(false, null, 409, "idempotency") { Deduplicated = true });
+            });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        harness.Quota.Verify(q => q.RecordSend(), Times.Never);
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.True(campaign.NextRunUtc > Now);
+        var log = Assert.Single(harness.Log.Entries, e => e.EventType == "dispatch.campaign");
+        Assert.Equal(0, log.Fields!["failed"]);
+        Assert.Equal(2, log.Fields!["deduplicated"]);
+    }
 }

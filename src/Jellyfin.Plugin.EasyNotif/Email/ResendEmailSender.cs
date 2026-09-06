@@ -106,6 +106,15 @@ public sealed class ResendEmailSender : IEmailSender
                 ["durationMs"] = stopwatch.ElapsedMilliseconds
             });
         }
+        else if (result.Deduplicated)
+        {
+            _easyNotifLog.Info("email.deduplicated", new Dictionary<string, object?>
+            {
+                ["subject"] = message.Subject,
+                ["to"] = message.To,
+                ["httpStatus"] = result.StatusCode
+            });
+        }
         else
         {
             _logger.LogWarning(
@@ -259,6 +268,13 @@ public sealed class ResendEmailSender : IEmailSender
             {
                 await _retryDelay(RetryDelay(retryAfter), cancellationToken).ConfigureAwait(false);
                 continue;
+            }
+
+            // A 409 means this idempotency key was already accepted within the retention window:
+            // the message is not sent again, but the earlier send stands, so this is not a failure.
+            if (status == 409)
+            {
+                return new SendResult(false, null, status, ExtractError(body)) { Deduplicated = true };
             }
 
             return new SendResult(false, null, status, ExtractError(body));

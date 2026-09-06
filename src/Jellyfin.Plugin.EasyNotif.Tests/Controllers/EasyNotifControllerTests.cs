@@ -550,6 +550,23 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void GetCampaigns_ConvertsRunTimesToTheConfiguredTimeZone()
+    {
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].NextRunUtc = new DateTime(2026, 6, 15, 13, 45, 0, DateTimeKind.Utc);
+        var controller = BuildController(
+            config: new FakeConfig(new PluginConfiguration { SchedulerTimeZone = "Europe/Paris" }),
+            campaigns: campaigns);
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetCampaigns());
+        var json = JsonSerializer.Serialize(ok.Value);
+
+        // 13:45 UTC in June is 15:45 in Paris (CEST).
+        Assert.Contains("\"nextRunLocal\":\"2026-06-15 15:45\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"timeZone\":\"Europe/Paris\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PutCampaign_UnknownId_Returns404()
     {
         var controller = BuildController(campaigns: SeededCampaigns());

@@ -510,7 +510,10 @@ public class EasyNotifController : ControllerBase
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public ActionResult GetCampaigns() => Wrap(() => Ok(_campaigns.All().Select(c => new
+    public ActionResult GetCampaigns() => Wrap(() =>
+    {
+        var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
+        return Ok(_campaigns.All().Select(c => new
     {
         id = c.Id,
         type = c.Type.ToString(),
@@ -519,6 +522,9 @@ public class EasyNotifController : ControllerBase
         mailLanguage = c.MailLanguage,
         lastSentUtc = c.LastSentUtc,
         nextRunUtc = c.NextRunUtc,
+        lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
+        nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
+        timeZone = tz.Id,
         schedule = new
         {
             kind = c.Schedule.Kind.ToString(),
@@ -527,7 +533,8 @@ public class EasyNotifController : ControllerBase
             dayOfMonth = c.Schedule.DayOfMonth,
             intervalDays = c.Schedule.IntervalDays
         }
-    })));
+        }));
+    });
 
     /// <summary>Updates one campaign's enabled state, mail language and/or schedule. Administrators only.</summary>
     /// <param name="id">The campaign id.</param>
@@ -688,6 +695,12 @@ public class EasyNotifController : ControllerBase
     // -------------------------------------------------------------------------
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? ToConfiguredLocal(DateTime? utc, TimeZoneInfo tz)
+        => utc is { } value
+            ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(value, DateTimeKind.Utc), tz)
+                .ToString("yyyy-MM-dd HH:mm", System.Globalization.CultureInfo.InvariantCulture)
+            : null;
 
     private static bool TryParseSchedule(ScheduleUpdate body, out RecurrenceSchedule schedule, out string? error)
     {

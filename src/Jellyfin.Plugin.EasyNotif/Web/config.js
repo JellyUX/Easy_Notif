@@ -705,9 +705,12 @@
 
         var meta = document.createElement('div');
         meta.className = 'enotif-campaign-meta';
-        meta.textContent = _t(dict, 'campaigns.lastRun').replace('{value}', _fmtDateTime(campaign.lastSentUtc) || _t(dict, 'campaigns.never'))
+        var lastRun = campaign.lastSentLocal || _fmtDateTime(campaign.lastSentUtc) || _t(dict, 'campaigns.never');
+        var nextRun = campaign.nextRunLocal || _fmtDateTime(campaign.nextRunUtc) || _t(dict, 'campaigns.never');
+        meta.textContent = _t(dict, 'campaigns.lastRun').replace('{value}', lastRun)
             + '  |  '
-            + _t(dict, 'campaigns.nextRun').replace('{value}', _fmtDateTime(campaign.nextRunUtc) || _t(dict, 'campaigns.never'));
+            + _t(dict, 'campaigns.nextRun').replace('{value}', nextRun)
+            + (campaign.timeZone ? ' (' + campaign.timeZone + ')' : '');
         root.appendChild(meta);
 
         var actions = document.createElement('div');

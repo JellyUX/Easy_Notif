@@ -666,11 +666,20 @@
         title.textContent = _t(dict, 'campaigns.name.' + campaign.id);
         root.appendChild(title);
 
+        var enabledRow = document.createElement('div');
+        enabledRow.className = 'enotif-campaign-row';
+        var enabledLabel = document.createElement('label');
+        enabledLabel.className = 'checkboxContainer';
         var enabled = document.createElement('input');
         enabled.type = 'checkbox';
         enabled.className = 'enotif-campaign-enabled';
         enabled.checked = !!campaign.enabled;
-        root.appendChild(_labeledRow('', 'campaigns.enabled', enabled));
+        var enabledText = document.createElement('span');
+        enabledText.textContent = _t(dict, 'campaigns.enabled');
+        enabledLabel.appendChild(enabled);
+        enabledLabel.appendChild(enabledText);
+        enabledRow.appendChild(enabledLabel);
+        root.appendChild(enabledRow);
 
         var lang = _select('enotif-campaign-lang', [{ value: 'fr', label: 'Francais' }, { value: 'en', label: 'English' }]);
         lang.value = campaign.mailLanguage || 'fr';

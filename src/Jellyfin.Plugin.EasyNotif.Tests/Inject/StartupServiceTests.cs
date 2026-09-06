@@ -28,7 +28,9 @@ public sealed class StartupServiceTests
             detector.Object,
             config,
             easyNotifLog ?? new FakeEasyNotifLog(),
-            campaigns ?? new FakeCampaignStore());
+            campaigns ?? new FakeCampaignStore(),
+            Mock.Of<MediaBrowser.Controller.Library.ILibraryManager>(),
+            new FakeAddedItemsStore());
 
     private static Mock<IFileTransformationDetector> Detector(bool available)
     {

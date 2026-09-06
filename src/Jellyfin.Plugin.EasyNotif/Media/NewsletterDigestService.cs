@@ -30,18 +30,26 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     private readonly ILibraryManager _libraryManager;
     private readonly IConfigAccessor _config;
     private readonly ServerLinkContext _links;
+    private readonly IAddedItemsStore _addedItems;
     private readonly Logging.IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="NewsletterDigestService"/> class.</summary>
     /// <param name="libraryManager">The Jellyfin library manager (read-only use).</param>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="links">The captured server identity for deep links.</param>
+    /// <param name="addedItems">The server-time added-items store.</param>
     /// <param name="log">The plugin's dedicated log.</param>
-    public NewsletterDigestService(ILibraryManager libraryManager, IConfigAccessor config, ServerLinkContext links, Logging.IEasyNotifLog log)
+    public NewsletterDigestService(
+        ILibraryManager libraryManager,
+        IConfigAccessor config,
+        ServerLinkContext links,
+        IAddedItemsStore addedItems,
+        Logging.IEasyNotifLog log)
     {
         _libraryManager = libraryManager;
         _config = config;
         _links = links;
+        _addedItems = addedItems;
         _log = log;
     }
 
@@ -52,9 +60,18 @@ public sealed class NewsletterDigestService : INewsletterDigestService
         var hasPublicUrl = !string.IsNullOrWhiteSpace(baseUrl);
         var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);
 
-        // The MinDateCreated filter on InternalItemsQuery is unreliable across 10.11.x, so pull the
-        // most-recently-added items and window them in memory.
-        var all = _libraryManager.GetItemList(new InternalItemsQuery
+        // Primary source: items the ItemAdded event recorded as added since the window start, in
+        // real server time. These may have an old DateCreated (Jellyfin takes it from the file), so
+        // they are fetched by id.
+        var trackedIds = _addedItems.AddedSince(since);
+        var tracked = trackedIds.Count == 0
+            ? Array.Empty<BaseItem>()
+            : _libraryManager.GetItemList(new InternalItemsQuery { ItemIds = [.. trackedIds] });
+
+        // Fallback: the most-recently-added items whose own DateCreated is inside the window. Covers
+        // media added before the plugin started tracking. (MinDateCreated on the query itself is
+        // unreliable across 10.11.x, so the window is applied in memory.)
+        var byDate = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode],
             Recursive = true,
@@ -63,19 +80,19 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
         });
 
-        // BaseItem.DateCreated is a UTC wall-clock value; DateTime comparison is on ticks, so a
-        // Kind mismatch does not matter here.
-        var items = all
-            .Where(i => !i.IsVirtualItem && i.DateCreated >= since)
+        var items = tracked
+            .Concat(byDate.Where(i => i.DateCreated >= since))
+            .Where(i => i is Movie or Episode && !i.IsVirtualItem)
+            .DistinctBy(i => i.Id)
             .ToList();
 
         _log.Info("newsletter.query", new Dictionary<string, object?>
         {
             ["since"] = since,
-            ["scanned"] = all.Count,
+            ["tracked"] = trackedIds.Count,
+            ["byDate"] = byDate.Count(i => i.DateCreated >= since),
             ["matched"] = items.Count,
-            ["hitLimit"] = all.Count >= limit,
-            ["newestCreated"] = all.Count > 0 ? all.Max(i => i.DateCreated).ToString("u") : null
+            ["hitLimit"] = byDate.Count >= limit
         });
 
         var movies = items.OfType<Movie>()

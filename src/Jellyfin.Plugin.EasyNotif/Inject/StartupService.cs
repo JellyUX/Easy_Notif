@@ -1,9 +1,13 @@
 using System.Security.Cryptography;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Storage;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -24,6 +28,8 @@ public sealed class StartupService : IHostedService
     private readonly IConfigAccessor _config;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ICampaignStore _campaigns;
+    private readonly ILibraryManager _libraryManager;
+    private readonly IAddedItemsStore _addedItems;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupService"/> class.
@@ -33,18 +39,24 @@ public sealed class StartupService : IHostedService
     /// <param name="config">Plugin configuration accessor.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="campaigns">The campaign store.</param>
+    /// <param name="libraryManager">The Jellyfin library manager (for the ItemAdded event).</param>
+    /// <param name="addedItems">The server-time added-items store.</param>
     public StartupService(
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
         IConfigAccessor config,
         IEasyNotifLog easyNotifLog,
-        ICampaignStore campaigns)
+        ICampaignStore campaigns,
+        ILibraryManager libraryManager,
+        IAddedItemsStore addedItems)
     {
         _logger = logger;
         _detector = detector;
         _config = config;
         _easyNotifLog = easyNotifLog;
         _campaigns = campaigns;
+        _libraryManager = libraryManager;
+        _addedItems = addedItems;
     }
 
     /// <inheritdoc/>
@@ -66,6 +78,9 @@ public sealed class StartupService : IHostedService
 
         ScheduleEnabledCampaigns(cfg);
 
+        _addedItems.Start();
+        _libraryManager.ItemAdded += OnItemAdded;
+
         if (!_detector.IsAvailable())
         {
             const string Warning =
@@ -86,10 +101,24 @@ public sealed class StartupService : IHostedService
     }
 
     /// <inheritdoc/>
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _libraryManager.ItemAdded -= OnItemAdded;
+        await _addedItems.StopAsync().ConfigureAwait(false);
         _easyNotifLog.Info("plugin.shutdown");
-        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Records newly added movies and episodes in real server time, so the newsletter can find them
+    /// regardless of the item's own <c>DateCreated</c> (which Jellyfin takes from the file system).
+    /// Non-blocking: it only queues the id (R13).
+    /// </summary>
+    private void OnItemAdded(object? sender, ItemChangeEventArgs e)
+    {
+        if (e.Item is Movie or Episode)
+        {
+            _addedItems.RecordAdded(e.Item.Id);
+        }
     }
 
     /// <summary>

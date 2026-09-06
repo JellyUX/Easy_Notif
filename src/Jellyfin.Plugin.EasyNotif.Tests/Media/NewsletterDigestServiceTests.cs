@@ -28,9 +28,13 @@ public sealed class NewsletterDigestServiceTests
 
         public FakeConfigAccessor Config { get; }
 
+        public FakeAddedItemsStore AddedItems { get; } = new();
+
+        /// <summary>Items returned by the by-DateCreated fallback query (the recently-added scan).</summary>
         public List<BaseItem> MainItems { get; } = [];
 
-        public List<BaseItem> SeriesItems { get; } = [];
+        /// <summary>Items resolvable by id (tracked items and series parents).</summary>
+        public List<BaseItem> ById { get; } = [];
 
         public NewsletterDigestService Service { get; }
 
@@ -43,16 +47,19 @@ public sealed class NewsletterDigestServiceTests
                 .Setup(l => l.GetItemList(It.IsAny<InternalItemsQuery>()))
                 .Returns<InternalItemsQuery>(q =>
                 {
-                    if (q.ItemIds is { Length: > 0 })
+                    if (q.ItemIds is { Length: > 0 } ids)
                     {
-                        return SeriesItems;
+                        return ById.Where(i => ids.Contains(i.Id)).ToList();
                     }
 
                     CapturedMainQuery = q;
                     return MainItems;
                 });
-            Service = new NewsletterDigestService(Library.Object, Config, new ServerLinkContext("srv-1", "Home"), new FakeEasyNotifLog());
+            Service = new NewsletterDigestService(
+                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, new FakeEasyNotifLog());
         }
+
+        public List<BaseItem> SeriesItems => ById;
     }
 
     private static Movie Movie(string name, bool withImage = false, int? year = 2026, DateTime? created = null)
@@ -172,6 +179,34 @@ public sealed class NewsletterDigestServiceTests
 
         var movie = Assert.Single(digest.Movies);
         Assert.Equal("New", movie.Title);
+    }
+
+    [Fact]
+    public void IncludesAnItemTrackedAsAdded_EvenWhenItsDateCreatedIsOld()
+    {
+        var h = new Harness();
+        var since = new DateTime(2026, 3, 10, 0, 0, 0, DateTimeKind.Utc);
+        var oldMovie = Movie("Copied From Archive", created: new DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        h.ById.Add(oldMovie);              // resolvable by id, but not in the recently-added scan
+        h.AddedItems.Seed(oldMovie.Id, since.AddHours(2)); // the ItemAdded event recorded it as new
+
+        var digest = h.Service.GetNewSince(since);
+
+        var movie = Assert.Single(digest.Movies);
+        Assert.Equal("Copied From Archive", movie.Title);
+    }
+
+    [Fact]
+    public void DoesNotDoubleCountAnItemThatIsBothTrackedAndRecentByDate()
+    {
+        var h = new Harness();
+        var since = new DateTime(2026, 3, 10, 0, 0, 0, DateTimeKind.Utc);
+        var movie = Movie("Both", created: since.AddHours(1));
+        h.MainItems.Add(movie);
+        h.ById.Add(movie);
+        h.AddedItems.Seed(movie.Id, since.AddHours(1));
+
+        Assert.Single(h.Service.GetNewSince(since).Movies);
     }
 
     [Fact]

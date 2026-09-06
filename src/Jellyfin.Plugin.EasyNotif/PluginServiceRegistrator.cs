@@ -34,6 +34,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
+        serviceCollection.AddSingleton<IAddedItemsStore, AddedItemsStore>();
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();
         serviceCollection.AddSingleton<NewsletterComposer>();

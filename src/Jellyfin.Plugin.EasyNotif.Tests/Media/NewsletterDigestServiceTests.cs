@@ -51,13 +51,13 @@ public sealed class NewsletterDigestServiceTests
                     CapturedMainQuery = q;
                     return MainItems;
                 });
-            Service = new NewsletterDigestService(Library.Object, Config, new ServerLinkContext("srv-1", "Home"));
+            Service = new NewsletterDigestService(Library.Object, Config, new ServerLinkContext("srv-1", "Home"), new FakeEasyNotifLog());
         }
     }
 
-    private static Movie Movie(string name, bool withImage = false, int? year = 2026)
+    private static Movie Movie(string name, bool withImage = false, int? year = 2026, DateTime? created = null)
     {
-        var m = new Movie { Id = Guid.NewGuid(), Name = name, ProductionYear = year, Overview = "About " + name, Genres = ["Drama"], DateCreated = DateTime.UtcNow };
+        var m = new Movie { Id = Guid.NewGuid(), Name = name, ProductionYear = year, Overview = "About " + name, Genres = ["Drama"], DateCreated = created ?? DateTime.UtcNow };
         if (withImage)
         {
             m.ImageInfos = [new ItemImageInfo { Type = ImageType.Primary, Path = "/x.jpg" }];
@@ -147,19 +147,31 @@ public sealed class NewsletterDigestServiceTests
     }
 
     [Fact]
-    public void BoundsTheQuery_AndAsksForMoviesAndEpisodesSinceTheGivenInstant()
+    public void BoundsTheQuery_AndAsksForMoviesAndEpisodes()
     {
         var h = new Harness();
-        var since = new DateTime(2026, 3, 1, 8, 0, 0, DateTimeKind.Utc);
 
-        h.Service.GetNewSince(since, limit: 500);
+        h.Service.GetNewSince(new DateTime(2026, 3, 1, 8, 0, 0, DateTimeKind.Utc), limit: 750);
 
         var q = h.CapturedMainQuery!;
-        Assert.Equal(since, q.MinDateCreated);
-        Assert.Equal(500, q.Limit);
+        Assert.Equal(750, q.Limit);
         Assert.True(q.Recursive);
         Assert.Contains(BaseItemKind.Movie, q.IncludeItemTypes);
         Assert.Contains(BaseItemKind.Episode, q.IncludeItemTypes);
+    }
+
+    [Fact]
+    public void WindowsItemsByDateCreated_InMemory()
+    {
+        var h = new Harness();
+        var since = new DateTime(2026, 3, 10, 0, 0, 0, DateTimeKind.Utc);
+        h.MainItems.Add(Movie("Old", created: since.AddDays(-1)));
+        h.MainItems.Add(Movie("New", created: since.AddHours(1)));
+
+        var digest = h.Service.GetNewSince(since);
+
+        var movie = Assert.Single(digest.Movies);
+        Assert.Equal("New", movie.Title);
     }
 
     [Fact]

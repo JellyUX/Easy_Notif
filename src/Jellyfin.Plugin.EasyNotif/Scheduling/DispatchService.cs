@@ -194,7 +194,7 @@ public sealed class DispatchService : IDispatchService
 
             var now = _now();
             var cfg = _config.Get();
-            var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken).ConfigureAwait(false);
+            var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken, freshWindow: true).ConfigureAwait(false);
             var content = prepared.Render(new Recipient(Guid.Empty, toEmail));
 
             var result = await _sender.SendAsync(
@@ -259,6 +259,11 @@ public sealed class DispatchService : IDispatchService
         PluginConfiguration cfg,
         CancellationToken cancellationToken)
     {
+        // The idempotency key identifies this scheduled occurrence (the due slot, before it is
+        // advanced), so a crash-retry of the same run does not re-send, but a later run for a new
+        // occurrence does.
+        var runSlot = (campaign.NextRunUtc ?? now).ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
+
         if (string.IsNullOrWhiteSpace(cfg.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
         {
             _easyNotifLog.Warn("dispatch.skipped", new Dictionary<string, object?>
@@ -355,7 +360,7 @@ public sealed class DispatchService : IDispatchService
                     new EmailTag("campaignId", campaign.Id),
                     new EmailTag("category", campaign.Category.ToString())
                 ],
-                IdempotencyKey = $"{campaign.Id}:{now:yyyyMMdd}:{recipient.UserId:N}"
+                IdempotencyKey = $"{campaign.Id}:{runSlot}:{recipient.UserId:N}"
             };
 
             var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);

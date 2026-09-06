@@ -100,6 +100,16 @@ public sealed class EmailComposerTests
     }
 
     [Fact]
+    public async Task Newsletter_FreshWindow_IgnoresLastSent_AndLooksBackSevenDays()
+    {
+        var h = new Harness();
+
+        await h.Composer.PrepareAsync(Newsletter(lastSent: Now.AddMinutes(-1)), Now, CancellationToken.None, freshWindow: true);
+
+        h.Digest.Verify(d => d.GetNewSince(Now.AddDays(-7), It.IsAny<int>()), Times.Once);
+    }
+
+    [Fact]
     public async Task WeeklyRecap_KeepsThePlaceholder()
     {
         var campaign = Newsletter();

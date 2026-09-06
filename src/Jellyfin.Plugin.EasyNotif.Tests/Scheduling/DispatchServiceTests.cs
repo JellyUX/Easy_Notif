@@ -59,7 +59,7 @@ public sealed class DispatchServiceTests
                 ReplyTo = "reply@example.org"
             });
 
-            Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
                 .ReturnsAsync(new PreparedCampaign
                 {
                     ShouldSend = true,
@@ -152,7 +152,7 @@ public sealed class DispatchServiceTests
 
         Assert.Equal(3, harness.Sent.Count);
         var msg = harness.Sent[0];
-        Assert.StartsWith("newsletter:20260615:", msg.IdempotencyKey);
+        Assert.StartsWith("newsletter:202606151159:", msg.IdempotencyKey); // slot = NextRunUtc (Now - 1 min)
         Assert.Contains(msg.Tags!, t => t is { Name: "campaignId", Value: "newsletter" });
         Assert.Contains(msg.Tags!, t => t is { Name: "category", Value: "News" });
 
@@ -356,7 +356,7 @@ public sealed class DispatchServiceTests
     {
         var harness = new Harness();
         harness.Recipients(Alice, Bob);
-        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
             .ReturnsAsync(new PreparedCampaign
             {
                 ShouldSend = false,
@@ -378,7 +378,7 @@ public sealed class DispatchServiceTests
     public async Task PreviewAsync_SendsOneMailToTheGivenAddress_WithoutAdvancing()
     {
         var harness = new Harness();
-        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
             .ReturnsAsync(new PreparedCampaign
             {
                 ShouldSend = true,

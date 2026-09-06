@@ -42,6 +42,9 @@ public interface IEmailComposer
     /// <param name="campaign">The campaign.</param>
     /// <param name="nowUtc">The run instant (UTC); bounds the digest window.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="freshWindow">When true, the digest looks back a fixed seven days and ignores
+    /// <see cref="Campaign.LastSentUtc"/>. Used by the admin preview so it always shows the last
+    /// week regardless of when the campaign last ran.</param>
     /// <returns>The prepared campaign.</returns>
-    Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken);
+    Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken, bool freshWindow = false);
 }

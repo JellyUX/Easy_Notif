@@ -30,13 +30,13 @@ public sealed class EmailComposer : IEmailComposer
     }
 
     /// <inheritdoc/>
-    public Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken)
+    public Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken, bool freshWindow = false)
     {
         ArgumentNullException.ThrowIfNull(campaign);
 
         if (campaign.Type == CampaignType.Newsletter)
         {
-            var since = campaign.LastSentUtc ?? nowUtc.AddDays(-7);
+            var since = freshWindow ? nowUtc.AddDays(-7) : campaign.LastSentUtc ?? nowUtc.AddDays(-7);
             var digest = _digest.GetNewSince(since);
 
             _log.Info("newsletter.digest", new Dictionary<string, object?>

@@ -1,0 +1,207 @@
+using System.Collections;
+using System.Globalization;
+using System.Net;
+using System.Text;
+
+namespace Jellyfin.Plugin.EasyNotif.Templating;
+
+/// <summary>
+/// A tiny, dependency-free template renderer for the email templates (Synthese.md section 3.5).
+/// Supports <c>{{key}}</c> (HTML-escaped), <c>{{{key}}}</c> (raw), <c>{{#if key}}...{{/if}}</c>,
+/// <c>{{#each key}}...{{/each}}</c> (with <c>{{.}}</c> and <c>{{@index}}</c> inside), and nesting.
+/// Unknown keys render as an empty string.
+/// </summary>
+public static class TemplateEngine
+{
+    /// <summary>Renders a template against a model.</summary>
+    /// <param name="template">The template text.</param>
+    /// <param name="model">The root model. Values may be strings, numbers, booleans, nested
+    /// dictionaries, or lists of dictionaries / scalars.</param>
+    /// <returns>The rendered text.</returns>
+    public static string Render(string template, IReadOnlyDictionary<string, object?> model)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(model);
+
+        var output = new StringBuilder(template.Length);
+        var scopes = new List<Frame> { new(model, null, -1) };
+        RenderRegion(template, 0, template.Length, scopes, output);
+        return output.ToString();
+    }
+
+    private sealed record Frame(IReadOnlyDictionary<string, object?>? Data, object? Current, int Index);
+
+    private static void RenderRegion(string t, int start, int end, List<Frame> scopes, StringBuilder output)
+    {
+        var i = start;
+        while (i < end)
+        {
+            var open = t.IndexOf("{{", i, end - i, StringComparison.Ordinal);
+            if (open < 0)
+            {
+                output.Append(t, i, end - i);
+                return;
+            }
+
+            output.Append(t, i, open - i);
+
+            var raw = open + 2 < end && t[open + 2] == '{';
+            var closeMarker = raw ? "}}}" : "}}";
+            var close = t.IndexOf(closeMarker, open, end - open, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                output.Append(t, open, end - open);
+                return;
+            }
+
+            var inner = t[(open + (raw ? 3 : 2))..close].Trim();
+            var afterTag = close + closeMarker.Length;
+
+            if (inner.StartsWith("#if ", StringComparison.Ordinal))
+            {
+                var key = inner[4..].Trim();
+                var (bodyEnd, regionEnd) = FindBlockEnd(t, afterTag, end, "#if", "/if");
+                if (IsTruthy(Resolve(scopes, key)))
+                {
+                    RenderRegion(t, afterTag, bodyEnd, scopes, output);
+                }
+
+                i = regionEnd;
+            }
+            else if (inner.StartsWith("#each ", StringComparison.Ordinal))
+            {
+                var key = inner[6..].Trim();
+                var (bodyEnd, regionEnd) = FindBlockEnd(t, afterTag, end, "#each", "/each");
+                if (Resolve(scopes, key) is IEnumerable list and not string)
+                {
+                    var index = 0;
+                    foreach (var item in list)
+                    {
+                        scopes.Add(new Frame(item as IReadOnlyDictionary<string, object?>, item, index));
+                        RenderRegion(t, afterTag, bodyEnd, scopes, output);
+                        scopes.RemoveAt(scopes.Count - 1);
+                        index++;
+                    }
+                }
+
+                i = regionEnd;
+            }
+            else
+            {
+                var value = Stringify(Resolve(scopes, inner));
+                output.Append(raw ? value : WebUtility.HtmlEncode(value));
+                i = afterTag;
+            }
+        }
+    }
+
+    // Returns (index just before the matching close tag's "{{", index just after its "}}").
+    private static (int BodyEnd, int RegionEnd) FindBlockEnd(string t, int from, int end, string openKw, string closeKw)
+    {
+        var depth = 1;
+        var i = from;
+        while (i < end)
+        {
+            var open = t.IndexOf("{{", i, end - i, StringComparison.Ordinal);
+            if (open < 0)
+            {
+                return (end, end);
+            }
+
+            var close = t.IndexOf("}}", open, end - open, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                return (end, end);
+            }
+
+            var tag = t[(open + 2)..close].Trim().TrimStart('{');
+            if (tag.StartsWith(openKw + " ", StringComparison.Ordinal) || tag == openKw)
+            {
+                depth++;
+            }
+            else if (tag == closeKw)
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return (open, close + 2);
+                }
+            }
+
+            i = close + 2;
+        }
+
+        return (end, end);
+    }
+
+    private static object? Resolve(List<Frame> scopes, string key)
+    {
+        if (key == ".")
+        {
+            for (var s = scopes.Count - 1; s >= 0; s--)
+            {
+                if (scopes[s].Current is not null)
+                {
+                    return scopes[s].Current;
+                }
+            }
+
+            return null;
+        }
+
+        if (key == "@index")
+        {
+            for (var s = scopes.Count - 1; s >= 0; s--)
+            {
+                if (scopes[s].Index >= 0)
+                {
+                    return scopes[s].Index;
+                }
+            }
+
+            return null;
+        }
+
+        for (var s = scopes.Count - 1; s >= 0; s--)
+        {
+            if (scopes[s].Data is { } data && data.TryGetValue(key, out var value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsTruthy(object? value) => value switch
+    {
+        null => false,
+        bool b => b,
+        string s => s.Length > 0,
+        IEnumerable e => e.Cast<object?>().Any(),
+        _ => TryToDouble(value, out var d) ? d != 0 : true
+    };
+
+    private static string Stringify(object? value) => value switch
+    {
+        null => string.Empty,
+        string s => s,
+        bool b => b ? "true" : "false",
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+        _ => value.ToString() ?? string.Empty
+    };
+
+    private static bool TryToDouble(object value, out double result)
+    {
+        try
+        {
+            result = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            return true;
+        }
+        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+        {
+            result = 0;
+            return false;
+        }
+    }
+}

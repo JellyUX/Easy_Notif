@@ -35,6 +35,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
+        serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();
+        serviceCollection.AddSingleton<NewsletterComposer>();
         serviceCollection.AddSingleton<IEmailContentBuilder, StubEmailContentBuilder>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<body style="margin:0;padding:0;background-color:#f3f4f6;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f4f6;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:8px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
+        <tr>
+          <td style="background-color:#2b2f36;border-radius:8px 8px 0 0;padding:20px 28px;">
+            <div style="font-size:20px;font-weight:700;color:#ffffff;">{{heading}}</div>
+            <div style="font-size:13px;color:#e0a458;padding-top:4px;">{{summary}}</div>
+          </td>
+        </tr>
+
+        {{#if isEmpty}}
+        <tr><td style="padding:28px;font-size:15px;color:#6b7280;">Rien de neuf n'a ete ajoute cette semaine.</td></tr>
+        {{/if}}
+
+        {{#if hasMovies}}
+        <tr><td style="padding:24px 28px 8px;font-size:16px;font-weight:700;border-bottom:2px solid #e0a458;">Films</td></tr>
+        {{#each movies}}
+        <tr>
+          <td style="padding:16px 28px;border-bottom:1px solid #e5e7eb;">
+            <table role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                {{#if posterUrl}}<td width="96" valign="top" style="padding-right:14px;"><img src="{{posterUrl}}" width="96" alt="{{title}}" style="display:block;border-radius:4px;" /></td>{{/if}}
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:700;">{{#if detailUrl}}<a href="{{detailUrl}}" style="color:#1a1a1a;text-decoration:none;">{{title}}</a>{{/if}}{{#if noLink}}{{title}}{{/if}}{{#if year}} <span style="font-weight:400;color:#6b7280;">({{year}})</span>{{/if}}</div>
+                  {{#if genres}}<div style="font-size:12px;color:#6b7280;padding-top:2px;">{{genres}}</div>{{/if}}
+                  {{#if overview}}<div style="font-size:13px;color:#374151;padding-top:6px;line-height:1.4;">{{overview}}</div>{{/if}}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {{/each}}
+        {{/if}}
+
+        {{#if hasSeries}}
+        <tr><td style="padding:24px 28px 8px;font-size:16px;font-weight:700;border-bottom:2px solid #e0a458;">Series</td></tr>
+        {{#each series}}
+        <tr>
+          <td style="padding:16px 28px;border-bottom:1px solid #e5e7eb;">
+            <table role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                {{#if posterUrl}}<td width="96" valign="top" style="padding-right:14px;"><img src="{{posterUrl}}" width="96" alt="{{title}}" style="display:block;border-radius:4px;" /></td>{{/if}}
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:700;">{{#if detailUrl}}<a href="{{detailUrl}}" style="color:#1a1a1a;text-decoration:none;">{{title}}</a>{{/if}}{{#if noLink}}{{title}}{{/if}}</div>
+                  <div style="font-size:13px;color:#374151;padding-top:2px;">{{episodesLabel}} <span style="color:#6b7280;">({{seasonsLabel}})</span></div>
+                  {{#if overview}}<div style="font-size:13px;color:#374151;padding-top:6px;line-height:1.4;">{{overview}}</div>{{/if}}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {{/each}}
+        {{/if}}
+
+        <tr>
+          <td style="padding:20px 28px;font-size:12px;color:#6b7280;line-height:1.5;border-radius:0 0 8px 8px;">
+            <p style="margin:0 0 6px;">Ajoutez cet expediteur a vos contacts pour que les prochains messages arrivent dans votre boite de reception.</p>
+            <p style="margin:0 0 6px;">Votre adresse de contact est stockee par ce plugin et transmise a Resend pour l'envoi. Elle est supprimee a la desinstallation du plugin.</p>
+            <p style="margin:0;">Pour changer ce que vous recevez, ouvrez Notifications dans vos parametres utilisateur Jellyfin.</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

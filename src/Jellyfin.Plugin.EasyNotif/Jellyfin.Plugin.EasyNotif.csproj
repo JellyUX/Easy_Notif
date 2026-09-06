@@ -26,6 +26,8 @@
     <EmbeddedResource Include="Web\enotif-user.css" />
     <EmbeddedResource Include="Web\strings\en.json" />
     <EmbeddedResource Include="Web\strings\fr.json" />
+    <EmbeddedResource Include="Templates\newsletter-en.html" />
+    <EmbeddedResource Include="Templates\newsletter-fr.html" />
   </ItemGroup>
 
   <ItemGroup>

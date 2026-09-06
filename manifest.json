@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.6.0.0",
+                "changelog": "### Features\n\n* add the campaign store with the two system campaigns ([ec851e8](https://github.com/JellyUX/Easy_Notif/commit/ec851e8a515753587dbfa17569b41f5b6a7ab3e5))\n* add the campaigns config tab ([6f7df1b](https://github.com/JellyUX/Easy_Notif/commit/6f7df1b67bf996d82d7f5115e798268ea7bab550))\n* add the dispatch service and its scheduled task ([20e793a](https://github.com/JellyUX/Easy_Notif/commit/20e793a6048474a894d230e02a567762dd36f4d6))\n* add the recurrence schedule value object ([91eada4](https://github.com/JellyUX/Easy_Notif/commit/91eada4af4cfd5db5c874cbb24f887d2f3f1c7e9))\n\n### Bug Fixes\n\n* make the campaign enabled toggle reliably clickable ([eb5bbac](https://github.com/JellyUX/Easy_Notif/commit/eb5bbac758e4f7c22f44fa044cd6d5e426a31660))\n* show campaign run times in the configured time zone ([2034183](https://github.com/JellyUX/Easy_Notif/commit/2034183f548c8d1efa630f1dd89fe63c7dabe91f))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.6.0/easy-notif_0.6.0.0.zip",
+                "checksum": "bf72292762b6edf16eae544e6f7d1a21",
+                "timestamp": "2026-09-06T14:23:02Z"
+            },
+            {
                 "version": "0.5.0.0",
                 "changelog": "### Features\n\n* add a dedicated rolling log file ([4ba2e13](https://github.com/JellyUX/Easy_Notif/commit/4ba2e1378b719774b2c8c812b608d8321b6b9cd7))\n* instrument the plugin events and expose a logs tab ([a5599d4](https://github.com/JellyUX/Easy_Notif/commit/a5599d442eca53c54771396f66c8c6274be0a0bc))",
                 "targetAbi": "10.11.10.0",

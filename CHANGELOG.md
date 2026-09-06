@@ -1,3 +1,17 @@
+## [0.6.0](https://github.com/JellyUX/Easy_Notif/compare/v0.5.0...v0.6.0) (2026-09-06)
+
+### Features
+
+* add the campaign store with the two system campaigns ([ec851e8](https://github.com/JellyUX/Easy_Notif/commit/ec851e8a515753587dbfa17569b41f5b6a7ab3e5))
+* add the campaigns config tab ([6f7df1b](https://github.com/JellyUX/Easy_Notif/commit/6f7df1b67bf996d82d7f5115e798268ea7bab550))
+* add the dispatch service and its scheduled task ([20e793a](https://github.com/JellyUX/Easy_Notif/commit/20e793a6048474a894d230e02a567762dd36f4d6))
+* add the recurrence schedule value object ([91eada4](https://github.com/JellyUX/Easy_Notif/commit/91eada4af4cfd5db5c874cbb24f887d2f3f1c7e9))
+
+### Bug Fixes
+
+* make the campaign enabled toggle reliably clickable ([eb5bbac](https://github.com/JellyUX/Easy_Notif/commit/eb5bbac758e4f7c22f44fa044cd6d5e426a31660))
+* show campaign run times in the configured time zone ([2034183](https://github.com/JellyUX/Easy_Notif/commit/2034183f548c8d1efa630f1dd89fe63c7dabe91f))
+
 ## [0.5.0](https://github.com/JellyUX/Easy_Notif/compare/v0.4.0...v0.5.0) (2026-09-04)
 
 ### Features

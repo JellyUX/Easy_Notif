@@ -4,7 +4,9 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Net;
@@ -36,6 +38,8 @@ public class EasyNotifController : ControllerBase
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
     private readonly IManualEmailService _manualEmail;
+    private readonly ICampaignStore _campaigns;
+    private readonly IDispatchService _dispatch;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
@@ -49,6 +53,8 @@ public class EasyNotifController : ControllerBase
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="manualEmail">The manual admin email service.</param>
+    /// <param name="campaigns">The campaign store.</param>
+    /// <param name="dispatch">The dispatch service.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
@@ -59,6 +65,8 @@ public class EasyNotifController : ControllerBase
         IQuotaGuard quota,
         ISendLog sendLog,
         IManualEmailService manualEmail,
+        ICampaignStore campaigns,
+        IDispatchService dispatch,
         IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
@@ -69,6 +77,8 @@ public class EasyNotifController : ControllerBase
         _quota = quota;
         _sendLog = sendLog;
         _manualEmail = manualEmail;
+        _campaigns = campaigns;
+        _dispatch = dispatch;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -491,6 +501,145 @@ public class EasyNotifController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // Admin - campaigns
+    // -------------------------------------------------------------------------
+
+    /// <summary>Gets the scheduled campaigns and their state. Administrators only.</summary>
+    /// <returns>The campaigns.</returns>
+    [HttpGet("admin/campaigns")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetCampaigns() => Wrap(() => Ok(_campaigns.All().Select(c => new
+    {
+        id = c.Id,
+        type = c.Type.ToString(),
+        category = c.Category.ToString(),
+        enabled = c.Enabled,
+        mailLanguage = c.MailLanguage,
+        lastSentUtc = c.LastSentUtc,
+        nextRunUtc = c.NextRunUtc,
+        schedule = new
+        {
+            kind = c.Schedule.Kind.ToString(),
+            time = c.Schedule.Time.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture),
+            dayOfWeek = c.Schedule.DayOfWeek?.ToString(),
+            dayOfMonth = c.Schedule.DayOfMonth,
+            intervalDays = c.Schedule.IntervalDays
+        }
+    })));
+
+    /// <summary>Updates one campaign's enabled state, mail language and/or schedule. Administrators only.</summary>
+    /// <param name="id">The campaign id.</param>
+    /// <param name="body">The fields to change. A null field is left unchanged.</param>
+    /// <returns>204 on success; 400 on an invalid language or schedule; 404 for an unknown id.</returns>
+    [HttpPut("admin/campaigns/{id}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult PutCampaign([FromRoute] string id, [FromBody] CampaignUpdate? body)
+    {
+        if (body?.MailLanguage is { } lang && lang is not ("en" or "fr"))
+        {
+            return BadRequest(new { error = "invalid-language" });
+        }
+
+        RecurrenceSchedule? schedule = null;
+        if (body?.Schedule is { } scheduleBody)
+        {
+            if (!TryParseSchedule(scheduleBody, out var parsed, out var error))
+            {
+                return BadRequest(new { error });
+            }
+
+            schedule = parsed;
+        }
+
+        return Wrap(() =>
+        {
+            var existing = _campaigns.Get(id);
+            if (existing is null)
+            {
+                return NotFound();
+            }
+
+            var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
+            var enabling = body?.Enabled == true && !existing.Enabled;
+            var scheduleChanged = schedule is not null && !schedule.Equals(existing.Schedule);
+
+            _campaigns.Update(id, c =>
+            {
+                if (body?.Enabled is { } enabled)
+                {
+                    c.Enabled = enabled;
+                }
+
+                if (body?.MailLanguage is { } mailLanguage)
+                {
+                    c.MailLanguage = mailLanguage;
+                }
+
+                if (schedule is not null)
+                {
+                    c.Schedule = schedule;
+                }
+
+                if (scheduleChanged || enabling)
+                {
+                    c.NextRunUtc = c.Enabled ? c.Schedule.NextRunUtc(DateTime.UtcNow, tz) : c.NextRunUtc;
+                }
+
+                if (body?.Enabled == false)
+                {
+                    c.NextRunUtc = null;
+                }
+            });
+
+            _easyNotifLog.Info("campaign.updated", new Dictionary<string, object?>
+            {
+                ["campaignId"] = id,
+                ["enabled"] = body?.Enabled,
+                ["mailLanguage"] = body?.MailLanguage,
+                ["scheduleChanged"] = scheduleChanged
+            });
+            return NoContent();
+        });
+    }
+
+    /// <summary>Runs one campaign now, whether or not it is enabled. Administrators only.</summary>
+    /// <param name="id">The campaign id.</param>
+    /// <returns>200 with the run summary; 404 for an unknown id.</returns>
+    [HttpPost("admin/campaigns/{id}/run")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> RunCampaign([FromRoute] string id)
+    {
+        try
+        {
+            var result = await _dispatch.RunCampaignNowAsync(id, HttpContext.RequestAborted).ConfigureAwait(false);
+            return result.Found
+                ? Ok(new
+                {
+                    campaignId = result.CampaignId,
+                    sent = result.Sent,
+                    failed = result.Failed,
+                    skippedNoEmail = result.Skipped,
+                    nextRunUtc = result.NextRunUtc
+                })
+                : NotFound();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Static assets (embedded, anonymous)
     // -------------------------------------------------------------------------
 
@@ -539,6 +688,65 @@ public class EasyNotifController : ControllerBase
     // -------------------------------------------------------------------------
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool TryParseSchedule(ScheduleUpdate body, out RecurrenceSchedule schedule, out string? error)
+    {
+        schedule = RecurrenceSchedule.Daily(default);
+        error = null;
+
+        if (!Enum.TryParse<RecurrenceKind>(body.Kind, ignoreCase: true, out var kind))
+        {
+            error = "invalid-kind";
+            return false;
+        }
+
+        if (!TimeOnly.TryParseExact(body.Time, "HH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var time))
+        {
+            error = "invalid-time";
+            return false;
+        }
+
+        switch (kind)
+        {
+            case RecurrenceKind.Daily:
+                schedule = RecurrenceSchedule.Daily(time);
+                return true;
+
+            case RecurrenceKind.Weekly:
+                if (!Enum.TryParse<DayOfWeek>(body.DayOfWeek, ignoreCase: true, out var dow))
+                {
+                    error = "invalid-day-of-week";
+                    return false;
+                }
+
+                schedule = RecurrenceSchedule.Weekly(dow, time);
+                return true;
+
+            case RecurrenceKind.Monthly:
+                if (body.DayOfMonth is not { } dom || dom is < 1 or > 31)
+                {
+                    error = "invalid-day-of-month";
+                    return false;
+                }
+
+                schedule = RecurrenceSchedule.Monthly(dom, time);
+                return true;
+
+            case RecurrenceKind.EveryNDays:
+                if (body.IntervalDays is not { } interval || interval < 1)
+                {
+                    error = "invalid-interval-days";
+                    return false;
+                }
+
+                schedule = RecurrenceSchedule.EveryNDays(interval, time);
+                return true;
+
+            default:
+                error = "invalid-kind";
+                return false;
+        }
+    }
 
     private static Dictionary<EmailCategory, bool> BuildCategoryMap(CategoryUpdate? body)
     {
@@ -656,6 +864,38 @@ public sealed class AttachmentDto
 
     /// <summary>Gets or sets the MIME type, or null.</summary>
     public string? ContentType { get; set; }
+}
+
+/// <summary>Request body for <c>PUT /EasyNotif/admin/campaigns/{id}</c>. A null field is left unchanged.</summary>
+public sealed class CampaignUpdate
+{
+    /// <summary>Gets or sets whether the campaign is active.</summary>
+    public bool? Enabled { get; set; }
+
+    /// <summary>Gets or sets the mail language (<c>en</c> or <c>fr</c>).</summary>
+    public string? MailLanguage { get; set; }
+
+    /// <summary>Gets or sets the new recurrence.</summary>
+    public ScheduleUpdate? Schedule { get; set; }
+}
+
+/// <summary>A recurrence in a campaign update request.</summary>
+public sealed class ScheduleUpdate
+{
+    /// <summary>Gets or sets the kind: <c>daily</c>, <c>weekly</c>, <c>monthly</c> or <c>everyNDays</c>.</summary>
+    public string? Kind { get; set; }
+
+    /// <summary>Gets or sets the local time of day as <c>HH:mm</c>.</summary>
+    public string? Time { get; set; }
+
+    /// <summary>Gets or sets the day of week for a weekly schedule.</summary>
+    public string? DayOfWeek { get; set; }
+
+    /// <summary>Gets or sets the 1-31 day of month for a monthly schedule.</summary>
+    public int? DayOfMonth { get; set; }
+
+    /// <summary>Gets or sets the day interval for an every-N-days schedule.</summary>
+    public int? IntervalDays { get; set; }
 }
 
 /// <summary>Request body for <c>PUT /EasyNotif/admin/settings</c>. A blank secret is ignored.</summary>

@@ -73,6 +73,37 @@ public static class UnsubscribeToken
         return true;
     }
 
+    /// <summary>
+    /// Builds the <c>List-Unsubscribe</c> / <c>List-Unsubscribe-Post</c> header pair for a
+    /// one-click unsubscribe link, or null when the public server URL or the secret is not set
+    /// (Synthese.md section 7.2). The consuming <c>/EasyNotif/u/{token}</c> endpoint arrives in a
+    /// later phase.
+    /// </summary>
+    /// <param name="publicServerUrl">The public base URL of this server.</param>
+    /// <param name="secret">The plugin unsubscribe secret.</param>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="category">The category to unsubscribe from: <c>news</c>, <c>recap</c> or <c>all</c>.</param>
+    /// <returns>The header pair, or null.</returns>
+    public static IReadOnlyDictionary<string, string>? BuildListUnsubscribeHeaders(
+        string? publicServerUrl,
+        string? secret,
+        Guid userId,
+        string category)
+    {
+        if (string.IsNullOrWhiteSpace(publicServerUrl) || string.IsNullOrWhiteSpace(secret))
+        {
+            return null;
+        }
+
+        var token = Create(secret, userId, category);
+        var url = $"{publicServerUrl.TrimEnd('/')}/EasyNotif/u/{token}";
+        return new Dictionary<string, string>
+        {
+            ["List-Unsubscribe"] = $"<{url}>",
+            ["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        };
+    }
+
     private static byte[] Sign(string secret, byte[] payload)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));

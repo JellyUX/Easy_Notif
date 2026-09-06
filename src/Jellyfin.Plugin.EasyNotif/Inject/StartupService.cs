@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using Microsoft.Extensions.Hosting;
@@ -14,7 +15,7 @@ namespace Jellyfin.Plugin.EasyNotif.Inject;
 /// exists, then registers the single index.html web transformation via the FileTransformation
 /// plugin. Registered explicitly with <c>AddHostedService</c> in
 /// <see cref="PluginServiceRegistrator"/> (an <see cref="IHostedService"/> does not show up under
-/// Dashboard &gt; Scheduled Tasks, unlike an <c>IScheduledTask</c>).
+/// Dashboard &gt; Scheduled Tasks, unlike a scheduled task).
 /// </summary>
 public sealed class StartupService : IHostedService
 {

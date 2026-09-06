@@ -209,18 +209,5 @@ public sealed class ManualEmailService : IManualEmailService
     }
 
     private static IReadOnlyDictionary<string, string>? BuildUnsubscribeHeaders(PluginConfiguration cfg, Guid userId)
-    {
-        if (string.IsNullOrWhiteSpace(cfg.PublicServerUrl) || string.IsNullOrWhiteSpace(cfg.UnsubscribeSecret))
-        {
-            return null;
-        }
-
-        var token = UnsubscribeToken.Create(cfg.UnsubscribeSecret, userId, UnsubscribeCategory);
-        var url = $"{cfg.PublicServerUrl.TrimEnd('/')}/EasyNotif/u/{token}";
-        return new Dictionary<string, string>
-        {
-            ["List-Unsubscribe"] = $"<{url}>",
-            ["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-        };
-    }
+        => UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, cfg.UnsubscribeSecret, userId, UnsubscribeCategory);
 }

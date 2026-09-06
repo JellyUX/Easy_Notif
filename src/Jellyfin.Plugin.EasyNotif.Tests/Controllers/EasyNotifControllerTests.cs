@@ -5,7 +5,9 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Net;
@@ -45,6 +47,9 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetStatus))]
     [InlineData(nameof(EasyNotifController.SendManualEmail))]
     [InlineData(nameof(EasyNotifController.GetLogs))]
+    [InlineData(nameof(EasyNotifController.GetCampaigns))]
+    [InlineData(nameof(EasyNotifController.PutCampaign))]
+    [InlineData(nameof(EasyNotifController.RunCampaign))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -522,6 +527,113 @@ public sealed class EasyNotifControllerTests
     }
 
     // -------------------------------------------------------------------------
+    // Admin - campaigns
+    // -------------------------------------------------------------------------
+
+    private static FakeCampaignStore SeededCampaigns() => new(
+        new Campaign { Id = "newsletter", Type = CampaignType.Newsletter, Category = EmailCategory.News, Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Friday, new TimeOnly(9, 0)) },
+        new Campaign { Id = "weekly-recap", Type = CampaignType.WeeklyRecap, Category = EmailCategory.Recap, Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(8, 0)) });
+
+    [Fact]
+    public void GetCampaigns_ReturnsBothRows_WithNestedSchedule_NoSecret()
+    {
+        var controller = BuildController(campaigns: SeededCampaigns());
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetCampaigns());
+        var json = JsonSerializer.Serialize(ok.Value);
+
+        Assert.Contains("newsletter", json, StringComparison.Ordinal);
+        Assert.Contains("weekly-recap", json, StringComparison.Ordinal);
+        Assert.Contains("\"kind\":\"Weekly\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("re_", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("whsec_", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutCampaign_UnknownId_Returns404()
+    {
+        var controller = BuildController(campaigns: SeededCampaigns());
+
+        var result = controller.PutCampaign("nope", new CampaignUpdate { Enabled = true });
+
+        Assert.IsType<NotFoundResult>(result);
+    }
+
+    [Fact]
+    public void PutCampaign_InvalidLanguage_Returns400()
+    {
+        var result = BuildController(campaigns: SeededCampaigns()).PutCampaign("newsletter", new CampaignUpdate { MailLanguage = "de" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Theory]
+    [InlineData("Weekly", null, "09:00")]
+    [InlineData("Weekly", "Friday", "99:99")]
+    [InlineData("Monthly", null, "09:00")]
+    public void PutCampaign_InvalidSchedule_Returns400(string kind, string? dayOfWeek, string time)
+    {
+        var body = new CampaignUpdate
+        {
+            Schedule = new ScheduleUpdate { Kind = kind, Time = time, DayOfWeek = dayOfWeek }
+        };
+
+        var result = BuildController(campaigns: SeededCampaigns()).PutCampaign("newsletter", body);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void PutCampaign_ValidScheduleChange_Returns204_RecomputesNextRun()
+    {
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].Enabled = true;
+        var controller = BuildController(campaigns: campaigns);
+
+        var result = controller.PutCampaign("newsletter", new CampaignUpdate
+        {
+            Schedule = new ScheduleUpdate { Kind = "daily", Time = "07:15" }
+        });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal(RecurrenceKind.Daily, campaigns.Campaigns[0].Schedule.Kind);
+        Assert.NotNull(campaigns.Campaigns[0].NextRunUtc);
+    }
+
+    [Fact]
+    public void PutCampaign_Disabling_ClearsNextRun()
+    {
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].Enabled = true;
+        campaigns.Campaigns[0].NextRunUtc = DateTime.UtcNow.AddDays(1);
+
+        BuildController(campaigns: campaigns).PutCampaign("newsletter", new CampaignUpdate { Enabled = false });
+
+        Assert.Null(campaigns.Campaigns[0].NextRunUtc);
+    }
+
+    [Fact]
+    public async Task RunCampaign_DelegatesToDispatch_MapsFoundToResult()
+    {
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.RunCampaignNowAsync("newsletter", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CampaignRunResult("newsletter", 2, 0, 1, DateTime.UtcNow) { Found = true });
+
+        var ok = Assert.IsType<OkObjectResult>(await BuildController(dispatch: dispatch).RunCampaign("newsletter"));
+        Assert.Contains("\"sent\":2", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunCampaign_UnknownId_Returns404()
+    {
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.RunCampaignNowAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CampaignRunResult("x", 0, 0, 0, null) { Found = false });
+
+        Assert.IsType<NotFoundResult>(await BuildController(dispatch: dispatch).RunCampaign("x"));
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -535,6 +647,8 @@ public sealed class EasyNotifControllerTests
         Mock<IQuotaGuard>? quota = null,
         Mock<ISendLog>? sendLog = null,
         Mock<IManualEmailService>? manualEmail = null,
+        ICampaignStore? campaigns = null,
+        Mock<IDispatchService>? dispatch = null,
         FakeEasyNotifLog? easyNotifLog = null)
     {
         var controller = new EasyNotifController(
@@ -545,6 +659,8 @@ public sealed class EasyNotifControllerTests
             (quota ?? new Mock<IQuotaGuard>()).Object,
             (sendLog ?? new Mock<ISendLog>()).Object,
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
+            campaigns ?? new FakeCampaignStore(),
+            (dispatch ?? new Mock<IDispatchService>()).Object,
             easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext

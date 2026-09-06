@@ -24,7 +24,7 @@ public enum RecurrenceKind
 }
 
 /// <summary>
-/// An immutable recurrence rule with a local wall-clock time. <see cref="NextRunUtc"/> resolves the
+/// An immutable recurrence rule with a local wall-clock time. <see cref="NextRunUtc(DateTime, TimeZoneInfo)"/> resolves the
 /// strictly next occurrence in a given time zone, clamps a day-of-month past the month length and
 /// handles the two daylight-saving edge cases (a skipped hour and a repeated hour).
 /// </summary>

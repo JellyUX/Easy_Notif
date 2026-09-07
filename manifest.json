@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.8.0.0",
+                "changelog": "### Features\n\n* add the personalised weekly watch recap ([bc33662](https://github.com/JellyUX/Easy_Notif/commit/bc33662ed0dc604c27e9bead84443805f8703ebe))\n* add the playback history store ([270ab7d](https://github.com/JellyUX/Easy_Notif/commit/270ab7d65a84c901e5ed30c5d12068863d2e5676))\n* record significant playback stops ([9527fa2](https://github.com/JellyUX/Easy_Notif/commit/9527fa267363092364ceb6b14bb5f7b9aba3c0fb))\n\n### Bug Fixes\n\n* count a repeated playback stop for the same view once ([c2e7184](https://github.com/JellyUX/Easy_Notif/commit/c2e7184e4fda007796ba376889f6aa44df4d1513))\n* send every manual campaign run instead of deduplicating it ([883b64a](https://github.com/JellyUX/Easy_Notif/commit/883b64a77b769d9c8408dc999d2f81019f4babc2))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.8.0/easy-notif_0.8.0.0.zip",
+                "checksum": "a59c648a7b2fe98d1a1d9b8133aec57c",
+                "timestamp": "2026-09-07T16:11:18Z"
+            },
+            {
                 "version": "0.7.0.0",
                 "changelog": "### Features\n\n* add the new-media digest service ([a262811](https://github.com/JellyUX/Easy_Notif/commit/a262811f9f8ffbbe40b87976e413dde65f390eb4))\n* add the templating engine and the newsletter template ([d9de1b9](https://github.com/JellyUX/Easy_Notif/commit/d9de1b93b6c1e1bf9ca23f56c6aea74049db5fac))\n* track new media by server add-time via the ItemAdded event ([00fa82e](https://github.com/JellyUX/Easy_Notif/commit/00fa82e4add13736cc9db56d080f2ede8f897b5c))\n* wire the newsletter campaign and its preview ([2a55e4c](https://github.com/JellyUX/Easy_Notif/commit/2a55e4c7c361cde7837517265aa4a1b31cda6706))\n\n### Bug Fixes\n\n* key idempotency by the scheduled slot, preview a fresh 7-day window ([3642468](https://github.com/JellyUX/Easy_Notif/commit/3642468ae46cc3e91cb0f944f763e598d04bf5e5))\n* treat a 409 idempotency conflict as a deduplicated send ([850a7e9](https://github.com/JellyUX/Easy_Notif/commit/850a7e9e7560ecb7499b4a4ae40c2d25925f9ea7))\n* window the newsletter digest by DateCreated in memory ([ac769cf](https://github.com/JellyUX/Easy_Notif/commit/ac769cf8329de8c0f163710b5a455d4c53e9a371))",
                 "targetAbi": "10.11.10.0",

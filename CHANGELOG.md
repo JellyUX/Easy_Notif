@@ -1,3 +1,16 @@
+## [0.8.0](https://github.com/JellyUX/Easy_Notif/compare/v0.7.0...v0.8.0) (2026-09-07)
+
+### Features
+
+* add the personalised weekly watch recap ([bc33662](https://github.com/JellyUX/Easy_Notif/commit/bc33662ed0dc604c27e9bead84443805f8703ebe))
+* add the playback history store ([270ab7d](https://github.com/JellyUX/Easy_Notif/commit/270ab7d65a84c901e5ed30c5d12068863d2e5676))
+* record significant playback stops ([9527fa2](https://github.com/JellyUX/Easy_Notif/commit/9527fa267363092364ceb6b14bb5f7b9aba3c0fb))
+
+### Bug Fixes
+
+* count a repeated playback stop for the same view once ([c2e7184](https://github.com/JellyUX/Easy_Notif/commit/c2e7184e4fda007796ba376889f6aa44df4d1513))
+* send every manual campaign run instead of deduplicating it ([883b64a](https://github.com/JellyUX/Easy_Notif/commit/883b64a77b769d9c8408dc999d2f81019f4babc2))
+
 ## [0.7.0](https://github.com/JellyUX/Easy_Notif/compare/v0.6.0...v0.7.0) (2026-09-06)
 
 ### Features

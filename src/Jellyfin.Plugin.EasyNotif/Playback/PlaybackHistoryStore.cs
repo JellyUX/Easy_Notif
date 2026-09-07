@@ -178,7 +178,12 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
                 changed = true;
             }
 
-            if (file.Rollup.Count == 0 && file.Events.Count > 0)
+            if (CollapseDuplicates(file))
+            {
+                RebuildRollup(file);
+                changed = true;
+            }
+            else if (file.Rollup.Count == 0 && file.Events.Count > 0)
             {
                 RebuildRollup(file);
                 changed = true;
@@ -235,8 +240,7 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
                 file.Events.RemoveAll(e => e.Ts < cutoff);
                 foreach (var ev in batch)
                 {
-                    file.Events.Add(ev);
-                    ApplyToRollup(file, ev);
+                    Ingest(file, ev);
                 }
 
                 if (file.Events.Count > MaxEvents)
@@ -246,6 +250,80 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
 
                 return true;
             });
+        }
+    }
+
+    /// <summary>
+    /// Adds one event, treating a second <c>PlaybackStopped</c> for the same user, item and day as
+    /// the same view: the stored row is updated in place and the rollup is not incremented again.
+    /// Jellyfin's <c>ISessionManager.PlaybackStopped</c> can fire more than once for a single stop
+    /// (observed twice for auto-advancing episodes).
+    /// </summary>
+    private static void Ingest(PlaybackHistoryFile file, PlaybackEvent ev)
+    {
+        var index = file.Events.FindLastIndex(e =>
+            e.UserId == ev.UserId && e.ItemId == ev.ItemId && e.Ts.Date == ev.Ts.Date);
+
+        if (index < 0)
+        {
+            file.Events.Add(ev);
+            ApplyToRollup(file, ev);
+            return;
+        }
+
+        var merged = ev with { Completed = file.Events[index].Completed || ev.Completed };
+        RemoveFromRollup(file, file.Events[index]);
+        file.Events[index] = merged;
+        ApplyToRollup(file, merged);
+    }
+
+    /// <summary>
+    /// Collapses same-user/item/day duplicate rows left by an earlier double-fire (before this
+    /// store deduplicated on write). Returns true when it changed the list.
+    /// </summary>
+    private static bool CollapseDuplicates(PlaybackHistoryFile file)
+    {
+        var byKey = new Dictionary<(Guid User, Guid Item, DateOnly Day), PlaybackEvent>();
+        foreach (var ev in file.Events)
+        {
+            var key = (ev.UserId, ev.ItemId, DateOnly.FromDateTime(ev.Ts));
+            byKey[key] = byKey.TryGetValue(key, out var prev)
+                ? ev with { Completed = prev.Completed || ev.Completed }
+                : ev;
+        }
+
+        if (byKey.Count == file.Events.Count)
+        {
+            return false;
+        }
+
+        var collapsed = byKey.Values.OrderBy(e => e.Ts).ToList();
+        file.Events.Clear();
+        file.Events.AddRange(collapsed);
+        return true;
+    }
+
+    private static void RemoveFromRollup(PlaybackHistoryFile file, PlaybackEvent ev)
+    {
+        if (!file.Rollup.TryGetValue(RollupKey(ev.UserId, ev.Ts.Year), out var year))
+        {
+            return;
+        }
+
+        year.Total = Math.Max(0, year.Total - 1);
+        if (ev.Completed)
+        {
+            year.Completed = Math.Max(0, year.Completed - 1);
+        }
+
+        var month = ev.Ts.ToString("MM", CultureInfo.InvariantCulture);
+        if (year.ByMonth.TryGetValue(month, out var monthStats))
+        {
+            monthStats.Total = Math.Max(0, monthStats.Total - 1);
+            if (ev.Completed)
+            {
+                monthStats.Completed = Math.Max(0, monthStats.Completed - 1);
+            }
         }
     }
 

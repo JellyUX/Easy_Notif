@@ -84,6 +84,84 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Rollup_CountsADuplicatePlaybackStopOnce()
+    {
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+
+        // ISessionManager.PlaybackStopped can fire twice for one stop.
+        store.Record(Event(user, item, _now, completed: true));
+        store.Record(Event(user, item, _now.AddSeconds(1), completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 1);
+
+        Assert.Equal(1, store.GetYearToDate(user, 2026).Total);
+        Assert.Equal(1, store.GetYearToDate(user, 2026).Completed);
+        Assert.Single(store.GetWeek(user, _now.AddDays(-7)));
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Rollup_CountsARewatchOnAnotherDayTwice()
+    {
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+
+        store.Record(Event(user, item, _now.AddDays(-2), completed: true));
+        store.Record(Event(user, item, _now, completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 2);
+
+        Assert.Equal(2, store.GetYearToDate(user, 2026).Total);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Duplicate_KeepsCompletion_WhenEitherStopCompleted()
+    {
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+
+        store.Record(Event(user, item, _now, completed: false));
+        store.Record(Event(user, item, _now.AddSeconds(1), completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 1);
+
+        Assert.Equal(1, store.GetYearToDate(user, 2026).Completed);
+        Assert.True(store.GetWeek(user, _now.AddDays(-7))[0].Completed);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Start_CollapsesLegacySameDayDuplicates_AndFixesTheRollup()
+    {
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        var ts = _now.ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ");
+        Directory.CreateDirectory(DataDir);
+        File.WriteAllText(
+            Path.Combine(DataDir, "playback-history.json"),
+            $$"""
+            { "Schema": 1, "TrackingSinceUtc": "{{ts}}",
+              "Rollup": { "{{user:N}}:2026": { "Total": 3, "Completed": 3, "ByMonth": { "06": { "Total": 3, "Completed": 3 } } } },
+              "Events": [
+                { "Ts": "{{ts}}", "UserId": "{{user}}", "ItemId": "{{item}}", "Kind": "Episode", "Name": "e", "PositionTicks": 0, "RuntimeTicks": 0, "Completed": true },
+                { "Ts": "{{ts}}", "UserId": "{{user}}", "ItemId": "{{item}}", "Kind": "Episode", "Name": "e", "PositionTicks": 0, "RuntimeTicks": 0, "Completed": true },
+                { "Ts": "{{ts}}", "UserId": "{{user}}", "ItemId": "{{item}}", "Kind": "Episode", "Name": "e", "PositionTicks": 0, "RuntimeTicks": 0, "Completed": true } ] }
+            """);
+
+        var store = Build();
+        store.Start();
+
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 1);
+        Assert.Single(store.GetWeek(user, _now.AddDays(-7)));
+        await store.StopAsync();
+    }
+
+    [Fact]
     public async Task GetWeek_DeduplicatesByItem_KeepingTheLatestEvent()
     {
         var store = Build();

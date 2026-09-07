@@ -46,7 +46,7 @@
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "./artifacts/*.zip", "label": "Keep or Remove plugin" }
+          { "path": "./artifacts/*.zip", "label": "Easy Notif plugin" }
         ]
       }
     ],

@@ -1,7 +1,9 @@
+using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Recap;
+using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
@@ -14,6 +16,7 @@ public sealed class EmailComposer : IEmailComposer
     private readonly IWeeklyRecapService _recap;
     private readonly WeeklyRecapComposer _recapComposer;
     private readonly ServerLinkContext _links;
+    private readonly IConfigAccessor _config;
     private readonly IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="EmailComposer"/> class.</summary>
@@ -22,6 +25,7 @@ public sealed class EmailComposer : IEmailComposer
     /// <param name="recap">The per-user weekly recap service.</param>
     /// <param name="recapComposer">The weekly recap composer.</param>
     /// <param name="links">The captured server identity (for the heading).</param>
+    /// <param name="config">The plugin configuration accessor (for the unsubscribe link).</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public EmailComposer(
         INewsletterDigestService digest,
@@ -29,6 +33,7 @@ public sealed class EmailComposer : IEmailComposer
         IWeeklyRecapService recap,
         WeeklyRecapComposer recapComposer,
         ServerLinkContext links,
+        IConfigAccessor config,
         IEasyNotifLog log)
     {
         _digest = digest;
@@ -36,6 +41,7 @@ public sealed class EmailComposer : IEmailComposer
         _recap = recap;
         _recapComposer = recapComposer;
         _links = links;
+        _config = config;
         _log = log;
     }
 
@@ -47,6 +53,23 @@ public sealed class EmailComposer : IEmailComposer
         var templateId = string.IsNullOrEmpty(campaign.TemplateId)
             ? TemplateStore.DefaultTemplateId(campaign.Type)
             : campaign.TemplateId;
+
+        var cfg = _config.Get();
+        var category = campaign.Category.ToString().ToLowerInvariant();
+        var lang = campaign.MailLanguage == "en" ? "en" : "fr";
+
+        string? UnsubscribeUrl(Recipient recipient)
+        {
+            if (recipient.UserId == Guid.Empty
+                || string.IsNullOrWhiteSpace(cfg.PublicServerUrl)
+                || string.IsNullOrWhiteSpace(cfg.UnsubscribeSecret))
+            {
+                return null;
+            }
+
+            var token = UnsubscribeToken.Create(cfg.UnsubscribeSecret, recipient.UserId, category);
+            return $"{cfg.PublicServerUrl.TrimEnd('/')}/EasyNotif/u/{token}?lang={lang}";
+        }
 
         if (campaign.Type == CampaignType.Newsletter)
         {
@@ -67,7 +90,7 @@ public sealed class EmailComposer : IEmailComposer
             {
                 ShouldSend = !digest.IsEmpty,
                 SkipReason = digest.IsEmpty ? "empty-digest" : null,
-                Render = _ => _newsletter.Compose(campaign, digest, _links.ServerName, templateId),
+                Render = recipient => _newsletter.Compose(campaign, digest, _links.ServerName, templateId, UnsubscribeUrl(recipient)),
                 MovieCount = digest.Movies.Count,
                 SeriesCount = digest.Series.Count
             };
@@ -83,7 +106,8 @@ public sealed class EmailComposer : IEmailComposer
                     campaign,
                     _recap.BuildFor(recipient.UserId, nowUtc),
                     _links.ServerName,
-                    templateId)
+                    templateId,
+                    UnsubscribeUrl(recipient))
             };
         }
 

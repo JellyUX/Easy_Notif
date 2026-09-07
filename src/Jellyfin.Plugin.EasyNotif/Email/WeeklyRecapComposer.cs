@@ -24,8 +24,9 @@ public sealed class WeeklyRecapComposer
     /// <param name="model">The user's recap data.</param>
     /// <param name="serverName">The server's friendly name, for the heading.</param>
     /// <param name="templateId">The template id to render with (base or custom).</param>
+    /// <param name="unsubscribeUrl">The recipient's one-click unsubscribe URL, or null.</param>
     /// <returns>The composed content.</returns>
-    public EmailContent Compose(Campaign campaign, RecapModel model, string serverName, string templateId)
+    public EmailContent Compose(Campaign campaign, RecapModel model, string serverName, string templateId, string? unsubscribeUrl = null)
     {
         ArgumentNullException.ThrowIfNull(campaign);
         ArgumentNullException.ThrowIfNull(model);
@@ -64,14 +65,15 @@ public sealed class WeeklyRecapComposer
             }).ToList(),
             ["yearTotal"] = model.YearTotal,
             ["yearCompleted"] = model.YearCompleted,
-            ["partialSince"] = partialSince
+            ["partialSince"] = partialSince,
+            ["unsubscribeUrl"] = unsubscribeUrl
         };
 
         var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), templateModel);
-        return new EmailContent(subject, html, BuildText(model, greeting, partialSince, fr));
+        return new EmailContent(subject, html, BuildText(model, greeting, partialSince, fr, unsubscribeUrl));
     }
 
-    private static string BuildText(RecapModel model, string greeting, string? partialSince, bool fr)
+    private static string BuildText(RecapModel model, string greeting, string? partialSince, bool fr, string? unsubscribeUrl)
     {
         var sb = new StringBuilder();
         sb.AppendLine(greeting).AppendLine();
@@ -116,6 +118,13 @@ public sealed class WeeklyRecapComposer
             sb.AppendLine(fr
                 ? $"Total tenu depuis l'installation d'Easy Notif le {partialSince}."
                 : $"Counted since Easy Notif was installed on {partialSince}.");
+        }
+
+        if (unsubscribeUrl is not null)
+        {
+            sb.AppendLine()
+              .Append(fr ? "Se desabonner : " : "Unsubscribe: ")
+              .AppendLine(unsubscribeUrl);
         }
 
         return sb.ToString();

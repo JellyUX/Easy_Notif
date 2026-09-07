@@ -40,7 +40,8 @@
           <td style="padding:20px 28px;font-size:12px;color:#6b7280;line-height:1.5;border-radius:0 0 8px 8px;border-top:1px solid #e5e7eb;">
             <p style="margin:0 0 6px;">Add this sender to your contacts so future messages land in your inbox.</p>
             <p style="margin:0 0 6px;">Your contact address is stored by this plugin and passed to Resend for delivery. It is deleted when the plugin is uninstalled.</p>
-            <p style="margin:0;">To change what you receive, open Notifications in your Jellyfin user settings.</p>
+            <p style="margin:0 0 6px;">To change what you receive, open Notifications in your Jellyfin user settings.</p>
+            {{#if unsubscribeUrl}}<p style="margin:0;"><a href="{{unsubscribeUrl}}" style="color:#6b7280;">Unsubscribe from these emails</a></p>{{/if}}
           </td>
         </tr>
       </table>

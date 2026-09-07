@@ -91,4 +91,15 @@ public sealed class WeeklyRecapComposerTests
         Assert.Contains("Bonjour", anon.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain("Bonjour bob", anon.Html!, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void UnsubscribeUrl_FlowsIntoTheHtmlAndText_OrIsAbsent()
+    {
+        var withLink = _composerImpl.Compose(Campaign(), WithActivity(), "Home", "weekly-recap", "https://media.example.org/EasyNotif/u/t?lang=fr");
+        Assert.Contains("EasyNotif/u/t", withLink.Html!, StringComparison.Ordinal);
+        Assert.Contains("Se desabonner : https://media.example.org/EasyNotif/u/t?lang=fr", withLink.Text!, StringComparison.Ordinal);
+
+        var without = Compose(Campaign(), WithActivity(), "Home");
+        Assert.DoesNotContain("EasyNotif/u/", without.Html!, StringComparison.Ordinal);
+    }
 }

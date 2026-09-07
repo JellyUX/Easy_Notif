@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
@@ -28,10 +29,13 @@ public sealed class EmailComposerTests
 
         public FakeEasyNotifLog Log { get; } = new();
 
+        public FakeConfigAccessor Config { get; }
+
         public EmailComposer Composer { get; }
 
-        public Harness()
+        public Harness(PluginConfiguration? config = null)
         {
+            Config = new FakeConfigAccessor(config ?? new PluginConfiguration());
             Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
                 .ReturnsAsync(new NewsletterDigest([], []));
             Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
@@ -42,6 +46,7 @@ public sealed class EmailComposerTests
                 Recap.Object,
                 new WeeklyRecapComposer(TestTemplateStore.Create()),
                 new ServerLinkContext("srv", "Home"),
+                Config,
                 Log);
         }
     }
@@ -158,5 +163,47 @@ public sealed class EmailComposerTests
         prepared.Render(Anyone);
 
         h.Recap.Verify(r => r.BuildFor(Anyone.UserId, Now), Times.Once);
+    }
+
+    private static Harness WithPublicUrl() => new(new PluginConfiguration
+    {
+        PublicServerUrl = "https://media.example.org",
+        UnsubscribeSecret = "unsub-secret-0123456789"
+    });
+
+    [Fact]
+    public async Task Newsletter_EmbedsAPerRecipientUnsubscribeLink()
+    {
+        var h = WithPublicUrl();
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>())).ReturnsAsync(
+            new NewsletterDigest([new DigestMovie(Guid.NewGuid(), "Dune", 2021, null, [], null, null, null)], []));
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+        var a = prepared.Render(new Recipient(Guid.NewGuid(), "a@example.org"));
+        var b = prepared.Render(new Recipient(Guid.NewGuid(), "b@example.org"));
+
+        Assert.Contains("/EasyNotif/u/", a.Html!, StringComparison.Ordinal);
+        Assert.Contains("?lang=fr", a.Html!, StringComparison.Ordinal);
+        Assert.NotEqual(a.Html, b.Html); // different tokens
+    }
+
+    [Fact]
+    public async Task Newsletter_Preview_HasNoUnsubscribeLink()
+    {
+        var h = WithPublicUrl();
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None, freshWindow: true);
+
+        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.Empty, "admin@example.org")).Html!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Recap_NoPublicUrl_HasNoUnsubscribeLink()
+    {
+        var h = new Harness();
+
+        var prepared = await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None);
+
+        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.NewGuid(), "x@example.org")).Html!, StringComparison.Ordinal);
     }
 }

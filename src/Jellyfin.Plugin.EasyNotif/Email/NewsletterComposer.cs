@@ -24,8 +24,9 @@ public sealed class NewsletterComposer
     /// <param name="digest">The media digest.</param>
     /// <param name="serverName">The server's friendly name, for the heading.</param>
     /// <param name="templateId">The template id to render with (base or custom).</param>
+    /// <param name="unsubscribeUrl">The recipient's one-click unsubscribe URL, or null.</param>
     /// <returns>The composed content.</returns>
-    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName, string templateId)
+    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName, string templateId, string? unsubscribeUrl = null)
     {
         ArgumentNullException.ThrowIfNull(campaign);
         ArgumentNullException.ThrowIfNull(digest);
@@ -66,12 +67,13 @@ public sealed class NewsletterComposer
                 ["posterUrl"] = s.PosterUrl,
                 ["detailUrl"] = s.DetailUrl,
                 ["noLink"] = s.DetailUrl is null
-            }).ToList()
+            }).ToList(),
+            ["unsubscribeUrl"] = unsubscribeUrl
         };
 
         var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), model);
         var attachments = digest.Posters.Count > 0 ? digest.Posters : null;
-        return new EmailContent(subject, html, BuildText(digest, heading, fr), attachments);
+        return new EmailContent(subject, html, BuildText(digest, heading, fr, unsubscribeUrl), attachments);
     }
 
     private static string EpisodesLabel(int count, bool fr)
@@ -91,7 +93,7 @@ public sealed class NewsletterComposer
         return $"{word} {joined}";
     }
 
-    private static string BuildText(NewsletterDigest digest, string heading, bool fr)
+    private static string BuildText(NewsletterDigest digest, string heading, bool fr, string? unsubscribeUrl)
     {
         var sb = new StringBuilder();
         sb.AppendLine(heading).AppendLine();
@@ -99,6 +101,7 @@ public sealed class NewsletterComposer
         if (digest.IsEmpty)
         {
             sb.AppendLine(fr ? "Rien de neuf n'a ete ajoute cette semaine." : "Nothing new was added this week.");
+            AppendUnsubscribe(sb, fr, unsubscribeUrl);
             return sb.ToString();
         }
 
@@ -139,6 +142,19 @@ public sealed class NewsletterComposer
             }
         }
 
+        AppendUnsubscribe(sb, fr, unsubscribeUrl);
         return sb.ToString();
+    }
+
+    private static void AppendUnsubscribe(StringBuilder sb, bool fr, string? unsubscribeUrl)
+    {
+        if (unsubscribeUrl is null)
+        {
+            return;
+        }
+
+        sb.AppendLine()
+          .Append(fr ? "Se desabonner : " : "Unsubscribe: ")
+          .AppendLine(unsubscribeUrl);
     }
 }

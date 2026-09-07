@@ -93,4 +93,22 @@ public sealed class NewsletterComposerTests
     [Fact]
     public void NoInlinePosters_LeavesAttachmentsNull()
         => Assert.Null(Compose(Campaign("en"), OneOfEach(), "Home").Attachments);
+
+    [Fact]
+    public void UnsubscribeUrl_WhenGiven_AppearsInTheHtmlAndText()
+    {
+        var content = Composer.Compose(Campaign("en"), OneOfEach(), "Home", "newsletter", "https://media.example.org/EasyNotif/u/tok?lang=en");
+
+        Assert.Contains("<a href=\"https://media.example.org/EasyNotif/u/tok?lang=en\"", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("Unsubscribe: https://media.example.org/EasyNotif/u/tok?lang=en", content.Text!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnsubscribeUrl_WhenNull_AddsNoFooterLink()
+    {
+        var content = Compose(Campaign("en"), OneOfEach(), "Home");
+
+        Assert.DoesNotContain("/EasyNotif/u/", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Unsubscribe:", content.Text!, StringComparison.Ordinal);
+    }
 }

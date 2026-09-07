@@ -2,6 +2,7 @@ using System.Net.Mail;
 using System.Reflection;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
@@ -41,6 +42,7 @@ public class EasyNotifController : ControllerBase
     private readonly ICampaignStore _campaigns;
     private readonly IDispatchService _dispatch;
     private readonly ITemplateStore _templates;
+    private readonly IFileTransformationDetector _fileTransformation;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
@@ -57,6 +59,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="templates">The email template store.</param>
+    /// <param name="fileTransformation">The FileTransformation availability detector.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
@@ -70,6 +73,7 @@ public class EasyNotifController : ControllerBase
         ICampaignStore campaigns,
         IDispatchService dispatch,
         ITemplateStore templates,
+        IFileTransformationDetector fileTransformation,
         IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
@@ -83,6 +87,7 @@ public class EasyNotifController : ControllerBase
         _campaigns = campaigns;
         _dispatch = dispatch;
         _templates = templates;
+        _fileTransformation = fileTransformation;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -401,10 +406,13 @@ public class EasyNotifController : ControllerBase
         var cfg = _config.Get();
         var (lastWebhookUtc, lastWebhookType) = _sendLog.LastWebhook();
         var quota = _quota.Snapshot();
+        var tz = RecurrenceSchedule.ResolveTimeZone(cfg.SchedulerTimeZone);
         return Ok(new
         {
             configured = !string.IsNullOrWhiteSpace(cfg.ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
             fromEmail = cfg.FromEmail,
+            publicUrlSet = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
+            fileTransformation = _fileTransformation.IsAvailable(),
             quota = new
             {
                 last30d = quota.Last30d,
@@ -416,6 +424,16 @@ public class EasyNotifController : ControllerBase
             },
             lastWebhookUtc,
             lastWebhookType,
+            campaigns = _campaigns.All().Select(c => new
+            {
+                id = c.Id,
+                enabled = c.Enabled,
+                templateId = c.TemplateId,
+                nextRunUtc = c.NextRunUtc,
+                lastSentUtc = c.LastSentUtc,
+                nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
+                lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz)
+            }),
             recent = _sendLog.Recent(10).Select(e => new
             {
                 ts = e.Ts,

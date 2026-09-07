@@ -118,6 +118,7 @@ describe('_buildStatus', () => {
     it('shows no warning class for a nominal quota', () => {
         const el = _buildStatus(dict, {
             configured: true,
+            fileTransformation: true,
             quota: { last30d: 3, dailyToday: 1, monthlyLimit: 3000, dailyLimit: 100, warn80: false, over: false },
             lastWebhookUtc: null,
             recent: []
@@ -125,6 +126,21 @@ describe('_buildStatus', () => {
 
         expect(el.querySelector('.enotif-warn')).toBeNull();
         expect(el.textContent).toContain('configured');
+    });
+
+    it('renders the campaigns table and flags a missing FileTransformation', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            fileTransformation: false,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [],
+            campaigns: [{ id: 'newsletter', enabled: true, nextRunLocal: '2026-09-14 09:00', lastSentLocal: null }]
+        });
+
+        expect(el.querySelector('.enotif-warn')).not.toBeNull();
+        expect(el.textContent).toContain('newsletter');
+        expect(el.textContent).toContain('2026-09-14 09:00');
     });
 
     it('shows the warning when warn80 is set', () => {

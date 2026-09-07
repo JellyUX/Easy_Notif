@@ -95,6 +95,49 @@
             : _t(dict, 'status.lastWebhookNone');
         root.appendChild(webhook);
 
+        var ft = document.createElement('p');
+        ft.textContent = _t(dict, status.fileTransformation ? 'status.fileTransformation' : 'status.fileTransformationMissing');
+        if (!status.fileTransformation) {
+            ft.className = 'enotif-warn';
+        }
+        root.appendChild(ft);
+
+        var campaigns = status.campaigns || [];
+        if (campaigns.length) {
+            var campaignsTitle = document.createElement('p');
+            campaignsTitle.textContent = _t(dict, 'status.campaigns');
+            root.appendChild(campaignsTitle);
+
+            var cTable = document.createElement('table');
+            var cHead = document.createElement('tr');
+            ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent'].forEach(function (key) {
+                var th = document.createElement('th');
+                th.textContent = _t(dict, key);
+                cHead.appendChild(th);
+            });
+            var cThead = document.createElement('thead');
+            cThead.appendChild(cHead);
+            cTable.appendChild(cThead);
+
+            var cBody = document.createElement('tbody');
+            campaigns.forEach(function (c) {
+                var tr = document.createElement('tr');
+                [
+                    c.id || '',
+                    c.enabled ? _t(dict, 'common.yes') : _t(dict, 'common.no'),
+                    c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never'),
+                    c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never')
+                ].forEach(function (value) {
+                    var td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+                cBody.appendChild(tr);
+            });
+            cTable.appendChild(cBody);
+            root.appendChild(cTable);
+        }
+
         var recent = status.recent || [];
         if (recent.length) {
             var table = document.createElement('table');

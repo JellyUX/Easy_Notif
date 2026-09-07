@@ -4,6 +4,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
@@ -310,6 +311,32 @@ public sealed class EasyNotifControllerTests
         var ok = Assert.IsType<OkObjectResult>(controller.GetStatus());
 
         Assert.Contains("\"configured\":false", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetStatus_IncludesCampaigns_FileTransformationState_AndPublicUrlFlag()
+    {
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+        var ft = new Mock<IFileTransformationDetector>();
+        ft.Setup(d => d.IsAvailable()).Returns(true);
+
+        var controller = BuildController(
+            config: new FakeConfig(new PluginConfiguration { PublicServerUrl = "https://media.example.org" }),
+            quota: quota,
+            sendLog: sendLog,
+            campaigns: SeededCampaigns(),
+            fileTransformation: ft);
+
+        var json = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetStatus()).Value);
+
+        Assert.Contains("\"fileTransformation\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"publicUrlSet\":true", json, StringComparison.Ordinal);
+        Assert.Contains("\"id\":\"newsletter\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"id\":\"weekly-recap\"", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -855,6 +882,7 @@ public sealed class EasyNotifControllerTests
         ICampaignStore? campaigns = null,
         Mock<IDispatchService>? dispatch = null,
         ITemplateStore? templates = null,
+        Mock<IFileTransformationDetector>? fileTransformation = null,
         FakeEasyNotifLog? easyNotifLog = null)
     {
         var controller = new EasyNotifController(
@@ -868,6 +896,7 @@ public sealed class EasyNotifControllerTests
             campaigns ?? new FakeCampaignStore(),
             (dispatch ?? new Mock<IDispatchService>()).Object,
             templates ?? TestTemplateStore.Create(),
+            (fileTransformation ?? new Mock<IFileTransformationDetector>()).Object,
             easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext

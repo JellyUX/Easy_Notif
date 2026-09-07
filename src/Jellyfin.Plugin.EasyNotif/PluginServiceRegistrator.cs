@@ -4,6 +4,7 @@ using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
+using Jellyfin.Plugin.EasyNotif.Playback;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -35,6 +36,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
         serviceCollection.AddSingleton<IAddedItemsStore, AddedItemsStore>();
+        serviceCollection.AddSingleton<IPlaybackHistoryStore, PlaybackHistoryStore>();
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();
         serviceCollection.AddSingleton<NewsletterComposer>();

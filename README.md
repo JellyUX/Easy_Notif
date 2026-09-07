@@ -46,6 +46,13 @@ Part of the [JellyUX](https://github.com/JellyUX) plugin family.
 3. Open **Dashboard > Plugins > Easy Notif** and fill in the Settings tab (Resend API key, sender
    address, public server URL).
 
+## Customising the emails
+
+Each campaign renders an HTML template. The two built-in templates are fine as-is; to restyle them,
+clone one from the **Templates** tab and point the campaign at your copy. The placeholder reference
+and the template mini-language are documented in
+[docs/CUSTOM_TEMPLATES.md](docs/CUSTOM_TEMPLATES.md).
+
 ## License
 
 GPL-3.0. See [LICENSE.md](LICENSE.md).

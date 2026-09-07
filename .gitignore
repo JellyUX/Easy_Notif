@@ -27,6 +27,7 @@
 # Documentation assets
 !docs/
 docs/*
+!docs/CUSTOM_TEMPLATES.md
 !docs/icon.png
 !docs/banner.png
 !docs/screenshots/

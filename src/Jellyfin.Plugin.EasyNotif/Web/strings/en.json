@@ -120,6 +120,7 @@
   "campaigns.fmt.everyNDays": "Every {n} days at {time}",
   "templates.tab": "Templates",
   "templates.intro": "The base templates are read-only. Clone one to make an editable copy, then point a campaign at it from the Campaigns tab.",
+  "templates.doc": "Placeholder reference and syntax guide",
   "templates.pick": "Template",
   "templates.preview": "Refresh preview",
   "templates.save": "Save",

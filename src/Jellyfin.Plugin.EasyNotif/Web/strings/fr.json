@@ -120,6 +120,7 @@
   "campaigns.fmt.everyNDays": "Tous les {n} jours à {time}",
   "templates.tab": "Templates",
   "templates.intro": "Les templates de base sont en lecture seule. Clonez-en un pour obtenir une copie modifiable, puis pointez une campagne dessus depuis l’onglet Campagnes.",
+  "templates.doc": "Référence des placeholders et guide de syntaxe",
   "templates.pick": "Template",
   "templates.preview": "Actualiser l'aperçu",
   "templates.save": "Enregistrer",

@@ -37,9 +37,9 @@ public sealed class NewsletterComposer
         var summary = digest.IsEmpty
             ? (fr ? "Rien de neuf cette semaine" : "Nothing new this week")
             : fr ? $"{n} ajout(s)" : $"{n} addition(s)";
-        var subject = fr ? $"Nouveautes mediatheque - {summary.ToLowerInvariant()}"
+        var subject = fr ? $"Nouveautés médiathèque - {summary.ToLowerInvariant()}"
                          : $"New in your library - {summary.ToLowerInvariant()}";
-        var heading = fr ? $"Nouveautes sur {serverName}" : $"New on {serverName}";
+        var heading = fr ? $"Nouveautés sur {serverName}" : $"New on {serverName}";
 
         var model = new Dictionary<string, object?>
         {
@@ -78,14 +78,14 @@ public sealed class NewsletterComposer
 
     private static string EpisodesLabel(int count, bool fr)
         => fr
-            ? count == 1 ? "1 nouvel episode" : $"{count} nouveaux episodes"
+            ? count == 1 ? "1 nouvel épisode" : $"{count} nouveaux épisodes"
             : count == 1 ? "1 new episode" : $"{count} new episodes";
 
     private static string SeasonsLabel(IReadOnlyList<int> seasons, bool fr)
     {
         if (seasons.Count == 0)
         {
-            return fr ? "episodes divers" : "various episodes";
+            return fr ? "épisodes divers" : "various episodes";
         }
 
         var joined = string.Join(", ", seasons.Select(s => s.ToString(CultureInfo.InvariantCulture)));
@@ -100,7 +100,7 @@ public sealed class NewsletterComposer
 
         if (digest.IsEmpty)
         {
-            sb.AppendLine(fr ? "Rien de neuf n'a ete ajoute cette semaine." : "Nothing new was added this week.");
+            sb.AppendLine(fr ? "Rien de neuf n'a été ajouté cette semaine." : "Nothing new was added this week.");
             AppendUnsubscribe(sb, fr, unsubscribeUrl);
             return sb.ToString();
         }
@@ -129,7 +129,7 @@ public sealed class NewsletterComposer
 
         if (digest.Series.Count > 0)
         {
-            sb.AppendLine(fr ? "Series" : "Series");
+            sb.AppendLine(fr ? "Séries" : "Series");
             foreach (var s in digest.Series)
             {
                 sb.Append("- ").Append(s.Title).Append(" : ").Append(EpisodesLabel(s.NewEpisodeCount, fr));
@@ -154,7 +154,7 @@ public sealed class NewsletterComposer
         }
 
         sb.AppendLine()
-          .Append(fr ? "Se desabonner : " : "Unsubscribe: ")
+          .Append(fr ? "Se désabonner : " : "Unsubscribe: ")
           .AppendLine(unsubscribeUrl);
     }
 }

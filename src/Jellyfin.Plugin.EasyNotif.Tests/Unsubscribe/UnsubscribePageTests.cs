@@ -18,9 +18,9 @@ public sealed class UnsubscribePageTests
         var html = UnsubscribePage.Build("fr", "recap", subscribed: true, done: false);
 
         Assert.Contains("lang=\"fr\"", html, StringComparison.Ordinal);
-        Assert.Contains("Resume de la semaine", html, StringComparison.Ordinal);
+        Assert.Contains("Résumé de la semaine", html, StringComparison.Ordinal);
         Assert.Contains("name=\"resubscribe\" value=\"false\"", html, StringComparison.Ordinal);
-        Assert.Contains("Me desabonner", html, StringComparison.Ordinal);
+        Assert.Contains("Me désabonner", html, StringComparison.Ordinal);
         Assert.DoesNotContain("C'est fait", html, StringComparison.Ordinal);
     }
 
@@ -46,6 +46,6 @@ public sealed class UnsubscribePageTests
         var html = UnsubscribePage.Build("fr", "news", true, true) + UnsubscribePage.Build("en", "all", false, false);
 
         Assert.DoesNotContain(EmDash, html, StringComparison.Ordinal);
-        Assert.DoesNotMatch("#[0-9a-fA-F]{3,8}\\b", html); // system colour keywords only
+        Assert.DoesNotMatch("(?<![&])#[0-9a-fA-F]{3,8}\\b", html); // system colour keywords only, no hex
     }
 }

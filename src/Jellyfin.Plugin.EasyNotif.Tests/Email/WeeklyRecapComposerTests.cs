@@ -44,7 +44,7 @@ public sealed class WeeklyRecapComposerTests
         var content = Compose(Campaign(), WithActivity(), "Home");
 
         Assert.Contains("The Wire", content.Html!, StringComparison.Ordinal);
-        Assert.Contains("3 episodes", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("3 épisodes", content.Html!, StringComparison.Ordinal);
         Assert.Contains("Heat", content.Html!, StringComparison.Ordinal);
         Assert.Contains("15", content.Html!, StringComparison.Ordinal);
         Assert.Contains("20", content.Html!, StringComparison.Ordinal);
@@ -55,7 +55,7 @@ public sealed class WeeklyRecapComposerTests
     [Fact]
     public void SubjectDiffersByLanguage()
     {
-        Assert.StartsWith("Ton resume", Compose(Campaign("fr"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
+        Assert.StartsWith("Ton résumé", Compose(Campaign("fr"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
         Assert.StartsWith("Your week", Compose(Campaign("en"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
     }
 
@@ -97,7 +97,7 @@ public sealed class WeeklyRecapComposerTests
     {
         var withLink = _composerImpl.Compose(Campaign(), WithActivity(), "Home", "weekly-recap", "https://media.example.org/EasyNotif/u/t?lang=fr");
         Assert.Contains("EasyNotif/u/t", withLink.Html!, StringComparison.Ordinal);
-        Assert.Contains("Se desabonner : https://media.example.org/EasyNotif/u/t?lang=fr", withLink.Text!, StringComparison.Ordinal);
+        Assert.Contains("Se désabonner : https://media.example.org/EasyNotif/u/t?lang=fr", withLink.Text!, StringComparison.Ordinal);
 
         var without = Compose(Campaign(), WithActivity(), "Home");
         Assert.DoesNotContain("EasyNotif/u/", without.Html!, StringComparison.Ordinal);

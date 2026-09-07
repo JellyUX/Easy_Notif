@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Globalization;
-using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -115,7 +114,7 @@ public static class TemplateEngine
             else
             {
                 var value = Stringify(Resolve(scopes, inner));
-                output.Append(raw ? value : WebUtility.HtmlEncode(value));
+                output.Append(raw ? value : HtmlEscape(value));
                 i = afterTag;
             }
         }
@@ -207,6 +206,26 @@ public static class TemplateEngine
         IEnumerable e => e.Cast<object?>().Any(),
         _ => TryToDouble(value, out var d) ? d != 0 : true
     };
+
+    // Neutralises HTML and attribute injection while leaving accented characters intact (the email
+    // templates are UTF-8). Attributes in the templates are double-quoted, and the single quote is
+    // escaped too for safety.
+    private static string HtmlEscape(string value)
+    {
+        if (value.AsSpan().IndexOfAny("&<>\"'") < 0)
+        {
+            return value;
+        }
+
+        return new StringBuilder(value.Length + 16)
+            .Append(value)
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
+            .Replace("\"", "&quot;")
+            .Replace("'", "&#39;")
+            .ToString();
+    }
 
     private static string Stringify(object? value) => value switch
     {

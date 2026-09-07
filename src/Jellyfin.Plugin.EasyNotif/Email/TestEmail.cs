@@ -15,9 +15,9 @@ public static class TestEmail
 
         return french
             ? ("Easy Notif - email de test",
-               "<p>Ceci est un email de test envoye depuis Easy Notif.</p>"
+               "<p>Ceci est un email de test envoyé depuis Easy Notif.</p>"
                + "<p>Si vous le recevez, votre adresse de contact et le transport Resend "
-               + "fonctionnent. Vous pouvez regler vos preferences dans les parametres de "
+               + "fonctionnent. Vous pouvez régler vos préférences dans les paramètres de "
                + "votre compte Jellyfin.</p>")
             : ("Easy Notif - test email",
                "<p>This is a test email sent from Easy Notif.</p>"

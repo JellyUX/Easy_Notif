@@ -40,9 +40,9 @@ public sealed class WeeklyRecapComposer
         var heading = fr ? $"Ta semaine sur {serverName}" : $"Your week on {serverName}";
 
         var subject = model.QuietWeek
-            ? (fr ? "Ton resume de la semaine (semaine calme)" : "Your week in review (a quiet week)")
+            ? (fr ? "Ton résumé de la semaine (semaine calme)" : "Your week in review (a quiet week)")
             : fr
-                ? $"Ton resume de la semaine - {model.WeekTitles} titre(s)"
+                ? $"Ton résumé de la semaine - {model.WeekTitles} titre(s)"
                 : $"Your week in review - {model.WeekTitles} title(s)";
 
         var partialSince = model.PartialSince?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -93,7 +93,7 @@ public sealed class WeeklyRecapComposer
                 if (entry.Kind == RecapKind.Series)
                 {
                     sb.Append(entry.Title)
-                      .Append(fr ? $" - {entry.EpisodeCount} episodes" : $" - {entry.EpisodeCount} episodes");
+                      .Append(fr ? $" - {entry.EpisodeCount} épisodes" : $" - {entry.EpisodeCount} episodes");
                 }
                 else if (entry.Kind == RecapKind.Episode && entry.SeriesTitle is { Length: > 0 } series)
                 {
@@ -110,7 +110,7 @@ public sealed class WeeklyRecapComposer
 
         sb.AppendLine();
         sb.AppendLine(fr
-            ? $"{model.YearCompleted} titre(s) termine(s) cette annee ({model.YearTotal} au total)."
+            ? $"{model.YearCompleted} titre(s) terminé(s) cette année ({model.YearTotal} au total)."
             : $"{model.YearCompleted} title(s) finished this year ({model.YearTotal} in total).");
 
         if (partialSince is not null)
@@ -123,7 +123,7 @@ public sealed class WeeklyRecapComposer
         if (unsubscribeUrl is not null)
         {
             sb.AppendLine()
-              .Append(fr ? "Se desabonner : " : "Unsubscribe: ")
+              .Append(fr ? "Se désabonner : " : "Unsubscribe: ")
               .AppendLine(unsubscribeUrl);
         }
 

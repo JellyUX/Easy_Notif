@@ -1,4 +1,3 @@
-using System.Net;
 using System.Text;
 
 namespace Jellyfin.Plugin.EasyNotif.Unsubscribe;
@@ -21,7 +20,7 @@ public static class UnsubscribePage
         var fr = lang == "fr";
         var label = CategoryLabel(category, fr);
 
-        var title = fr ? "Preferences d'email Easy Notif" : "Easy Notif email preferences";
+        var title = fr ? "Préférences d'email Easy Notif" : "Easy Notif email preferences";
 
         string state = (done, subscribed) switch
         {
@@ -32,24 +31,29 @@ public static class UnsubscribePage
                 ? $"Vous recevrez de nouveau les emails : {label}."
                 : $"You will receive these emails again: {label}.",
             (false, true) => fr
-                ? $"Vous etes actuellement abonne(e) aux emails : {label}."
+                ? $"Vous êtes actuellement abonné(e) aux emails : {label}."
                 : $"You are currently subscribed to these emails: {label}.",
             (false, false) => fr
-                ? $"Vous n'etes pas abonne(e) aux emails : {label}."
+                ? $"Vous n'êtes pas abonné(e) aux emails : {label}."
                 : $"You are not subscribed to these emails: {label}.",
         };
 
         // The form flips the current state: subscribed users unsubscribe, unsubscribed users opt back in.
         var resubscribe = subscribed ? "false" : "true";
         var buttonLabel = subscribed
-            ? (fr ? "Me desabonner" : "Unsubscribe")
-            : (fr ? "Me reabonner" : "Resubscribe");
+            ? (fr ? "Me désabonner" : "Unsubscribe")
+            : (fr ? "Me réabonner" : "Resubscribe");
 
         var note = fr
-            ? "Vous pouvez aussi tout gerer depuis vos parametres de notification Jellyfin."
+            ? "Vous pouvez aussi tout gérer depuis vos paramètres de notification Jellyfin."
             : "You can also manage everything from your Jellyfin notification settings.";
 
-        static string e(string value) => WebUtility.HtmlEncode(value);
+        // Minimal HTML escaping only - the page is UTF-8 so accented characters pass through as-is.
+        static string e(string value) => value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal);
         var sb = new StringBuilder();
         sb.Append("<!doctype html><html lang=\"").Append(fr ? "fr" : "en").Append("\"><head>")
           .Append("<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
@@ -68,7 +72,7 @@ public static class UnsubscribePage
 
         if (done)
         {
-            sb.Append("<p><strong>").Append(fr ? "C'est fait." : "Done.").Append("</strong></p>");
+            sb.Append("<p><strong>").Append(e(fr ? "C'est fait." : "Done.")).Append("</strong></p>");
         }
 
         sb.Append("<p>").Append(e(state)).Append("</p>")
@@ -84,8 +88,8 @@ public static class UnsubscribePage
 
     private static string CategoryLabel(string category, bool fr) => category switch
     {
-        "news" => fr ? "Nouveautes de la mediatheque" : "New media",
-        "recap" => fr ? "Resume de la semaine" : "Weekly recap",
+        "news" => fr ? "Nouveautés de la médiathèque" : "New media",
+        "recap" => fr ? "Résumé de la semaine" : "Weekly recap",
         _ => fr ? "tous les emails Easy Notif" : "all Easy Notif emails",
     };
 }

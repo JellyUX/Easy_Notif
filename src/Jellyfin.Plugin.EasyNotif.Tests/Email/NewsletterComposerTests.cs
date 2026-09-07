@@ -41,7 +41,7 @@ public sealed class NewsletterComposerTests
         Assert.Contains("Sicario", content.Html!, StringComparison.Ordinal);
         Assert.Contains("Severance", content.Html!, StringComparison.Ordinal);
         Assert.Contains("<a href=\"https://media.example.org/web/#/details?id=1\"", content.Html!, StringComparison.Ordinal);
-        Assert.Contains("3 nouveaux episodes", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("3 nouveaux épisodes", content.Html!, StringComparison.Ordinal);
 
         Assert.False(string.IsNullOrWhiteSpace(content.Text));
         Assert.Contains("Sicario", content.Text!, StringComparison.Ordinal);
@@ -51,7 +51,7 @@ public sealed class NewsletterComposerTests
     [Fact]
     public void Subject_IsLocalised()
     {
-        Assert.StartsWith("Nouveautes mediatheque", Compose(Campaign("fr"), OneOfEach(), "Home").Subject);
+        Assert.StartsWith("Nouveautés médiathèque", Compose(Campaign("fr"), OneOfEach(), "Home").Subject);
         Assert.StartsWith("New in your library", Compose(Campaign("en"), OneOfEach(), "Home").Subject);
     }
 

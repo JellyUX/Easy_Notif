@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Scheduling;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Model.Tasks;
 using Moq;
 using Xunit;
@@ -15,7 +16,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void GetDefaultTriggers_IsStartupPlusFifteenMinuteInterval()
     {
-        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>()).GetDefaultTriggers().ToList();
+        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore()).GetDefaultTriggers().ToList();
 
         Assert.Equal(2, triggers.Count);
         Assert.Contains(triggers, t => t.Type == TaskTriggerInfoType.StartupTrigger);
@@ -29,9 +30,11 @@ public sealed class EasyNotifDispatchTaskTests
     {
         var dispatch = new Mock<IDispatchService>();
         var progress = new Mock<IProgress<double>>();
+        var history = new FakePlaybackHistoryStore();
 
-        await new EasyNotifDispatchTask(dispatch.Object).ExecuteAsync(progress.Object, CancellationToken.None);
+        await new EasyNotifDispatchTask(dispatch.Object, history).ExecuteAsync(progress.Object, CancellationToken.None);
 
+        Assert.Equal(1, history.CompactCount);
         dispatch.Verify(d => d.RunDueAsync(It.IsAny<CancellationToken>()), Times.Once);
         progress.Verify(p => p.Report(100), Times.Once);
     }
@@ -39,7 +42,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void Identity_IsStable()
     {
-        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>());
+        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore());
 
         Assert.Equal("EasyNotifDispatch", task.Key);
         Assert.False(string.IsNullOrWhiteSpace(task.Name));

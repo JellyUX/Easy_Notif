@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Playback;
 using MediaBrowser.Model.Tasks;
 
 namespace Jellyfin.Plugin.EasyNotif.Scheduling;
@@ -17,10 +18,16 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     private static readonly long IntervalTicks = TimeSpan.FromMinutes(15).Ticks;
 
     private readonly IDispatchService _dispatch;
+    private readonly IPlaybackHistoryStore _history;
 
     /// <summary>Initializes a new instance of the <see cref="EasyNotifDispatchTask"/> class.</summary>
     /// <param name="dispatch">The dispatch service.</param>
-    public EasyNotifDispatchTask(IDispatchService dispatch) => _dispatch = dispatch;
+    /// <param name="history">The playback history store (compacted here on the monthly rollover).</param>
+    public EasyNotifDispatchTask(IDispatchService dispatch, IPlaybackHistoryStore history)
+    {
+        _dispatch = dispatch;
+        _history = history;
+    }
 
     /// <inheritdoc/>
     public string Name => "Easy Notif - dispatch";
@@ -38,6 +45,10 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(progress);
+
+        // Monthly event compaction: an in-memory no-op unless the calendar month has rolled over.
+        _history.Compact();
+
         await _dispatch.RunDueAsync(cancellationToken).ConfigureAwait(false);
         progress.Report(100);
     }

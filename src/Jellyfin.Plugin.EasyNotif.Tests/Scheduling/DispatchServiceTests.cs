@@ -212,6 +212,33 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_WeeklyRecap_SendsAPerRecipientBody_AndAdvancesNextRun()
+    {
+        var harness = new Harness([new Campaign
+        {
+            Id = "weekly-recap",
+            Type = CampaignType.WeeklyRecap,
+            Category = EmailCategory.Recap,
+            Enabled = true,
+            NextRunUtc = Now.AddMinutes(-1),
+            Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(8, 0))
+        }]);
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = r => new EmailContent($"Recap {r.UserId:N}", $"<p>{r.UserId:N}</p>", r.UserId.ToString("N"))
+            });
+        harness.Recipients(Alice, Bob);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Equal(2, harness.Sent.Count);
+        Assert.Equal(2, harness.Sent.Select(m => m.Subject).Distinct().Count());
+        Assert.True(harness.Campaigns.Get("weekly-recap")!.NextRunUtc > Now);
+    }
+
+    [Fact]
     public async Task RunDueAsync_RecipientResolutionThrows_IsSwallowed_NextRunUnchanged()
     {
         var harness = new Harness();

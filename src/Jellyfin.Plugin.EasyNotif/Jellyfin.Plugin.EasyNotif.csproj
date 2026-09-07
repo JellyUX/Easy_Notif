@@ -28,6 +28,8 @@
     <EmbeddedResource Include="Web\strings\fr.json" />
     <EmbeddedResource Include="Templates\newsletter-en.html" />
     <EmbeddedResource Include="Templates\newsletter-fr.html" />
+    <EmbeddedResource Include="Templates\weekly-recap-en.html" />
+    <EmbeddedResource Include="Templates\weekly-recap-fr.html" />
   </ItemGroup>
 
   <ItemGroup>

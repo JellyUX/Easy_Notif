@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -23,6 +24,8 @@ public sealed class EmailComposerTests
     {
         public Mock<INewsletterDigestService> Digest { get; } = new();
 
+        public Mock<IWeeklyRecapService> Recap { get; } = new();
+
         public FakeEasyNotifLog Log { get; } = new();
 
         public EmailComposer Composer { get; }
@@ -31,9 +34,13 @@ public sealed class EmailComposerTests
         {
             Digest.Setup(d => d.GetNewSince(It.IsAny<DateTime>(), It.IsAny<int>()))
                 .Returns(new NewsletterDigest([], []));
+            Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
+                .Returns((Guid id, DateTime _) => new RecapModel([], 0, 0, null, id.ToString("N")[..4]));
             Composer = new EmailComposer(
                 Digest.Object,
                 new NewsletterComposer(new TemplateStore()),
+                Recap.Object,
+                new WeeklyRecapComposer(new TemplateStore()),
                 new ServerLinkContext("srv", "Home"),
                 Log);
         }
@@ -109,15 +116,47 @@ public sealed class EmailComposerTests
         h.Digest.Verify(d => d.GetNewSince(Now.AddDays(-7), It.IsAny<int>()), Times.Once);
     }
 
-    [Fact]
-    public async Task WeeklyRecap_KeepsThePlaceholder()
+    private static Campaign Recap() => new()
     {
-        var campaign = Newsletter();
-        campaign.Type = CampaignType.WeeklyRecap;
+        Id = "weekly-recap",
+        Type = CampaignType.WeeklyRecap,
+        Category = EmailCategory.Recap,
+        Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(8, 0)),
+        MailLanguage = "fr"
+    };
 
-        var prepared = await new Harness().Composer.PrepareAsync(campaign, Now, CancellationToken.None);
+    [Fact]
+    public async Task WeeklyRecap_AlwaysSends_AndRendersPerRecipient()
+    {
+        var h = new Harness();
+        var seen = new List<Guid>();
+        h.Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
+            .Returns((Guid id, DateTime _) =>
+            {
+                seen.Add(id);
+                return new RecapModel([], id.GetHashCode() & 7, 0, null, id.ToString("N")[..4]);
+            });
 
+        var prepared = await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None);
         Assert.True(prepared.ShouldSend);
-        Assert.Contains("Placeholder", prepared.Render(Anyone).Html!, StringComparison.Ordinal);
+
+        var a = new Recipient(Guid.NewGuid(), "a@example.org");
+        var b = new Recipient(Guid.NewGuid(), "b@example.org");
+        var contentA = prepared.Render(a);
+        var contentB = prepared.Render(b);
+
+        Assert.Equal(new[] { a.UserId, b.UserId }, seen);
+        Assert.NotEqual(contentA.Html, contentB.Html);
+    }
+
+    [Fact]
+    public async Task WeeklyRecap_FreshWindow_HasNoSpecialEffect()
+    {
+        var h = new Harness();
+
+        var prepared = await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None, freshWindow: true);
+        prepared.Render(Anyone);
+
+        h.Recap.Verify(r => r.BuildFor(Anyone.UserId, Now), Times.Once);
     }
 }

@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Recap;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
@@ -9,22 +10,30 @@ public sealed class EmailComposer : IEmailComposer
 {
     private readonly INewsletterDigestService _digest;
     private readonly NewsletterComposer _newsletter;
+    private readonly IWeeklyRecapService _recap;
+    private readonly WeeklyRecapComposer _recapComposer;
     private readonly ServerLinkContext _links;
     private readonly IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="EmailComposer"/> class.</summary>
     /// <param name="digest">The new-media digest service.</param>
     /// <param name="newsletter">The newsletter composer.</param>
+    /// <param name="recap">The per-user weekly recap service.</param>
+    /// <param name="recapComposer">The weekly recap composer.</param>
     /// <param name="links">The captured server identity (for the heading).</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public EmailComposer(
         INewsletterDigestService digest,
         NewsletterComposer newsletter,
+        IWeeklyRecapService recap,
+        WeeklyRecapComposer recapComposer,
         ServerLinkContext links,
         IEasyNotifLog log)
     {
         _digest = digest;
         _newsletter = newsletter;
+        _recap = recap;
+        _recapComposer = recapComposer;
         _links = links;
         _log = log;
     }
@@ -58,7 +67,20 @@ public sealed class EmailComposer : IEmailComposer
             });
         }
 
-        // WeeklyRecap and any future type: the Phase 7 placeholder until its own phase lands.
+        if (campaign.Type == CampaignType.WeeklyRecap)
+        {
+            // Always sent, even for a quiet week; the body is built per recipient.
+            return Task.FromResult(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = recipient => _recapComposer.Compose(
+                    campaign,
+                    _recap.BuildFor(recipient.UserId, nowUtc),
+                    _links.ServerName)
+            });
+        }
+
+        // Any future type: a defensive placeholder (no real campaign reaches this branch).
         return Task.FromResult(new PreparedCampaign
         {
             ShouldSend = true,

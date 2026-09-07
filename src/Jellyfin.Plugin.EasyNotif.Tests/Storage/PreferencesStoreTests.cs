@@ -246,8 +246,6 @@ public sealed class PreferencesStoreTests : IDisposable
         public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
 
         public IEnumerable<string> EnumerateFiles(string path, string searchPattern) => _inner.EnumerateFiles(path, searchPattern);
-
-        public DateTime GetLastWriteTimeUtc(string path) => _inner.GetLastWriteTimeUtc(path);
     }
 
     /// <summary>
@@ -283,7 +281,5 @@ public sealed class PreferencesStoreTests : IDisposable
         public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
 
         public IEnumerable<string> EnumerateFiles(string path, string searchPattern) => _inner.EnumerateFiles(path, searchPattern);
-
-        public DateTime GetLastWriteTimeUtc(string path) => _inner.GetLastWriteTimeUtc(path);
     }
 }

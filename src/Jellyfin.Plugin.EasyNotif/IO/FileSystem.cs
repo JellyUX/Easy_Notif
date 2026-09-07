@@ -30,7 +30,4 @@ public sealed class FileSystem : IFileSystem
     /// <inheritdoc/>
     public IEnumerable<string> EnumerateFiles(string path, string searchPattern) =>
         Directory.Exists(path) ? Directory.EnumerateFiles(path, searchPattern) : [];
-
-    /// <inheritdoc/>
-    public DateTime GetLastWriteTimeUtc(string path) => File.GetLastWriteTimeUtc(path);
 }

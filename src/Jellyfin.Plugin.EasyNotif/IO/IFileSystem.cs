@@ -45,9 +45,4 @@ public interface IFileSystem
     /// <param name="searchPattern">A search pattern such as <c>*.html</c>.</param>
     /// <returns>The matching file paths.</returns>
     IEnumerable<string> EnumerateFiles(string path, string searchPattern);
-
-    /// <summary>Gets the last-write time of a file, in UTC.</summary>
-    /// <param name="path">The file path.</param>
-    /// <returns>The last-write time (UTC).</returns>
-    DateTime GetLastWriteTimeUtc(string path);
 }

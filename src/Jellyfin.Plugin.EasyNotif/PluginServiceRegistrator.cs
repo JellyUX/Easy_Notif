@@ -38,7 +38,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
         serviceCollection.AddSingleton<IAddedItemsStore, AddedItemsStore>();
         serviceCollection.AddSingleton<IPlaybackHistoryStore, PlaybackHistoryStore>();
-        serviceCollection.AddSingleton<IPosterCache, PosterCache>();
+        serviceCollection.AddSingleton<IPosterCache, PosterCache>(); // inline newsletter posters (no public URL)
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<IWeeklyRecapService, WeeklyRecapService>();
         serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();

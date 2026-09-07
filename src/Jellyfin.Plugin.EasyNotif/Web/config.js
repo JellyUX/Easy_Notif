@@ -933,6 +933,36 @@
         el.textContent = _t(dict, key);
     }
 
+    // Maps a failed template request to a specific, red error line. Reads the JSON error body
+    // (Jellyfin's ApiClient.ajax rejects with the fetch Response) and falls back to the generic
+    // message when it is not available.
+    function _tplError(err) {
+        var el = _el('enotifTplResult');
+        el.classList.add('enotif-status-error');
+        var byError = {
+            'script': 'templates.error.script',
+            'too-large': 'templates.error.tooLarge',
+            'unknown-key': 'templates.error.unknownKey',
+            'template-in-use': 'templates.error.inUse',
+            'base-template-read-only': 'templates.base.readonly',
+            'invalid-clone': 'templates.error.clone',
+            'invalid-base': 'templates.error.clone'
+        };
+        function show(body) {
+            var key = byError[body && body.error];
+            el.textContent = key
+                ? _t(dict, key)
+                    .replace('{key}', (body && body.key) || '')
+                    .replace('{campaign}', (body && body.campaignId) || '')
+                : _t(dict, 'common.saveError');
+        }
+        if (err && typeof err.json === 'function') {
+            return err.json().then(show, function () { show(null); });
+        }
+        show(null);
+        return Promise.resolve();
+    }
+
     function _loadTemplates() {
         return window.ApiClient.getJSON(_url('admin/templates')).then(function (list) {
             tplList = list || [];
@@ -992,15 +1022,8 @@
                 _tplResult('templates.saved', false);
             })
             .catch(function (err) {
-                var reason = err && err.responseJSON && err.responseJSON.error;
-                var key = 'templates.saved';
-                if (reason === 'script') { key = 'templates.error.script'; }
-                else if (reason === 'too-large') { key = 'templates.error.tooLarge'; }
-                else if (reason === 'unknown-key') { key = 'templates.error.unknownKey'; }
-                else { key = 'common.saveError'; }
-                _el('enotifTplResult').classList.add('enotif-status-error');
-                _el('enotifTplResult').textContent = _t(dict, key)
-                    .replace('{key}', (err && err.responseJSON && err.responseJSON.key) || '');
+                console.error('[EasyNotif Config] could not save a template:', err);
+                return _tplError(err);
             })
             .then(function () { window.Dashboard.hideLoadingMsg(); });
     }
@@ -1019,7 +1042,7 @@
             })
             .catch(function (err) {
                 console.error('[EasyNotif Config] could not clone a template:', err);
-                _tplResult('templates.error.clone', true);
+                return _tplError(err);
             })
             .then(function () { window.Dashboard.hideLoadingMsg(); });
     }
@@ -1032,11 +1055,8 @@
         _deleteReq('admin/templates/' + encodeURIComponent(id))
             .then(function () { return _loadTemplates().then(_loadCampaigns); })
             .catch(function (err) {
-                var campaignId = err && err.responseJSON && err.responseJSON.campaignId;
-                _el('enotifTplResult').classList.add('enotif-status-error');
-                _el('enotifTplResult').textContent = campaignId
-                    ? _t(dict, 'templates.error.inUse').replace('{campaign}', campaignId)
-                    : _t(dict, 'common.saveError');
+                console.error('[EasyNotif Config] could not delete a template:', err);
+                return _tplError(err);
             })
             .then(function () { window.Dashboard.hideLoadingMsg(); });
     }

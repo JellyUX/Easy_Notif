@@ -5,7 +5,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
 
 /// <summary>
 /// Covers <see cref="UnsubscribeToken"/>: a token round-trips, any tampering or a wrong secret is
-/// rejected, garbage is rejected without throwing, and the secret never appears in the token.
+/// rejected, garbage is rejected without throwing, the token is a single url-safe segment (no dot),
+/// and the secret never appears in the token.
 /// </summary>
 public class UnsubscribeTokenTests
 {
@@ -23,11 +24,18 @@ public class UnsubscribeTokenTests
     }
 
     [Fact]
+    public void Create_ProducesASingleUrlSafeSegment()
+    {
+        var token = UnsubscribeToken.Create(Secret, UserId, "news");
+
+        Assert.Matches("^[A-Za-z0-9_-]+$", token); // base64url only, no dot or slash
+    }
+
+    [Fact]
     public void Verify_TamperedPayload_ReturnsFalse()
     {
         var token = UnsubscribeToken.Create(Secret, UserId, "news");
-        var dot = token.IndexOf('.', StringComparison.Ordinal);
-        var tampered = "AAAA" + token[4..dot] + token[dot..];
+        var tampered = "AAAA" + token[4..];
 
         Assert.False(UnsubscribeToken.TryVerify(Secret, tampered, out _, out _));
     }
@@ -51,10 +59,9 @@ public class UnsubscribeTokenTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("no-dot-here")]
-    [InlineData(".")]
-    [InlineData("a.")]
-    [InlineData("not base64!.also not base64!")]
+    [InlineData("AAAA")]
+    [InlineData("not base64!")]
+    [InlineData("....")]
     public void Verify_Garbage_ReturnsFalseWithoutThrowing(string token)
     {
         Assert.False(UnsubscribeToken.TryVerify(Secret, token, out _, out _));

@@ -4,14 +4,16 @@ using System.Text;
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
 /// <summary>
-/// Opaque one-click unsubscribe token: <c>base64url(payload) + "." + base64url(HMAC-SHA256(secret,
-/// payload))</c> where <c>payload = "{userId:N}:{category}"</c> (Synthese.md section 7.2). The
-/// scope is a single preference toggle, so no Jellyfin auth is needed to act on it. The consuming
-/// endpoint <c>GET|POST /EasyNotif/u/{token}</c> arrives in a later phase; this phase only emits
-/// the token in the <c>List-Unsubscribe</c> header of manual admin emails.
+/// Opaque one-click unsubscribe token: <c>base64url(payloadBytes ++ HMAC-SHA256(secret, payloadBytes))</c>
+/// where <c>payload = "{userId:N}:{category}"</c> and the trailing 32 bytes are the signature
+/// (Synthese.md section 7.2). One flat base64url segment, no separator, so email link rewriters and
+/// URL normalizers cannot mangle it. The scope is a single preference toggle, so no Jellyfin auth
+/// is needed to act on it.
 /// </summary>
 public static class UnsubscribeToken
 {
+    private const int SignatureBytes = 32; // HMAC-SHA256
+
     /// <summary>Builds a token for a user and a category.</summary>
     /// <param name="secret">The plugin unsubscribe secret (<see cref="Configuration.PluginConfiguration.UnsubscribeSecret"/>).</param>
     /// <param name="userId">The Jellyfin user id.</param>
@@ -20,7 +22,11 @@ public static class UnsubscribeToken
     public static string Create(string secret, Guid userId, string category)
     {
         var payload = Encoding.UTF8.GetBytes($"{userId:N}:{category}");
-        return ToBase64Url(payload) + "." + ToBase64Url(Sign(secret, payload));
+        var signature = Sign(secret, payload);
+        var blob = new byte[payload.Length + signature.Length];
+        payload.CopyTo(blob, 0);
+        signature.CopyTo(blob, payload.Length);
+        return ToBase64Url(blob);
     }
 
     /// <summary>Verifies a token and extracts its user id and category.</summary>
@@ -39,23 +45,23 @@ public static class UnsubscribeToken
             return false;
         }
 
-        var dot = token.IndexOf('.', StringComparison.Ordinal);
-        if (dot <= 0 || dot == token.Length - 1)
-        {
-            return false;
-        }
-
-        byte[] payload;
-        byte[] providedSignature;
+        byte[] blob;
         try
         {
-            payload = FromBase64Url(token[..dot]);
-            providedSignature = FromBase64Url(token[(dot + 1)..]);
+            blob = FromBase64Url(token);
         }
         catch (FormatException)
         {
             return false;
         }
+
+        if (blob.Length <= SignatureBytes)
+        {
+            return false;
+        }
+
+        var payload = blob[..^SignatureBytes];
+        var providedSignature = blob[^SignatureBytes..];
 
         if (!CryptographicOperations.FixedTimeEquals(providedSignature, Sign(secret, payload)))
         {
@@ -76,8 +82,7 @@ public static class UnsubscribeToken
     /// <summary>
     /// Builds the <c>List-Unsubscribe</c> / <c>List-Unsubscribe-Post</c> header pair for a
     /// one-click unsubscribe link, or null when the public server URL or the secret is not set
-    /// (Synthese.md section 7.2). The consuming <c>/EasyNotif/u/{token}</c> endpoint arrives in a
-    /// later phase.
+    /// (Synthese.md section 7.2). Consumed by <c>GET|POST /EasyNotif/u/{token}</c>.
     /// </summary>
     /// <param name="publicServerUrl">The public base URL of this server.</param>
     /// <param name="secret">The plugin unsubscribe secret.</param>

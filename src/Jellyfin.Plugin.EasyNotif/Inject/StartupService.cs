@@ -3,11 +3,13 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Playback;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -30,6 +32,8 @@ public sealed class StartupService : IHostedService
     private readonly ICampaignStore _campaigns;
     private readonly ILibraryManager _libraryManager;
     private readonly IAddedItemsStore _addedItems;
+    private readonly ISessionManager _sessionManager;
+    private readonly IPlaybackHistoryStore _history;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupService"/> class.
@@ -41,6 +45,8 @@ public sealed class StartupService : IHostedService
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="libraryManager">The Jellyfin library manager (for the ItemAdded event).</param>
     /// <param name="addedItems">The server-time added-items store.</param>
+    /// <param name="sessionManager">The Jellyfin session manager (for the PlaybackStopped event).</param>
+    /// <param name="history">The plugin's own playback history store.</param>
     public StartupService(
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
@@ -48,7 +54,9 @@ public sealed class StartupService : IHostedService
         IEasyNotifLog easyNotifLog,
         ICampaignStore campaigns,
         ILibraryManager libraryManager,
-        IAddedItemsStore addedItems)
+        IAddedItemsStore addedItems,
+        ISessionManager sessionManager,
+        IPlaybackHistoryStore history)
     {
         _logger = logger;
         _detector = detector;
@@ -57,6 +65,8 @@ public sealed class StartupService : IHostedService
         _campaigns = campaigns;
         _libraryManager = libraryManager;
         _addedItems = addedItems;
+        _sessionManager = sessionManager;
+        _history = history;
     }
 
     /// <inheritdoc/>
@@ -80,6 +90,9 @@ public sealed class StartupService : IHostedService
 
         _addedItems.Start();
         _libraryManager.ItemAdded += OnItemAdded;
+
+        _history.Start();
+        _sessionManager.PlaybackStopped += OnPlaybackStopped;
 
         if (!_detector.IsAvailable())
         {
@@ -105,6 +118,8 @@ public sealed class StartupService : IHostedService
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         await _addedItems.StopAsync().ConfigureAwait(false);
+        _sessionManager.PlaybackStopped -= OnPlaybackStopped;
+        await _history.StopAsync().ConfigureAwait(false);
         _easyNotifLog.Info("plugin.shutdown");
     }
 
@@ -118,6 +133,27 @@ public sealed class StartupService : IHostedService
         if (e.Item is Movie or Episode)
         {
             _addedItems.RecordAdded(e.Item.Id);
+        }
+    }
+
+    /// <summary>
+    /// Records a significant playback stop (movie or episode, watched past three minutes) in the
+    /// plugin's own history, for the personalised weekly recap. Non-blocking: it only queues the
+    /// event (R13). Fires once per user in the session.
+    /// </summary>
+    private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
+    {
+        if (e.Item is null)
+        {
+            return;
+        }
+
+        foreach (var user in e.Users)
+        {
+            if (PlaybackEventFactory.TryBuild(e.Item, e.PlaybackPositionTicks, e.PlayedToCompletion, user.Id, DateTime.UtcNow, out var playbackEvent))
+            {
+                _history.Record(playbackEvent);
+            }
         }
     }
 

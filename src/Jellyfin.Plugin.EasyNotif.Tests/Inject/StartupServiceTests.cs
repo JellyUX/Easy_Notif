@@ -2,8 +2,13 @@ using System.Text.RegularExpressions;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Models;
+using Jellyfin.Plugin.EasyNotif.Playback;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
+using Jellyfin.Database.Implementations.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Newtonsoft.Json.Linq;
@@ -22,15 +27,19 @@ public sealed class StartupServiceTests
         Mock<IFileTransformationDetector> detector,
         FakeConfigAccessor config,
         FakeEasyNotifLog? easyNotifLog = null,
-        FakeCampaignStore? campaigns = null)
+        FakeCampaignStore? campaigns = null,
+        Mock<ISessionManager>? sessionManager = null,
+        FakePlaybackHistoryStore? history = null)
         => new(
             NullLogger<StartupService>.Instance,
             detector.Object,
             config,
             easyNotifLog ?? new FakeEasyNotifLog(),
             campaigns ?? new FakeCampaignStore(),
-            Mock.Of<MediaBrowser.Controller.Library.ILibraryManager>(),
-            new FakeAddedItemsStore());
+            Mock.Of<ILibraryManager>(),
+            new FakeAddedItemsStore(),
+            (sessionManager ?? new Mock<ISessionManager>()).Object,
+            history ?? new FakePlaybackHistoryStore());
 
     private static Mock<IFileTransformationDetector> Detector(bool available)
     {
@@ -212,5 +221,81 @@ public sealed class StartupServiceTests
         await service.StopAsync(CancellationToken.None);
 
         Assert.Contains(easyNotifLog.Entries, e => e.EventType == "plugin.shutdown" && e.Level == "Info");
+    }
+
+    [Fact]
+    public async Task StartAsync_StartsHistory_AndRecordsASignificantStopForEveryUser()
+    {
+        var session = new Mock<ISessionManager>();
+        var history = new FakePlaybackHistoryStore();
+        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" });
+        var service = Build(Detector(available: true), config, history: history, sessionManager: session);
+
+        await service.StartAsync(CancellationToken.None);
+
+        Assert.Equal(1, history.StartCount);
+        var users = new List<User>
+        {
+            new("a", "Default", "Default") { Id = Guid.NewGuid() },
+            new("b", "Default", "Default") { Id = Guid.NewGuid() }
+        };
+        session.Raise(
+            s => s.PlaybackStopped += null,
+            new PlaybackStopEventArgs
+            {
+                Item = new Movie { Id = Guid.NewGuid(), Name = "Film", RunTimeTicks = TimeSpan.FromMinutes(100).Ticks },
+                Users = users,
+                PlaybackPositionTicks = TimeSpan.FromMinutes(10).Ticks,
+                PlayedToCompletion = false
+            });
+
+        Assert.Equal(2, history.Recorded.Count);
+        Assert.All(history.Recorded, e => Assert.Equal("Movie", e.Kind));
+    }
+
+    [Fact]
+    public async Task PlaybackStopped_ForATrivialView_RecordsNothing()
+    {
+        var session = new Mock<ISessionManager>();
+        var history = new FakePlaybackHistoryStore();
+        var service = Build(
+            Detector(available: true),
+            new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }),
+            history: history,
+            sessionManager: session);
+
+        await service.StartAsync(CancellationToken.None);
+
+        session.Raise(
+            s => s.PlaybackStopped += null,
+            new PlaybackStopEventArgs
+            {
+                Item = new Movie { Id = Guid.NewGuid(), Name = "Film" },
+                Users = new List<User> { new("a", "Default", "Default") { Id = Guid.NewGuid() } },
+                PlaybackPositionTicks = TimeSpan.FromMinutes(1).Ticks,
+                PlayedToCompletion = false
+            });
+
+        Assert.Empty(history.Recorded);
+    }
+
+    [Fact]
+    public async Task StopAsync_StopsHistory_AndUnsubscribesFromPlaybackStopped()
+    {
+        var session = new Mock<ISessionManager>();
+        var history = new FakePlaybackHistoryStore();
+        var service = Build(
+            Detector(available: true),
+            new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }),
+            history: history,
+            sessionManager: session);
+
+        await service.StartAsync(CancellationToken.None);
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(1, history.StopCount);
+        session.VerifyRemove(
+            s => s.PlaybackStopped -= It.IsAny<EventHandler<PlaybackStopEventArgs>>(),
+            Times.Once());
     }
 }

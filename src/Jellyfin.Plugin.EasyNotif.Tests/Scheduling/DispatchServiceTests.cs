@@ -239,6 +239,39 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_KeysEachSendToTheDueSlot()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var message = Assert.Single(harness.Sent);
+        Assert.False(string.IsNullOrEmpty(message.IdempotencyKey));
+    }
+
+    [Fact]
+    public async Task RunCampaignNowAsync_DoesNotKeySends_SoARepeatClickResends()
+    {
+        var harness = new Harness([new Campaign
+        {
+            Id = "weekly-recap",
+            Type = CampaignType.WeeklyRecap,
+            Category = EmailCategory.Recap,
+            Enabled = true,
+            NextRunUtc = Now.AddMinutes(-1),
+            Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(8, 0))
+        }]);
+        harness.Recipients(Alice);
+
+        await harness.Service.RunCampaignNowAsync("weekly-recap", CancellationToken.None);
+        await harness.Service.RunCampaignNowAsync("weekly-recap", CancellationToken.None);
+
+        Assert.Equal(2, harness.Sent.Count);
+        Assert.All(harness.Sent, m => Assert.Null(m.IdempotencyKey));
+    }
+
+    [Fact]
     public async Task RunDueAsync_RecipientResolutionThrows_IsSwallowed_NextRunUnchanged()
     {
         var harness = new Harness();

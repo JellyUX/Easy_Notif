@@ -24,7 +24,9 @@ public interface IDispatchService
 
     /// <summary>
     /// Runs one campaign now, whether or not it is enabled or due, advancing its
-    /// <see cref="Campaign.LastSentUtc"/> and <see cref="Campaign.NextRunUtc"/>.
+    /// <see cref="Campaign.LastSentUtc"/> and <see cref="Campaign.NextRunUtc"/>. This is an explicit
+    /// admin action, so it is not idempotency-keyed: every click sends, even within the same due
+    /// slot (unlike the scheduled path, which keys each occurrence to survive a crash-retry).
     /// </summary>
     /// <param name="campaignId">The campaign id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -148,7 +150,7 @@ public sealed class DispatchService : IDispatchService
             var tz = ResolveTimeZone(cfg.SchedulerTimeZone);
             foreach (var campaign in due)
             {
-                await RunCampaignAsync(campaign, now, tz, cfg, cancellationToken).ConfigureAwait(false);
+                await RunCampaignAsync(campaign, now, tz, cfg, manualRun: false, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -171,7 +173,7 @@ public sealed class DispatchService : IDispatchService
 
             var now = _now();
             var cfg = _config.Get();
-            return await RunCampaignAsync(campaign, now, ResolveTimeZone(cfg.SchedulerTimeZone), cfg, cancellationToken)
+            return await RunCampaignAsync(campaign, now, ResolveTimeZone(cfg.SchedulerTimeZone), cfg, manualRun: true, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -257,11 +259,13 @@ public sealed class DispatchService : IDispatchService
         DateTime now,
         TimeZoneInfo tz,
         PluginConfiguration cfg,
+        bool manualRun,
         CancellationToken cancellationToken)
     {
-        // The idempotency key identifies this scheduled occurrence (the due slot, before it is
-        // advanced), so a crash-retry of the same run does not re-send, but a later run for a new
-        // occurrence does.
+        // For a scheduled run the idempotency key identifies this occurrence (the due slot, before it
+        // is advanced), so a crash-retry does not re-send but a later occurrence does. A manual "run
+        // now" is an explicit admin action with no key: it always sends, even a second time within
+        // the same slot (the slot barely moves for a daily cadence).
         var runSlot = (campaign.NextRunUtc ?? now).ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
 
         if (string.IsNullOrWhiteSpace(cfg.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
@@ -360,7 +364,7 @@ public sealed class DispatchService : IDispatchService
                     new EmailTag("campaignId", campaign.Id),
                     new EmailTag("category", campaign.Category.ToString())
                 ],
-                IdempotencyKey = $"{campaign.Id}:{runSlot}:{recipient.UserId:N}"
+                IdempotencyKey = manualRun ? null : $"{campaign.Id}:{runSlot}:{recipient.UserId:N}"
             };
 
             var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);

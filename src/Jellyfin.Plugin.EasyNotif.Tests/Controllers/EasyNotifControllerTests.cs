@@ -51,6 +51,12 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.PutCampaign))]
     [InlineData(nameof(EasyNotifController.RunCampaign))]
     [InlineData(nameof(EasyNotifController.PreviewCampaign))]
+    [InlineData(nameof(EasyNotifController.GetTemplates))]
+    [InlineData(nameof(EasyNotifController.GetTemplate))]
+    [InlineData(nameof(EasyNotifController.CloneTemplate))]
+    [InlineData(nameof(EasyNotifController.PutTemplate))]
+    [InlineData(nameof(EasyNotifController.DeleteTemplate))]
+    [InlineData(nameof(EasyNotifController.PreviewTemplate))]
     public void AdminEndpoints_RequireElevation(string methodName)
     {
         var authorize = Method(methodName).GetCustomAttribute<AuthorizeAttribute>();
@@ -687,6 +693,152 @@ public sealed class EasyNotifControllerTests
     }
 
     // -------------------------------------------------------------------------
+    // Admin - email templates
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void GetTemplates_ListsTheTwoBases_AndACloneRoundTrips()
+    {
+        var templates = TestTemplateStore.Create();
+        var controller = BuildController(templates: templates);
+
+        var listed = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetTemplates()).Value);
+        Assert.Contains("newsletter", listed, StringComparison.Ordinal);
+        Assert.Contains("weekly-recap", listed, StringComparison.Ordinal);
+
+        Assert.IsType<ObjectResult>(controller.CloneTemplate(new TemplateCloneRequest { BaseId = "newsletter", Slug = "holiday" }));
+        Assert.Contains("newsletter__holiday", JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetTemplates()).Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetTemplate_UnknownId_Returns404()
+        => Assert.IsType<NotFoundResult>(BuildController().GetTemplate("nope", "en"));
+
+    [Fact]
+    public void CloneTemplate_InvalidBase_Returns400()
+    {
+        var result = BuildController().CloneTemplate(new TemplateCloneRequest { BaseId = "nope", Slug = "x" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void PutTemplate_BaseTemplate_Returns403()
+    {
+        var result = BuildController().PutTemplate("newsletter", "en", new TemplateSaveRequest { Content = "<p>x</p>" });
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public void PutTemplate_UnknownKey_Returns400_WithTheOffendingKey()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+        var controller = BuildController(templates: templates);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(
+            controller.PutTemplate("newsletter__x", "en", new TemplateSaveRequest { Content = "<p>{{heading}} {{mystery}}</p>" }));
+
+        var json = JsonSerializer.Serialize(bad.Value);
+        Assert.Contains("unknown-key", json, StringComparison.Ordinal);
+        Assert.Contains("mystery", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutTemplate_ScriptTag_Returns400()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+
+        var bad = Assert.IsType<BadRequestObjectResult>(
+            BuildController(templates: templates).PutTemplate("newsletter__x", "en", new TemplateSaveRequest { Content = "<script>alert(1)</script>" }));
+
+        Assert.Contains("script", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutTemplate_ValidBody_Returns204_AndTheComposerUsesIt()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+        var controller = BuildController(templates: templates);
+
+        var result = controller.PutTemplate("newsletter__x", "fr", new TemplateSaveRequest { Content = "<p>{{heading}} EDITED</p>" });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Contains("EDITED", templates.Get("newsletter__x", "fr"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeleteTemplate_InUseByACampaign_Returns409()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].TemplateId = "newsletter__x";
+
+        var result = BuildController(campaigns: campaigns, templates: templates).DeleteTemplate("newsletter__x");
+
+        Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ConflictObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public void DeleteTemplate_NotInUse_Returns204()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+
+        Assert.IsType<NoContentResult>(BuildController(campaigns: SeededCampaigns(), templates: templates).DeleteTemplate("newsletter__x"));
+    }
+
+    [Fact]
+    public void PreviewTemplate_RendersSampleData()
+    {
+        var ok = Assert.IsType<OkObjectResult>(
+            BuildController().PreviewTemplate(new TemplatePreviewRequest { BaseId = "newsletter", Content = "<h1>{{heading}}</h1>" }));
+
+        Assert.Contains("Lili serveur", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutCampaign_TemplateIncompatibleWithType_Returns400()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("weekly-recap", "x");
+
+        var result = BuildController(campaigns: SeededCampaigns(), templates: templates)
+            .PutCampaign("newsletter", new CampaignUpdate { TemplateId = "weekly-recap__x" });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
+    [Fact]
+    public void PutCampaign_CompatibleTemplate_Returns204_AndIsStored()
+    {
+        var templates = TestTemplateStore.Create();
+        templates.Clone("newsletter", "x");
+        var campaigns = SeededCampaigns();
+
+        var result = BuildController(campaigns: campaigns, templates: templates)
+            .PutCampaign("newsletter", new CampaignUpdate { TemplateId = "newsletter__x" });
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Equal("newsletter__x", campaigns.Campaigns[0].TemplateId);
+    }
+
+    [Fact]
+    public void PutCampaign_EmptyTemplateId_ResetsToTheBase()
+    {
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].TemplateId = "newsletter__x";
+
+        BuildController(campaigns: campaigns).PutCampaign("newsletter", new CampaignUpdate { TemplateId = string.Empty });
+
+        Assert.Equal("newsletter", campaigns.Campaigns[0].TemplateId);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -702,6 +854,7 @@ public sealed class EasyNotifControllerTests
         Mock<IManualEmailService>? manualEmail = null,
         ICampaignStore? campaigns = null,
         Mock<IDispatchService>? dispatch = null,
+        ITemplateStore? templates = null,
         FakeEasyNotifLog? easyNotifLog = null)
     {
         var controller = new EasyNotifController(
@@ -714,6 +867,7 @@ public sealed class EasyNotifControllerTests
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
             campaigns ?? new FakeCampaignStore(),
             (dispatch ?? new Mock<IDispatchService>()).Object,
+            templates ?? TestTemplateStore.Create(),
             easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext

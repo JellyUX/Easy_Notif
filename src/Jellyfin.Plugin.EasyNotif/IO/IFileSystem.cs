@@ -39,4 +39,15 @@ public interface IFileSystem
     /// <param name="path">The directory path to check.</param>
     /// <returns>True if the directory exists.</returns>
     bool DirectoryExists(string path);
+
+    /// <summary>Returns the full paths of the files in a directory that match a search pattern.</summary>
+    /// <param name="path">The directory to enumerate. An empty sequence when it does not exist.</param>
+    /// <param name="searchPattern">A search pattern such as <c>*.html</c>.</param>
+    /// <returns>The matching file paths.</returns>
+    IEnumerable<string> EnumerateFiles(string path, string searchPattern);
+
+    /// <summary>Gets the last-write time of a file, in UTC.</summary>
+    /// <param name="path">The file path.</param>
+    /// <returns>The last-write time (UTC).</returns>
+    DateTime GetLastWriteTimeUtc(string path);
 }

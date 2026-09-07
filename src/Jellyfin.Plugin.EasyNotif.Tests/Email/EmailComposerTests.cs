@@ -38,9 +38,9 @@ public sealed class EmailComposerTests
                 .Returns((Guid id, DateTime _) => new RecapModel([], 0, 0, null, id.ToString("N")[..4]));
             Composer = new EmailComposer(
                 Digest.Object,
-                new NewsletterComposer(new TemplateStore()),
+                new NewsletterComposer(TestTemplateStore.Create()),
                 Recap.Object,
-                new WeeklyRecapComposer(new TemplateStore()),
+                new WeeklyRecapComposer(TestTemplateStore.Create()),
                 new ServerLinkContext("srv", "Home"),
                 Log);
         }

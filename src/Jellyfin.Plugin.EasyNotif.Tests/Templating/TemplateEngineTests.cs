@@ -107,4 +107,25 @@ public sealed class TemplateEngineTests
 
         Assert.Equal("a,b,", TemplateEngine.Render("{{#if show}}{{#each items}}{{.}},{{/each}}{{/if}}", model));
     }
+
+    [Fact]
+    public void ReferencedKeys_CollectsValuesConditionsAndLoops_ExcludesClosersDotAndIndex()
+    {
+        const string Template =
+            "{{heading}} {{{rawBody}}} {{#if hasItems}}{{#each items}}{{.}} {{@index}} {{name}}{{/each}}{{/if}}{{/if}}";
+
+        var keys = TemplateEngine.ReferencedKeys(Template);
+
+        Assert.Equal(
+            new[] { "hasItems", "heading", "items", "name", "rawBody" },
+            keys.OrderBy(k => k, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ReferencedKeys_DeduplicatesRepeatedKeys()
+        => Assert.Equal(["title"], TemplateEngine.ReferencedKeys("{{title}}{{title}}{{#if title}}x{{/if}}"));
+
+    [Fact]
+    public void ReferencedKeys_IsEmptyForAPlainString()
+        => Assert.Empty(TemplateEngine.ReferencedKeys("no placeholders here"));
 }

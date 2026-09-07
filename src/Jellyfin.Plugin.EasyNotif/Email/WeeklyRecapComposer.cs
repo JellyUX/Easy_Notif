@@ -23,8 +23,9 @@ public sealed class WeeklyRecapComposer
     /// <param name="campaign">The campaign (for the mail language).</param>
     /// <param name="model">The user's recap data.</param>
     /// <param name="serverName">The server's friendly name, for the heading.</param>
+    /// <param name="templateId">The template id to render with (base or custom).</param>
     /// <returns>The composed content.</returns>
-    public EmailContent Compose(Campaign campaign, RecapModel model, string serverName)
+    public EmailContent Compose(Campaign campaign, RecapModel model, string serverName, string templateId)
     {
         ArgumentNullException.ThrowIfNull(campaign);
         ArgumentNullException.ThrowIfNull(model);
@@ -66,7 +67,7 @@ public sealed class WeeklyRecapComposer
             ["partialSince"] = partialSince
         };
 
-        var html = TemplateEngine.Render(_templates.Get("weekly-recap", fr ? "fr" : "en"), templateModel);
+        var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), templateModel);
         return new EmailContent(subject, html, BuildText(model, greeting, partialSince, fr));
     }
 

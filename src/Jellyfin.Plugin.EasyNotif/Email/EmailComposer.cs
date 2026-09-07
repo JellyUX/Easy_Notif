@@ -2,6 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Recap;
+using Jellyfin.Plugin.EasyNotif.Storage;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
@@ -43,6 +44,10 @@ public sealed class EmailComposer : IEmailComposer
     {
         ArgumentNullException.ThrowIfNull(campaign);
 
+        var templateId = string.IsNullOrEmpty(campaign.TemplateId)
+            ? TemplateStore.DefaultTemplateId(campaign.Type)
+            : campaign.TemplateId;
+
         if (campaign.Type == CampaignType.Newsletter)
         {
             var since = freshWindow ? nowUtc.AddDays(-7) : campaign.LastSentUtc ?? nowUtc.AddDays(-7);
@@ -61,7 +66,7 @@ public sealed class EmailComposer : IEmailComposer
             {
                 ShouldSend = !digest.IsEmpty,
                 SkipReason = digest.IsEmpty ? "empty-digest" : null,
-                Render = _ => _newsletter.Compose(campaign, digest, _links.ServerName),
+                Render = _ => _newsletter.Compose(campaign, digest, _links.ServerName, templateId),
                 MovieCount = digest.Movies.Count,
                 SeriesCount = digest.Series.Count
             });
@@ -76,7 +81,8 @@ public sealed class EmailComposer : IEmailComposer
                 Render = recipient => _recapComposer.Compose(
                     campaign,
                     _recap.BuildFor(recipient.UserId, nowUtc),
-                    _links.ServerName)
+                    _links.ServerName,
+                    templateId)
             });
         }
 

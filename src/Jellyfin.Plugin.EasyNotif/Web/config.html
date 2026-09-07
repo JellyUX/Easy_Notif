@@ -19,6 +19,8 @@
         .enotif-status-block table { width: 100%; border-collapse: collapse; margin-top: 0.6em; }
         .enotif-status-block th, .enotif-status-block td { text-align: left; padding: 0.35em 0.6em; }
         .enotif-manual-body { width: 100%; min-height: 12em; font-family: monospace; }
+        .enotif-tpl-body { width: 100%; min-height: 16em; font-family: monospace; }
+        .enotif-tpl-body[readonly] { opacity: 0.7; }
         .enotif-manual-preview { width: 100%; height: 16em; border: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12)); background: var(--jf-palette-background-paper, #ffffff); }
         .enotif-manual-users { margin: 0.4em 0 0 0.4em; }
         .enotif-radio-row { margin: 0.4em 0; }
@@ -49,6 +51,7 @@
         <div class="enotif-tabs">
             <button type="button" class="enotif-tab" data-tab="settings" data-i18n="tab.settings">Settings</button>
             <button type="button" class="enotif-tab" data-tab="campaigns" data-i18n="campaigns.tab">Campaigns</button>
+            <button type="button" class="enotif-tab" data-tab="templates" data-i18n="templates.tab">Templates</button>
             <button type="button" class="enotif-tab" data-tab="manual" data-i18n="manual.tab">Manual email</button>
             <button type="button" class="enotif-tab" data-tab="preferences" data-i18n="tab.preferences">User preferences</button>
             <button type="button" class="enotif-tab" data-tab="logs" data-i18n="logs.tab">Logs</button>
@@ -114,6 +117,30 @@
                 it now. Recipients are the users opted in to the matching category.
             </p>
             <div id="enotifCampaignList"></div>
+        </div>
+
+        <div class="enotif-panel" data-panel="templates" hidden>
+            <p class="fieldDescription" data-i18n="templates.intro">
+                The base templates are read-only. Clone one to make an editable copy, then point a
+                campaign at it from the Campaigns tab.
+            </p>
+            <div class="enotif-campaign-row">
+                <label data-i18n="templates.pick">Template</label>
+                <select is="emby-select" id="enotifTplPick" class="emby-select"></select>
+                <select is="emby-select" id="enotifTplLang" class="emby-select">
+                    <option value="en">en</option>
+                    <option value="fr">fr</option>
+                </select>
+            </div>
+            <textarea id="enotifTplBody" class="emby-textarea enotif-tpl-body" spellcheck="false"></textarea>
+            <button is="emby-button" type="button" id="enotifTplPreviewBtn" class="raised" data-i18n="templates.preview">Refresh preview</button>
+            <iframe id="enotifTplPreview" class="enotif-manual-preview" sandbox="" referrerpolicy="no-referrer" title="preview"></iframe>
+            <div class="enotif-campaign-row">
+                <button is="emby-button" type="button" id="enotifTplSaveBtn" class="raised button-submit" data-i18n="templates.save">Save</button>
+                <button is="emby-button" type="button" id="enotifTplCloneBtn" class="raised" data-i18n="templates.clone">Clone</button>
+                <button is="emby-button" type="button" id="enotifTplDeleteBtn" class="raised" data-i18n="templates.delete">Delete</button>
+            </div>
+            <div id="enotifTplResult" class="fieldDescription" role="status"></div>
         </div>
 
         <div class="enotif-panel" data-panel="manual" hidden>

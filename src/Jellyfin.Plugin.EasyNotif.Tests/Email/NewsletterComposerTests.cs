@@ -2,7 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
-using Jellyfin.Plugin.EasyNotif.Storage;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Xunit;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
@@ -14,7 +14,10 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
 /// </summary>
 public sealed class NewsletterComposerTests
 {
-    private static readonly NewsletterComposer Composer = new(new TemplateStore());
+    private static readonly NewsletterComposer Composer = new(TestTemplateStore.Create());
+
+    private static EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName)
+        => Composer.Compose(campaign, digest, serverName, "newsletter");
 
     private static Campaign Campaign(string lang = "fr") => new()
     {
@@ -33,7 +36,7 @@ public sealed class NewsletterComposerTests
     [Fact]
     public void NonEmptyDigest_HtmlHasTitlesAndLink_TextIsPlain()
     {
-        var content = Composer.Compose(Campaign(), OneOfEach(), "Home");
+        var content = Compose(Campaign(), OneOfEach(), "Home");
 
         Assert.Contains("Sicario", content.Html!, StringComparison.Ordinal);
         Assert.Contains("Severance", content.Html!, StringComparison.Ordinal);
@@ -48,14 +51,14 @@ public sealed class NewsletterComposerTests
     [Fact]
     public void Subject_IsLocalised()
     {
-        Assert.StartsWith("Nouveautes mediatheque", Composer.Compose(Campaign("fr"), OneOfEach(), "Home").Subject);
-        Assert.StartsWith("New in your library", Composer.Compose(Campaign("en"), OneOfEach(), "Home").Subject);
+        Assert.StartsWith("Nouveautes mediatheque", Compose(Campaign("fr"), OneOfEach(), "Home").Subject);
+        Assert.StartsWith("New in your library", Compose(Campaign("en"), OneOfEach(), "Home").Subject);
     }
 
     [Fact]
     public void EmptyDigest_RendersNothingNew_NoSections()
     {
-        var content = Composer.Compose(Campaign("en"), new NewsletterDigest([], []), "Home");
+        var content = Compose(Campaign("en"), new NewsletterDigest([], []), "Home");
 
         Assert.Contains("Nothing new was added this week", content.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain(">Movies<", content.Html!, StringComparison.Ordinal);
@@ -65,7 +68,7 @@ public sealed class NewsletterComposerTests
     [Fact]
     public void NoDetailUrl_DropsTheAnchor_KeepsTheTitle()
     {
-        var content = Composer.Compose(Campaign("en"), OneOfEach(detailUrl: null), "Home");
+        var content = Compose(Campaign("en"), OneOfEach(detailUrl: null), "Home");
 
         Assert.Contains("Sicario", content.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain("<a href=", content.Html!, StringComparison.Ordinal);

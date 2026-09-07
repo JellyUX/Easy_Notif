@@ -23,8 +23,9 @@ public sealed class NewsletterComposer
     /// <param name="campaign">The campaign (for the mail language).</param>
     /// <param name="digest">The media digest.</param>
     /// <param name="serverName">The server's friendly name, for the heading.</param>
+    /// <param name="templateId">The template id to render with (base or custom).</param>
     /// <returns>The composed content.</returns>
-    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName)
+    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName, string templateId)
     {
         ArgumentNullException.ThrowIfNull(campaign);
         ArgumentNullException.ThrowIfNull(digest);
@@ -68,7 +69,7 @@ public sealed class NewsletterComposer
             }).ToList()
         };
 
-        var html = TemplateEngine.Render(_templates.Get("newsletter", fr ? "fr" : "en"), model);
+        var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), model);
         return new EmailContent(subject, html, BuildText(digest, heading, fr));
     }
 

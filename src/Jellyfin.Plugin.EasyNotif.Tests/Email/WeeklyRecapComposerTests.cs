@@ -2,7 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
-using Jellyfin.Plugin.EasyNotif.Storage;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Xunit;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
@@ -14,7 +14,10 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
 /// </summary>
 public sealed class WeeklyRecapComposerTests
 {
-    private readonly WeeklyRecapComposer _composer = new(new TemplateStore());
+    private readonly WeeklyRecapComposer _composerImpl = new(TestTemplateStore.Create());
+
+    private EmailContent Compose(Campaign campaign, RecapModel model, string serverName)
+        => _composerImpl.Compose(campaign, model, serverName, "weekly-recap");
 
     private static Campaign Campaign(string lang = "fr") => new()
     {
@@ -38,7 +41,7 @@ public sealed class WeeklyRecapComposerTests
     [Fact]
     public void RendersEntries_TheGroupLine_AndTheYearTotal()
     {
-        var content = _composer.Compose(Campaign(), WithActivity(), "Home");
+        var content = Compose(Campaign(), WithActivity(), "Home");
 
         Assert.Contains("The Wire", content.Html!, StringComparison.Ordinal);
         Assert.Contains("3 episodes", content.Html!, StringComparison.Ordinal);
@@ -52,8 +55,8 @@ public sealed class WeeklyRecapComposerTests
     [Fact]
     public void SubjectDiffersByLanguage()
     {
-        Assert.StartsWith("Ton resume", _composer.Compose(Campaign("fr"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
-        Assert.StartsWith("Your week", _composer.Compose(Campaign("en"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
+        Assert.StartsWith("Ton resume", Compose(Campaign("fr"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
+        Assert.StartsWith("Your week", Compose(Campaign("en"), WithActivity(), "Home").Subject, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -61,7 +64,7 @@ public sealed class WeeklyRecapComposerTests
     {
         var model = new RecapModel([], 5, 4, null, "bob");
 
-        var content = _composer.Compose(Campaign(), model, "Home");
+        var content = Compose(Campaign(), model, "Home");
 
         Assert.Contains("semaine calme", content.Subject, StringComparison.Ordinal);
         Assert.Contains("Rien vu cette semaine", content.Html!, StringComparison.Ordinal);
@@ -71,20 +74,20 @@ public sealed class WeeklyRecapComposerTests
     [Fact]
     public void PartialSince_AddsTheSinceInstallationLine_WhenSet()
     {
-        var withDate = _composer.Compose(Campaign(), WithActivity(partialSince: new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc)), "Home");
+        var withDate = Compose(Campaign(), WithActivity(partialSince: new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc)), "Home");
         Assert.Contains("2026-03-15", withDate.Html!, StringComparison.Ordinal);
         Assert.Contains("installation", withDate.Html!, StringComparison.Ordinal);
 
-        var without = _composer.Compose(Campaign(), WithActivity(partialSince: null), "Home");
+        var without = Compose(Campaign(), WithActivity(partialSince: null), "Home");
         Assert.DoesNotContain("installation d'Easy Notif", without.Html!, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Salutation_UsesTheUserName_WhenPresent()
     {
-        Assert.Contains("Bonjour bob", _composer.Compose(Campaign(), WithActivity(name: "bob"), "Home").Html!, StringComparison.Ordinal);
+        Assert.Contains("Bonjour bob", Compose(Campaign(), WithActivity(name: "bob"), "Home").Html!, StringComparison.Ordinal);
 
-        var anon = _composer.Compose(Campaign(), WithActivity(name: null), "Home");
+        var anon = Compose(Campaign(), WithActivity(name: null), "Home");
         Assert.Contains("Bonjour", anon.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain("Bonjour bob", anon.Html!, StringComparison.Ordinal);
     }

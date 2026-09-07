@@ -40,6 +40,7 @@ public class EasyNotifController : ControllerBase
     private readonly IManualEmailService _manualEmail;
     private readonly ICampaignStore _campaigns;
     private readonly IDispatchService _dispatch;
+    private readonly ITemplateStore _templates;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
@@ -55,6 +56,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="manualEmail">The manual admin email service.</param>
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="dispatch">The dispatch service.</param>
+    /// <param name="templates">The email template store.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
@@ -67,6 +69,7 @@ public class EasyNotifController : ControllerBase
         IManualEmailService manualEmail,
         ICampaignStore campaigns,
         IDispatchService dispatch,
+        ITemplateStore templates,
         IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
@@ -79,6 +82,7 @@ public class EasyNotifController : ControllerBase
         _manualEmail = manualEmail;
         _campaigns = campaigns;
         _dispatch = dispatch;
+        _templates = templates;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -520,6 +524,7 @@ public class EasyNotifController : ControllerBase
         category = c.Category.ToString(),
         enabled = c.Enabled,
         mailLanguage = c.MailLanguage,
+        templateId = c.TemplateId,
         lastSentUtc = c.LastSentUtc,
         nextRunUtc = c.NextRunUtc,
         lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
@@ -572,6 +577,15 @@ public class EasyNotifController : ControllerBase
                 return NotFound();
             }
 
+            if (body?.TemplateId is { Length: > 0 } templateId)
+            {
+                if (!_templates.Exists(templateId)
+                    || _templates.BaseIdOf(templateId) != TemplateStore.DefaultTemplateId(existing.Type))
+                {
+                    return BadRequest(new { error = "invalid-template" });
+                }
+            }
+
             var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
             var enabling = body?.Enabled == true && !existing.Enabled;
             var scheduleChanged = schedule is not null && !schedule.Equals(existing.Schedule);
@@ -586,6 +600,13 @@ public class EasyNotifController : ControllerBase
                 if (body?.MailLanguage is { } mailLanguage)
                 {
                     c.MailLanguage = mailLanguage;
+                }
+
+                if (body?.TemplateId is { } wantedTemplate)
+                {
+                    c.TemplateId = wantedTemplate.Length == 0
+                        ? TemplateStore.DefaultTemplateId(c.Type)
+                        : wantedTemplate;
                 }
 
                 if (schedule is not null)
@@ -691,6 +712,159 @@ public class EasyNotifController : ControllerBase
             _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin - email templates
+    // -------------------------------------------------------------------------
+
+    /// <summary>Lists the base and custom email templates. Administrators only.</summary>
+    /// <returns>The templates.</returns>
+    [HttpGet("admin/templates")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetTemplates() => Wrap(() => Ok(_templates.List().Select(t => new
+    {
+        id = t.Id,
+        baseId = t.BaseId,
+        custom = t.Custom,
+        langs = t.Langs
+    })));
+
+    /// <summary>Gets one template's source for a language. Administrators only.</summary>
+    /// <param name="id">The template id (base or custom).</param>
+    /// <param name="lang">The language, <c>en</c> or <c>fr</c> (default <c>en</c>).</param>
+    /// <returns>The source; 404 for an unknown id.</returns>
+    [HttpGet("admin/templates/{id}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetTemplate([FromRoute] string id, [FromQuery] string? lang) => Wrap(() =>
+    {
+        if (!_templates.Exists(id))
+        {
+            return NotFound();
+        }
+
+        var normalizedLang = lang is "fr" ? "fr" : "en";
+        return Ok(new
+        {
+            id,
+            lang = normalizedLang,
+            baseId = _templates.BaseIdOf(id),
+            custom = !TemplateStore.BaseIds.Contains(id),
+            content = _templates.GetRaw(id, normalizedLang)
+        });
+    });
+
+    /// <summary>Clones a base template to a new custom template. Administrators only.</summary>
+    /// <param name="body">The base id and the new slug.</param>
+    /// <returns>201; 400 on an invalid base id, slug, or an existing id.</returns>
+    [HttpPost("admin/templates")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult CloneTemplate([FromBody] TemplateCloneRequest? body) => Wrap(() =>
+    {
+        try
+        {
+            _templates.Clone(body?.BaseId ?? string.Empty, body?.Slug ?? string.Empty);
+            _easyNotifLog.Info("template.cloned", new Dictionary<string, object?>
+            {
+                ["baseId"] = body?.BaseId,
+                ["slug"] = body?.Slug
+            });
+            return StatusCode(StatusCodes.Status201Created, new { id = $"{body?.BaseId}__{body?.Slug}" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = "invalid-clone", detail = ex.Message });
+        }
+    });
+
+    /// <summary>Saves one language of a custom template. Administrators only.</summary>
+    /// <param name="id">The custom template id.</param>
+    /// <param name="lang">The language, <c>en</c> or <c>fr</c> (default <c>en</c>).</param>
+    /// <param name="body">The template body.</param>
+    /// <returns>204; 400 on a failed validation; 403 for a base template; 404 for an unknown id.</returns>
+    [HttpPut("admin/templates/{id}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult PutTemplate([FromRoute] string id, [FromQuery] string? lang, [FromBody] TemplateSaveRequest? body) => Wrap(() =>
+    {
+        if (TemplateStore.BaseIds.Contains(id))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "base-template-read-only" });
+        }
+
+        if (!_templates.Exists(id))
+        {
+            return NotFound();
+        }
+
+        var content = body?.Content ?? string.Empty;
+        var validation = _templates.Validate(_templates.BaseIdOf(id), content);
+        if (!validation.Ok)
+        {
+            return BadRequest(new { error = validation.Reason, key = validation.Key });
+        }
+
+        _templates.Save(id, lang is "fr" ? "fr" : "en", content);
+        _easyNotifLog.Info("template.saved", new Dictionary<string, object?> { ["id"] = id, ["lang"] = lang });
+        return NoContent();
+    });
+
+    /// <summary>Deletes a custom template. Administrators only.</summary>
+    /// <param name="id">The custom template id.</param>
+    /// <returns>204; 403 for a base template; 409 when a campaign still points at it.</returns>
+    [HttpDelete("admin/templates/{id}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult DeleteTemplate([FromRoute] string id) => Wrap(() =>
+    {
+        if (TemplateStore.BaseIds.Contains(id))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = "base-template-read-only" });
+        }
+
+        var user = _campaigns.All().FirstOrDefault(c => c.TemplateId == id);
+        if (user is not null)
+        {
+            return Conflict(new { error = "template-in-use", campaignId = user.Id });
+        }
+
+        _templates.Delete(id);
+        _easyNotifLog.Info("template.deleted", new Dictionary<string, object?> { ["id"] = id });
+        return NoContent();
+    });
+
+    /// <summary>Renders a candidate template body with sample data for the editor preview. Administrators only.</summary>
+    /// <param name="body">The base id, language and candidate body.</param>
+    /// <returns>200 with the rendered HTML; 400 on an unknown base id.</returns>
+    [HttpPost("admin/templates/preview")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult PreviewTemplate([FromBody] TemplatePreviewRequest? body)
+    {
+        var baseId = body?.BaseId ?? string.Empty;
+        if (!TemplateStore.BaseIds.Contains(baseId))
+        {
+            return BadRequest(new { error = "invalid-base" });
+        }
+
+        var html = Templating.TemplateEngine.Render(body?.Content ?? string.Empty, Templating.TemplateSampleModel.For(baseId));
+        return Ok(new { html });
     }
 
     // -------------------------------------------------------------------------
@@ -935,6 +1109,12 @@ public sealed class CampaignUpdate
     /// <summary>Gets or sets the mail language (<c>en</c> or <c>fr</c>).</summary>
     public string? MailLanguage { get; set; }
 
+    /// <summary>
+    /// Gets or sets the template id used to compose the mail. Null leaves it unchanged; an empty
+    /// string resets to the base template for the campaign kind.
+    /// </summary>
+    public string? TemplateId { get; set; }
+
     /// <summary>Gets or sets the new recurrence.</summary>
     public ScheduleUpdate? Schedule { get; set; }
 }
@@ -956,6 +1136,36 @@ public sealed class ScheduleUpdate
 
     /// <summary>Gets or sets the day interval for an every-N-days schedule.</summary>
     public int? IntervalDays { get; set; }
+}
+
+/// <summary>Request body for <c>POST /EasyNotif/admin/templates</c>.</summary>
+public sealed class TemplateCloneRequest
+{
+    /// <summary>Gets or sets the base template id to clone.</summary>
+    public string? BaseId { get; set; }
+
+    /// <summary>Gets or sets the slug for the new custom template.</summary>
+    public string? Slug { get; set; }
+}
+
+/// <summary>Request body for <c>PUT /EasyNotif/admin/templates/{id}</c>.</summary>
+public sealed class TemplateSaveRequest
+{
+    /// <summary>Gets or sets the template body.</summary>
+    public string? Content { get; set; }
+}
+
+/// <summary>Request body for <c>POST /EasyNotif/admin/templates/preview</c>.</summary>
+public sealed class TemplatePreviewRequest
+{
+    /// <summary>Gets or sets the base id whose sample data to render with.</summary>
+    public string? BaseId { get; set; }
+
+    /// <summary>Gets or sets the language (unused by the sample data; kept for symmetry).</summary>
+    public string? Lang { get; set; }
+
+    /// <summary>Gets or sets the candidate template body.</summary>
+    public string? Content { get; set; }
 }
 
 /// <summary>Request body for <c>PUT /EasyNotif/admin/settings</c>. A blank secret is ignored.</summary>

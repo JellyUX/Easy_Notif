@@ -280,6 +280,21 @@
         return value ? String(value).slice(0, 16).replace('T', ' ') : null;
     }
 
+    // The base template id a campaign kind composes with when it has no custom template.
+    function _campaignTemplateBaseId(type) {
+        return type === 'WeeklyRecap' ? 'weekly-recap' : 'newsletter';
+    }
+
+    // Options for a template <select>. When baseId is given, only templates of that base are kept
+    // (for a campaign's selector); otherwise every template is listed (for the Templates tab).
+    function _tplOptions(templates, baseId) {
+        return (templates || [])
+            .filter(function (t) { return !baseId || t.baseId === baseId; })
+            .map(function (t) {
+                return { value: t.id, label: t.custom ? t.id : t.id + ' (base)' };
+            });
+    }
+
     // Result line for the newsletter preview: how many movies / series were in the sent digest.
     function _previewResult(dict, summary) {
         summary = summary || {};
@@ -308,6 +323,8 @@
         _fmtSchedule: _fmtSchedule,
         _fmtDateTime: _fmtDateTime,
         _previewResult: _previewResult,
+        _tplOptions: _tplOptions,
+        _campaignTemplateBaseId: _campaignTemplateBaseId,
         PLUGIN_ID: PLUGIN_ID
     };
 
@@ -665,7 +682,7 @@
         return input;
     }
 
-    function _buildCampaignCard(campaign) {
+    function _buildCampaignCard(campaign, templates) {
         var root = document.createElement('div');
         root.className = 'enotif-campaign';
         root.setAttribute('data-campaign-id', campaign.id);
@@ -693,6 +710,11 @@
         var lang = _select('enotif-campaign-lang', [{ value: 'fr', label: 'Francais' }, { value: 'en', label: 'English' }]);
         lang.value = campaign.mailLanguage || 'fr';
         root.appendChild(_labeledRow('', 'campaigns.language', lang));
+
+        var baseId = _campaignTemplateBaseId(campaign.type);
+        var tpl = _select('enotif-campaign-template', _tplOptions(templates, baseId));
+        tpl.value = campaign.templateId || baseId;
+        root.appendChild(_labeledRow('', 'campaigns.template', tpl));
 
         var kind = _select('enotif-campaign-kind', SCHEDULE_KINDS.map(function (k) {
             return { value: k, label: _t(dict, 'campaigns.kind.' + k) };
@@ -771,10 +793,15 @@
     }
 
     function _loadCampaigns() {
-        return window.ApiClient.getJSON(_url('admin/campaigns')).then(function (campaigns) {
+        return Promise.all([
+            window.ApiClient.getJSON(_url('admin/campaigns')),
+            window.ApiClient.getJSON(_url('admin/templates')).catch(function () { return []; })
+        ]).then(function (results) {
+            var campaigns = results[0] || [];
+            var templates = results[1] || [];
             var host = _el('enotifCampaignList');
             host.innerHTML = '';
-            (campaigns || []).forEach(function (c) { host.appendChild(_buildCampaignCard(c)); });
+            campaigns.forEach(function (c) { host.appendChild(_buildCampaignCard(c, templates)); });
         }).catch(function (err) {
             console.error('[EasyNotif Config] could not load campaigns:', err);
         });
@@ -793,6 +820,7 @@
         var body = {
             enabled: root.querySelector('.enotif-campaign-enabled').checked,
             mailLanguage: root.querySelector('.enotif-campaign-lang').value,
+            templateId: root.querySelector('.enotif-campaign-template').value,
             schedule: _scheduleFromForm(state)
         };
 
@@ -847,6 +875,138 @@
         });
     }
 
+    // ---- Templates tab (browser) ----------------------------------------------
+
+    var tplList = [];
+    var tplCurrent = null;
+
+    function _deleteReq(path) {
+        return window.ApiClient.ajax({ type: 'DELETE', url: _url(path) });
+    }
+
+    function _tplResult(key, isError) {
+        var el = _el('enotifTplResult');
+        el.classList.toggle('enotif-status-error', !!isError);
+        el.textContent = _t(dict, key);
+    }
+
+    function _loadTemplates() {
+        return window.ApiClient.getJSON(_url('admin/templates')).then(function (list) {
+            tplList = list || [];
+            var pick = _el('enotifTplPick');
+            pick.innerHTML = '';
+            _tplOptions(tplList).forEach(function (o) {
+                var opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.label;
+                pick.appendChild(opt);
+            });
+            return _selectTemplate();
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load templates:', err);
+        });
+    }
+
+    function _selectTemplate() {
+        var id = _el('enotifTplPick').value;
+        var lang = _el('enotifTplLang').value;
+        var info = tplList.filter(function (t) { return t.id === id; })[0];
+        if (!info) {
+            return Promise.resolve();
+        }
+        tplCurrent = info;
+        var editable = !!info.custom;
+        _el('enotifTplBody').readOnly = !editable;
+        _el('enotifTplSaveBtn').hidden = !editable;
+        _el('enotifTplDeleteBtn').hidden = !editable;
+        _el('enotifTplResult').textContent = editable ? '' : _t(dict, 'templates.base.readonly');
+        return window.ApiClient.getJSON(_url('admin/templates/' + encodeURIComponent(id) + '?lang=' + lang))
+            .then(function (t) {
+                _el('enotifTplBody').value = (t && t.content) || '';
+            });
+    }
+
+    function _previewTemplate() {
+        if (!tplCurrent) { return; }
+        _postJson('admin/templates/preview', {
+            BaseId: tplCurrent.baseId,
+            Lang: _el('enotifTplLang').value,
+            Content: _el('enotifTplBody').value
+        }).then(function (r) {
+            _el('enotifTplPreview').srcdoc = (r && r.html) || '';
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not preview a template:', err);
+        });
+    }
+
+    function _saveTemplate() {
+        if (!tplCurrent || !tplCurrent.custom) { return; }
+        var id = tplCurrent.id;
+        var lang = _el('enotifTplLang').value;
+        window.Dashboard.showLoadingMsg();
+        _putJson('admin/templates/' + encodeURIComponent(id) + '?lang=' + lang, { Content: _el('enotifTplBody').value })
+            .then(function () {
+                _tplResult('templates.saved', false);
+            })
+            .catch(function (err) {
+                var reason = err && err.responseJSON && err.responseJSON.error;
+                var key = 'templates.saved';
+                if (reason === 'script') { key = 'templates.error.script'; }
+                else if (reason === 'too-large') { key = 'templates.error.tooLarge'; }
+                else if (reason === 'unknown-key') { key = 'templates.error.unknownKey'; }
+                else { key = 'common.saveError'; }
+                _el('enotifTplResult').classList.add('enotif-status-error');
+                _el('enotifTplResult').textContent = _t(dict, key)
+                    .replace('{key}', (err && err.responseJSON && err.responseJSON.key) || '');
+            })
+            .then(function () { window.Dashboard.hideLoadingMsg(); });
+    }
+
+    function _cloneTemplate() {
+        if (!tplCurrent) { return; }
+        var slug = (window.prompt(_t(dict, 'templates.clone.prompt')) || '').trim();
+        if (!slug) { return; }
+        window.Dashboard.showLoadingMsg();
+        _postJson('admin/templates', { BaseId: tplCurrent.baseId, Slug: slug })
+            .then(function (r) {
+                return _loadTemplates().then(function () {
+                    if (r && r.id) { _el('enotifTplPick').value = r.id; }
+                    return _selectTemplate();
+                });
+            })
+            .catch(function (err) {
+                console.error('[EasyNotif Config] could not clone a template:', err);
+                _tplResult('templates.error.clone', true);
+            })
+            .then(function () { window.Dashboard.hideLoadingMsg(); });
+    }
+
+    function _deleteTemplate() {
+        if (!tplCurrent || !tplCurrent.custom) { return; }
+        if (!window.confirm(_t(dict, 'templates.delete.confirm'))) { return; }
+        var id = tplCurrent.id;
+        window.Dashboard.showLoadingMsg();
+        _deleteReq('admin/templates/' + encodeURIComponent(id))
+            .then(function () { return _loadTemplates().then(_loadCampaigns); })
+            .catch(function (err) {
+                var campaignId = err && err.responseJSON && err.responseJSON.campaignId;
+                _el('enotifTplResult').classList.add('enotif-status-error');
+                _el('enotifTplResult').textContent = campaignId
+                    ? _t(dict, 'templates.error.inUse').replace('{campaign}', campaignId)
+                    : _t(dict, 'common.saveError');
+            })
+            .then(function () { window.Dashboard.hideLoadingMsg(); });
+    }
+
+    function _bindTemplates() {
+        _el('enotifTplPick').addEventListener('change', _selectTemplate);
+        _el('enotifTplLang').addEventListener('change', _selectTemplate);
+        _el('enotifTplPreviewBtn').addEventListener('click', _previewTemplate);
+        _el('enotifTplSaveBtn').addEventListener('click', _saveTemplate);
+        _el('enotifTplCloneBtn').addEventListener('click', _cloneTemplate);
+        _el('enotifTplDeleteBtn').addEventListener('click', _deleteTemplate);
+    }
+
     function _onCatToggle(e) {
         var box = e.target;
         if (!box.classList || !box.classList.contains('enotif-cat')) {
@@ -880,6 +1040,7 @@
                 _loadSettings().then(_loadStatus);
                 _loadPrefs();
                 _loadLogs();
+                _loadTemplates();
                 _loadCampaigns();
                 _loadManualUsers().then(function () {
                     var addr = _el('enotifManualTestAddress');
@@ -905,6 +1066,7 @@
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
         _bindManual();
         _bindLogs();
+        _bindTemplates();
         _selectTab('settings');
     }
 

@@ -2,6 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Jellyfin.Plugin.EasyNotif.Templating;
 
@@ -30,6 +31,31 @@ public static class TemplateEngine
     }
 
     private sealed record Frame(IReadOnlyDictionary<string, object?>? Data, object? Current, int Index);
+
+    private static readonly Regex ReferencedKeyPattern = new(
+        @"\{\{\{?\s*(?:#(?:if|each)\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Returns every model key a template refers to, from <c>{{key}}</c>, <c>{{{key}}}</c>,
+    /// <c>{{#if key}}</c> and <c>{{#each key}}</c>. Closing tags, <c>{{.}}</c> and <c>{{@index}}</c>
+    /// are not keys and are excluded. Used to validate an admin-edited template against the known
+    /// placeholder set for its base id.
+    /// </summary>
+    /// <param name="template">The template text.</param>
+    /// <returns>The distinct referenced keys.</returns>
+    public static IReadOnlySet<string> ReferencedKeys(string template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match match in ReferencedKeyPattern.Matches(template))
+        {
+            keys.Add(match.Groups[1].Value);
+        }
+
+        return keys;
+    }
 
     private static void RenderRegion(string t, int start, int end, List<Frame> scopes, StringBuilder output)
     {

@@ -9,7 +9,7 @@ const {
     _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
-    _previewResult,
+    _previewResult, _tplOptions, _campaignTemplateBaseId,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -282,6 +282,28 @@ describe('campaign schedule helpers', () => {
         expect(_previewResult(enStrings, { movies: 3, series: 1 })).toBe('Preview sent: 3 movie(s), 1 series.');
         expect(_previewResult(enStrings, {})).toBe('Preview sent: 0 movie(s), 0 series.');
         expect(_previewResult(enStrings, null)).toBe('Preview sent: 0 movie(s), 0 series.');
+    });
+});
+
+describe('template helpers', () => {
+    const templates = [
+        { id: 'newsletter', baseId: 'newsletter', custom: false },
+        { id: 'weekly-recap', baseId: 'weekly-recap', custom: false },
+        { id: 'newsletter__holiday', baseId: 'newsletter', custom: true }
+    ];
+
+    it('_campaignTemplateBaseId maps the campaign kind', () => {
+        expect(_campaignTemplateBaseId('Newsletter')).toBe('newsletter');
+        expect(_campaignTemplateBaseId('WeeklyRecap')).toBe('weekly-recap');
+    });
+
+    it('_tplOptions filters by base id and marks the base', () => {
+        expect(_tplOptions(templates, 'newsletter')).toEqual([
+            { value: 'newsletter', label: 'newsletter (base)' },
+            { value: 'newsletter__holiday', label: 'newsletter__holiday' }
+        ]);
+        expect(_tplOptions(templates).length).toBe(3);
+        expect(_tplOptions(null)).toEqual([]);
     });
 });
 

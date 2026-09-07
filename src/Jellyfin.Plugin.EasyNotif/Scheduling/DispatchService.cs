@@ -208,6 +208,7 @@ public sealed class DispatchService : IDispatchService
                     Text = content.Text,
                     ReplyTo = cfg.ReplyTo,
                     Tags = [new EmailTag("context", "preview"), new EmailTag("campaignId", campaign.Id)],
+                    Attachments = content.Attachments,
                     IdempotencyKey = null
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -364,6 +365,7 @@ public sealed class DispatchService : IDispatchService
                     new EmailTag("campaignId", campaign.Id),
                     new EmailTag("category", campaign.Category.ToString())
                 ],
+                Attachments = content.Attachments,
                 IdempotencyKey = manualRun ? null : $"{campaign.Id}:{runSlot}:{recipient.UserId:N}"
             };
 

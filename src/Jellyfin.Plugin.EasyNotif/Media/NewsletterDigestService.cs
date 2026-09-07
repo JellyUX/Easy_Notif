@@ -1,6 +1,7 @@
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Email;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -19,9 +20,10 @@ public interface INewsletterDigestService
 {
     /// <summary>Builds the digest of media added on or after <paramref name="sinceUtc"/>.</summary>
     /// <param name="sinceUtc">The window start (UTC), usually the campaign's last send.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
     /// <param name="limit">A hard cap on the number of most-recently-added items pulled from the library.</param>
     /// <returns>The digest.</returns>
-    NewsletterDigest GetNewSince(DateTime sinceUtc, int limit = 1000);
+    Task<NewsletterDigest> GetNewSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken, int limit = 1000);
 }
 
 /// <inheritdoc cref="INewsletterDigestService"/>
@@ -31,6 +33,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     private readonly IConfigAccessor _config;
     private readonly ServerLinkContext _links;
     private readonly IAddedItemsStore _addedItems;
+    private readonly IPosterCache _posterCache;
     private readonly Logging.IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="NewsletterDigestService"/> class.</summary>
@@ -38,23 +41,26 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="links">The captured server identity for deep links.</param>
     /// <param name="addedItems">The server-time added-items store.</param>
+    /// <param name="posterCache">The inline poster cache (used only when no public URL is set).</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public NewsletterDigestService(
         ILibraryManager libraryManager,
         IConfigAccessor config,
         ServerLinkContext links,
         IAddedItemsStore addedItems,
+        IPosterCache posterCache,
         Logging.IEasyNotifLog log)
     {
         _libraryManager = libraryManager;
         _config = config;
         _links = links;
         _addedItems = addedItems;
+        _posterCache = posterCache;
         _log = log;
     }
 
     /// <inheritdoc/>
-    public NewsletterDigest GetNewSince(DateTime sinceUtc, int limit = 1000)
+    public async Task<NewsletterDigest> GetNewSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken, int limit = 1000)
     {
         var baseUrl = _config.Get().PublicServerUrl?.TrimEnd('/');
         var hasPublicUrl = !string.IsNullOrWhiteSpace(baseUrl);
@@ -95,17 +101,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             ["hitLimit"] = byDate.Count >= limit
         });
 
-        var movies = items.OfType<Movie>()
-            .Select(m => new DigestMovie(
-                m.Id,
-                m.Name ?? string.Empty,
-                m.ProductionYear,
-                Trimmed(m.Overview),
-                m.Genres ?? [],
-                Trimmed(m.OfficialRating),
-                PosterUrl(baseUrl, hasPublicUrl, m),
-                DetailUrl(baseUrl, hasPublicUrl, m.Id)))
-            .ToList();
+        var movieItems = items.OfType<Movie>().ToList();
 
         var groups = items.OfType<Episode>()
             .Where(e => e.SeriesId != Guid.Empty)
@@ -118,6 +114,32 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                 .GetItemList(new InternalItemsQuery { ItemIds = groups.Select(g => g.Key).ToArray() })
                 .GroupBy(i => i.Id)
                 .ToDictionary(g => g.Key, g => g.First());
+
+        // When there is no public URL, posters cannot be linked - attach a downsized copy inline.
+        var inlinePosters = new Dictionary<Guid, EmailAttachment>();
+        if (!hasPublicUrl)
+        {
+            foreach (var item in movieItems.Concat<BaseItem>(seriesItems.Values))
+            {
+                var attachment = await _posterCache.GetInlineAsync(item, cancellationToken).ConfigureAwait(false);
+                if (attachment is not null)
+                {
+                    inlinePosters[item.Id] = attachment;
+                }
+            }
+        }
+
+        var movies = movieItems
+            .Select(m => new DigestMovie(
+                m.Id,
+                m.Name ?? string.Empty,
+                m.ProductionYear,
+                Trimmed(m.Overview),
+                m.Genres ?? [],
+                Trimmed(m.OfficialRating),
+                PosterUrl(baseUrl, hasPublicUrl, inlinePosters, m),
+                DetailUrl(baseUrl, hasPublicUrl, m.Id)))
+            .ToList();
 
         var series = groups
             .Select(g =>
@@ -140,7 +162,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                         g.Count(),
                         seasons,
                         Trimmed(seriesItem?.Overview),
-                        seriesItem is null ? null : PosterUrl(baseUrl, hasPublicUrl, seriesItem),
+                        seriesItem is null ? null : PosterUrl(baseUrl, hasPublicUrl, inlinePosters, seriesItem),
                         DetailUrl(baseUrl, hasPublicUrl, g.Key))
                 };
             })
@@ -148,16 +170,23 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             .Select(x => x.Series)
             .ToList();
 
-        return new NewsletterDigest(movies, series);
+        return new NewsletterDigest(movies, series, [.. inlinePosters.Values]);
     }
 
     private static string? Trimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static string? PosterUrl(string? baseUrl, bool hasPublicUrl, BaseItem item)
-        => hasPublicUrl && item.HasImage(ImageType.Primary)
-            ? $"{baseUrl}/Items/{item.Id:N}/Images/Primary?maxWidth=300&quality=85"
-            : null;
+    private static string? PosterUrl(string? baseUrl, bool hasPublicUrl, IReadOnlyDictionary<Guid, EmailAttachment> inlinePosters, BaseItem item)
+    {
+        if (hasPublicUrl)
+        {
+            return item.HasImage(ImageType.Primary)
+                ? $"{baseUrl}/Items/{item.Id:N}/Images/Primary?maxWidth=300&quality=85"
+                : null;
+        }
+
+        return inlinePosters.TryGetValue(item.Id, out var attachment) ? $"cid:{attachment.ContentId}" : null;
+    }
 
     private string? DetailUrl(string? baseUrl, bool hasPublicUrl, Guid id)
         => hasPublicUrl

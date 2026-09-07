@@ -32,8 +32,8 @@ public sealed class EmailComposerTests
 
         public Harness()
         {
-            Digest.Setup(d => d.GetNewSince(It.IsAny<DateTime>(), It.IsAny<int>()))
-                .Returns(new NewsletterDigest([], []));
+            Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+                .ReturnsAsync(new NewsletterDigest([], []));
             Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
                 .Returns((Guid id, DateTime _) => new RecapModel([], 0, 0, null, id.ToString("N")[..4]));
             Composer = new EmailComposer(
@@ -62,7 +62,7 @@ public sealed class EmailComposerTests
     public async Task Newsletter_NonEmptyDigest_ShouldSend_RendersNewsletter()
     {
         var h = new Harness();
-        h.Digest.Setup(d => d.GetNewSince(It.IsAny<DateTime>(), It.IsAny<int>())).Returns(
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>())).ReturnsAsync(
             new NewsletterDigest([new DigestMovie(Guid.NewGuid(), "Dune", 2021, null, [], null, null, null)], []));
 
         var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
@@ -92,7 +92,7 @@ public sealed class EmailComposerTests
 
         await h.Composer.PrepareAsync(Newsletter(lastSent: null), Now, CancellationToken.None);
 
-        h.Digest.Verify(d => d.GetNewSince(Now.AddDays(-7), It.IsAny<int>()), Times.Once);
+        h.Digest.Verify(d => d.GetNewSinceAsync(Now.AddDays(-7), It.IsAny<CancellationToken>(), It.IsAny<int>()), Times.Once);
     }
 
     [Fact]
@@ -103,7 +103,7 @@ public sealed class EmailComposerTests
 
         await h.Composer.PrepareAsync(Newsletter(lastSent), Now, CancellationToken.None);
 
-        h.Digest.Verify(d => d.GetNewSince(lastSent, It.IsAny<int>()), Times.Once);
+        h.Digest.Verify(d => d.GetNewSinceAsync(lastSent, It.IsAny<CancellationToken>(), It.IsAny<int>()), Times.Once);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class EmailComposerTests
 
         await h.Composer.PrepareAsync(Newsletter(lastSent: Now.AddMinutes(-1)), Now, CancellationToken.None, freshWindow: true);
 
-        h.Digest.Verify(d => d.GetNewSince(Now.AddDays(-7), It.IsAny<int>()), Times.Once);
+        h.Digest.Verify(d => d.GetNewSinceAsync(Now.AddDays(-7), It.IsAny<CancellationToken>(), It.IsAny<int>()), Times.Once);
     }
 
     private static Campaign Recap() => new()

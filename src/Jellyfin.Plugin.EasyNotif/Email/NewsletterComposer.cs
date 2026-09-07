@@ -70,7 +70,8 @@ public sealed class NewsletterComposer
         };
 
         var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), model);
-        return new EmailContent(subject, html, BuildText(digest, heading, fr));
+        var attachments = digest.Posters.Count > 0 ? digest.Posters : null;
+        return new EmailContent(subject, html, BuildText(digest, heading, fr), attachments);
     }
 
     private static string EpisodesLabel(int count, bool fr)

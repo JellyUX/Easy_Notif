@@ -210,6 +210,11 @@ public sealed class ResendEmailSender : IEmailSender
                     entry["content_type"] = a.ContentType;
                 }
 
+                if (a.ContentId is not null)
+                {
+                    entry["content_id"] = a.ContentId;
+                }
+
                 return entry;
             }).ToArray();
         }

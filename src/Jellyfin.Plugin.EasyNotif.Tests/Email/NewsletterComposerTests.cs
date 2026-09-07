@@ -73,4 +73,24 @@ public sealed class NewsletterComposerTests
         Assert.Contains("Sicario", content.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain("<a href=", content.Html!, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void InlinePosters_FlowThroughToTheEmailContentAttachments()
+    {
+        var poster = new EmailAttachment { FileName = "p.jpg", Content = [1], ContentType = "image/jpeg", ContentId = "poster-x" };
+        var digest = new NewsletterDigest(
+            [new DigestMovie(Guid.NewGuid(), "Offline", 2020, null, [], null, "cid:poster-x", null)],
+            [],
+            [poster]);
+
+        var content = Compose(Campaign("en"), digest, "Home");
+
+        Assert.NotNull(content.Attachments);
+        Assert.Same(poster, Assert.Single(content.Attachments!));
+        Assert.Contains("cid:poster-x", content.Html!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NoInlinePosters_LeavesAttachmentsNull()
+        => Assert.Null(Compose(Campaign("en"), OneOfEach(), "Home").Attachments);
 }

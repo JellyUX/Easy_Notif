@@ -366,6 +366,24 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_CarriesTheRenderedAttachmentsOntoTheMessage()
+    {
+        var harness = new Harness();
+        var poster = new EmailAttachment { FileName = "p.jpg", Content = [1], ContentType = "image/jpeg", ContentId = "poster-1" };
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = _ => new EmailContent("s", "<img src=\"cid:poster-1\">", "t", [poster])
+            });
+        harness.Recipients(Alice);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Same(poster, Assert.Single(Assert.Single(harness.Sent).Attachments!));
+    }
+
+    [Fact]
     public async Task RunDueAsync_LogsResolvedCounts()
     {
         var harness = new Harness();

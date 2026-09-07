@@ -1,3 +1,5 @@
+using Jellyfin.Plugin.EasyNotif.Email;
+
 namespace Jellyfin.Plugin.EasyNotif.Media;
 
 /// <summary>
@@ -6,13 +8,21 @@ namespace Jellyfin.Plugin.EasyNotif.Media;
 /// </summary>
 /// <param name="Movies">The new movies, newest first.</param>
 /// <param name="Series">The series with new episodes, newest first.</param>
-public sealed record NewsletterDigest(IReadOnlyList<DigestMovie> Movies, IReadOnlyList<DigestSeries> Series)
+/// <param name="InlinePosters">Poster images to attach as inline <c>cid:</c> parts, used only when
+/// no public server URL is configured; empty otherwise.</param>
+public sealed record NewsletterDigest(
+    IReadOnlyList<DigestMovie> Movies,
+    IReadOnlyList<DigestSeries> Series,
+    IReadOnlyList<EmailAttachment>? InlinePosters = null)
 {
     /// <summary>Gets a value indicating whether nothing new was added in the window.</summary>
     public bool IsEmpty => Movies.Count == 0 && Series.Count == 0;
 
     /// <summary>Gets the count of distinct additions (movies plus new episodes).</summary>
     public int TotalItems => Movies.Count + Series.Sum(s => s.NewEpisodeCount);
+
+    /// <summary>Gets the inline poster attachments (never null).</summary>
+    public IReadOnlyList<EmailAttachment> Posters => InlinePosters ?? [];
 }
 
 /// <summary>One newly added movie.</summary>

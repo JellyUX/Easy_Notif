@@ -7,7 +7,9 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// <param name="Subject">The subject line.</param>
 /// <param name="Html">The HTML body, or null.</param>
 /// <param name="Text">The plain-text body, or null (the sender derives one from the HTML when absent).</param>
-public sealed record EmailContent(string Subject, string? Html, string? Text);
+/// <param name="Attachments">Inline / file attachments, or null. Used for CID poster images when
+/// no public server URL is configured.</param>
+public sealed record EmailContent(string Subject, string? Html, string? Text, IReadOnlyList<EmailAttachment>? Attachments = null);
 
 /// <summary>
 /// The result of preparing a campaign for one run: whether it should actually be sent, and a

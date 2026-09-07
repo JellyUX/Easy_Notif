@@ -85,6 +85,38 @@ public class ResendEmailSenderTests
     }
 
     [Fact]
+    public async Task SendAsync_SerializesAnInlineAttachmentWithItsContentId()
+    {
+        var (sender, http, _, _) = Build();
+        http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"x\"}");
+
+        var message = new EmailMessage
+        {
+            To = "alice.recipient@example.org",
+            Subject = "With a poster",
+            Html = "<img src=\"cid:poster-1\">",
+            Attachments =
+            [
+                new EmailAttachment
+                {
+                    FileName = "poster-1.jpg",
+                    Content = [1, 2, 3],
+                    ContentType = "image/jpeg",
+                    ContentId = "poster-1"
+                }
+            ]
+        };
+
+        await sender.SendAsync(message, CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(Assert.Single(http.Requests).Body!);
+        var attachment = doc.RootElement.GetProperty("attachments")[0];
+        Assert.Equal("poster-1.jpg", attachment.GetProperty("filename").GetString());
+        Assert.Equal("image/jpeg", attachment.GetProperty("content_type").GetString());
+        Assert.Equal("poster-1", attachment.GetProperty("content_id").GetString());
+    }
+
+    [Fact]
     public async Task SendAsync_On422_ReturnsFailureWithoutThrowing()
     {
         var (sender, http, _, _) = Build();

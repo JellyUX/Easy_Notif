@@ -56,6 +56,13 @@ public sealed class EmailAttachment
 
     /// <summary>Gets the MIME type, or null to let the provider infer it.</summary>
     public string? ContentType { get; init; }
+
+    /// <summary>
+    /// Gets an optional Content-ID. When set, the attachment is an inline image referenced from the
+    /// HTML body as <c>cid:{ContentId}</c> rather than shown as a download. Inline attachments are
+    /// not supported on the provider's batch endpoint, so a message carrying one must be sent singly.
+    /// </summary>
+    public string? ContentId { get; init; }
 }
 
 /// <summary>The outcome of a send attempt. Never carries an exception - failures are values.</summary>

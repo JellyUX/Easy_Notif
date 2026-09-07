@@ -40,7 +40,7 @@ public sealed class EmailComposer : IEmailComposer
     }
 
     /// <inheritdoc/>
-    public Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken, bool freshWindow = false)
+    public async Task<PreparedCampaign> PrepareAsync(Campaign campaign, DateTime nowUtc, CancellationToken cancellationToken, bool freshWindow = false)
     {
         ArgumentNullException.ThrowIfNull(campaign);
 
@@ -51,7 +51,7 @@ public sealed class EmailComposer : IEmailComposer
         if (campaign.Type == CampaignType.Newsletter)
         {
             var since = freshWindow ? nowUtc.AddDays(-7) : campaign.LastSentUtc ?? nowUtc.AddDays(-7);
-            var digest = _digest.GetNewSince(since);
+            var digest = await _digest.GetNewSinceAsync(since, cancellationToken).ConfigureAwait(false);
 
             _log.Info("newsletter.digest", new Dictionary<string, object?>
             {
@@ -59,23 +59,24 @@ public sealed class EmailComposer : IEmailComposer
                 ["since"] = since,
                 ["movies"] = digest.Movies.Count,
                 ["series"] = digest.Series.Count,
-                ["totalItems"] = digest.TotalItems
+                ["totalItems"] = digest.TotalItems,
+                ["inlinePosters"] = digest.Posters.Count
             });
 
-            return Task.FromResult(new PreparedCampaign
+            return new PreparedCampaign
             {
                 ShouldSend = !digest.IsEmpty,
                 SkipReason = digest.IsEmpty ? "empty-digest" : null,
                 Render = _ => _newsletter.Compose(campaign, digest, _links.ServerName, templateId),
                 MovieCount = digest.Movies.Count,
                 SeriesCount = digest.Series.Count
-            });
+            };
         }
 
         if (campaign.Type == CampaignType.WeeklyRecap)
         {
             // Always sent, even for a quiet week; the body is built per recipient.
-            return Task.FromResult(new PreparedCampaign
+            return new PreparedCampaign
             {
                 ShouldSend = true,
                 Render = recipient => _recapComposer.Compose(
@@ -83,17 +84,17 @@ public sealed class EmailComposer : IEmailComposer
                     _recap.BuildFor(recipient.UserId, nowUtc),
                     _links.ServerName,
                     templateId)
-            });
+            };
         }
 
         // Any future type: a defensive placeholder (no real campaign reaches this branch).
-        return Task.FromResult(new PreparedCampaign
+        return new PreparedCampaign
         {
             ShouldSend = true,
             Render = _ => new EmailContent(
                 $"[Easy Notif] {campaign.Type} ({campaign.MailLanguage})",
                 "<p>Placeholder content, replaced in a later phase.</p>",
                 "Placeholder content, replaced in a later phase.")
-        });
+        };
     }
 }

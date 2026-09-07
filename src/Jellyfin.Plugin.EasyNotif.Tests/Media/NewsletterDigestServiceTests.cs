@@ -1,5 +1,6 @@
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.EasyNotif.Configuration;
+using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Controller.Entities;
@@ -36,6 +37,8 @@ public sealed class NewsletterDigestServiceTests
         /// <summary>Items resolvable by id (tracked items and series parents).</summary>
         public List<BaseItem> ById { get; } = [];
 
+        public Mock<IPosterCache> PosterCache { get; } = new();
+
         public NewsletterDigestService Service { get; }
 
         public InternalItemsQuery? CapturedMainQuery { get; private set; }
@@ -55,11 +58,17 @@ public sealed class NewsletterDigestServiceTests
                     CapturedMainQuery = q;
                     return MainItems;
                 });
+            PosterCache
+                .Setup(p => p.GetInlineAsync(It.IsAny<BaseItem>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((EmailAttachment?)null);
             Service = new NewsletterDigestService(
-                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, new FakeEasyNotifLog());
+                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, PosterCache.Object, new FakeEasyNotifLog());
         }
 
         public List<BaseItem> SeriesItems => ById;
+
+        public NewsletterDigest Digest(DateTime sinceUtc, int limit = 1000)
+            => Service.GetNewSinceAsync(sinceUtc, CancellationToken.None, limit).GetAwaiter().GetResult();
     }
 
     private static Movie Movie(string name, bool withImage = false, int? year = 2026, DateTime? created = null)
@@ -97,7 +106,7 @@ public sealed class NewsletterDigestServiceTests
         h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A", Overview = "A" });
         h.SeriesItems.Add(new Series { Id = SeriesBId, Name = "Series B" });
 
-        var digest = h.Service.GetNewSince(t0.AddDays(-7));
+        var digest = h.Digest(t0.AddDays(-7));
 
         Assert.Equal(2, digest.Movies.Count);
         Assert.Equal(2, digest.Series.Count);
@@ -118,7 +127,7 @@ public sealed class NewsletterDigestServiceTests
         var withImage = Movie("Sicario", withImage: true);
         h.MainItems.Add(withImage);
 
-        var digest = h.Service.GetNewSince(DateTime.UtcNow.AddDays(-7));
+        var digest = h.Digest(DateTime.UtcNow.AddDays(-7));
 
         var movie = Assert.Single(digest.Movies);
         Assert.Equal($"https://media.example.org/Items/{withImage.Id:N}/Images/Primary?maxWidth=300&quality=85", movie.PosterUrl);
@@ -131,26 +140,60 @@ public sealed class NewsletterDigestServiceTests
         var h = new Harness();
         h.MainItems.Add(Movie("No Poster", withImage: false));
 
-        var movie = Assert.Single(h.Service.GetNewSince(DateTime.UtcNow.AddDays(-7)).Movies);
+        var movie = Assert.Single(h.Digest(DateTime.UtcNow.AddDays(-7)).Movies);
 
         Assert.Null(movie.PosterUrl);
         Assert.NotNull(movie.DetailUrl);
     }
 
     [Fact]
-    public void NoPublicUrl_MeansNoPosterAndNoDeepLink()
+    public void NoPublicUrl_MeansNoDeepLink_AndNoPosterWhenTheCacheReturnsNothing()
     {
         var h = new Harness(publicUrl: "");
         h.MainItems.Add(Movie("Offline", withImage: true));
         h.MainItems.Add(Episode(SeriesAId, "Series A", 1, DateTime.UtcNow));
         h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
 
-        var digest = h.Service.GetNewSince(DateTime.UtcNow.AddDays(-7));
+        var digest = h.Digest(DateTime.UtcNow.AddDays(-7));
 
         Assert.Null(digest.Movies[0].PosterUrl);
         Assert.Null(digest.Movies[0].DetailUrl);
         Assert.Null(digest.Series[0].PosterUrl);
         Assert.Null(digest.Series[0].DetailUrl);
+        Assert.Empty(digest.Posters);
+    }
+
+    [Fact]
+    public void NoPublicUrl_AttachesInlinePosters_WhenTheCacheResolvesThem()
+    {
+        var h = new Harness(publicUrl: "");
+        var movie = Movie("Offline", withImage: true);
+        h.MainItems.Add(movie);
+        h.PosterCache
+            .Setup(p => p.GetInlineAsync(It.Is<BaseItem>(i => i.Id == movie.Id), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EmailAttachment
+            {
+                FileName = "poster.jpg",
+                Content = [1, 2, 3],
+                ContentType = "image/jpeg",
+                ContentId = "poster-" + movie.Id.ToString("N")
+            });
+
+        var digest = h.Digest(DateTime.UtcNow.AddDays(-7));
+
+        Assert.Equal($"cid:poster-{movie.Id:N}", digest.Movies[0].PosterUrl);
+        Assert.Single(digest.Posters);
+    }
+
+    [Fact]
+    public void PublicUrl_NeverCallsThePosterCache()
+    {
+        var h = new Harness();
+        h.MainItems.Add(Movie("Linked", withImage: true));
+
+        h.Digest(DateTime.UtcNow.AddDays(-7));
+
+        h.PosterCache.Verify(p => p.GetInlineAsync(It.IsAny<BaseItem>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -158,7 +201,7 @@ public sealed class NewsletterDigestServiceTests
     {
         var h = new Harness();
 
-        h.Service.GetNewSince(new DateTime(2026, 3, 1, 8, 0, 0, DateTimeKind.Utc), limit: 750);
+        h.Digest(new DateTime(2026, 3, 1, 8, 0, 0, DateTimeKind.Utc), limit: 750);
 
         var q = h.CapturedMainQuery!;
         Assert.Equal(750, q.Limit);
@@ -175,7 +218,7 @@ public sealed class NewsletterDigestServiceTests
         h.MainItems.Add(Movie("Old", created: since.AddDays(-1)));
         h.MainItems.Add(Movie("New", created: since.AddHours(1)));
 
-        var digest = h.Service.GetNewSince(since);
+        var digest = h.Digest(since);
 
         var movie = Assert.Single(digest.Movies);
         Assert.Equal("New", movie.Title);
@@ -190,7 +233,7 @@ public sealed class NewsletterDigestServiceTests
         h.ById.Add(oldMovie);              // resolvable by id, but not in the recently-added scan
         h.AddedItems.Seed(oldMovie.Id, since.AddHours(2)); // the ItemAdded event recorded it as new
 
-        var digest = h.Service.GetNewSince(since);
+        var digest = h.Digest(since);
 
         var movie = Assert.Single(digest.Movies);
         Assert.Equal("Copied From Archive", movie.Title);
@@ -206,7 +249,7 @@ public sealed class NewsletterDigestServiceTests
         h.ById.Add(movie);
         h.AddedItems.Seed(movie.Id, since.AddHours(1));
 
-        Assert.Single(h.Service.GetNewSince(since).Movies);
+        Assert.Single(h.Digest(since).Movies);
     }
 
     [Fact]
@@ -215,7 +258,7 @@ public sealed class NewsletterDigestServiceTests
         var h = new Harness();
         h.MainItems.Add(Episode(Guid.Empty, string.Empty, 1, DateTime.UtcNow));
 
-        var digest = h.Service.GetNewSince(DateTime.UtcNow.AddDays(-7));
+        var digest = h.Digest(DateTime.UtcNow.AddDays(-7));
 
         Assert.Empty(digest.Series);
         Assert.True(digest.IsEmpty);
@@ -224,7 +267,7 @@ public sealed class NewsletterDigestServiceTests
     [Fact]
     public void EmptyLibraryWindow_IsAnEmptyDigest()
     {
-        var digest = new Harness().Service.GetNewSince(DateTime.UtcNow.AddDays(-7));
+        var digest = new Harness().Digest(DateTime.UtcNow.AddDays(-7));
 
         Assert.True(digest.IsEmpty);
         Assert.Equal(0, digest.TotalItems);
@@ -236,7 +279,7 @@ public sealed class NewsletterDigestServiceTests
         var h = new Harness();
         h.MainItems.Add(Movie("Read Only"));
 
-        h.Service.GetNewSince(DateTime.UtcNow.AddDays(-7));
+        h.Digest(DateTime.UtcNow.AddDays(-7));
 
         h.Library.Verify(
             l => l.UpdateItemAsync(It.IsAny<BaseItem>(), It.IsAny<BaseItem>(), It.IsAny<ItemUpdateType>(), It.IsAny<CancellationToken>()),

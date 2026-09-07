@@ -6,10 +6,12 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Unsubscribe;
 /// <summary>
 /// Covers <see cref="UnsubscribePage.Build"/>: the category label and language are reflected, the
 /// form posts the opposite of the current subscription state, a done flag adds a confirmation line,
-/// and the markup carries no em dash or forbidden colour literal.
+/// and the markup carries no em dash or hex colour literal.
 /// </summary>
 public sealed class UnsubscribePageTests
 {
+    private static readonly string EmDash = char.ConvertFromUtf32(0x2014);
+
     [Fact]
     public void Subscribed_ShowsAnUnsubscribeButton_ThatPostsResubscribeFalse()
     {
@@ -43,7 +45,7 @@ public sealed class UnsubscribePageTests
     {
         var html = UnsubscribePage.Build("fr", "news", true, true) + UnsubscribePage.Build("en", "all", false, false);
 
-        Assert.DoesNotContain('—', html);
+        Assert.DoesNotContain(EmDash, html, StringComparison.Ordinal);
         Assert.DoesNotMatch("#[0-9a-fA-F]{3,8}\\b", html); // system colour keywords only
     }
 }

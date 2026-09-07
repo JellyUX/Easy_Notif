@@ -9,6 +9,14 @@
         "imageUrl": "https://raw.githubusercontent.com/JellyUX/Easy_Notif/main/docs/icon.png",
         "versions": [
             {
+                "version": "0.9.0.0",
+                "changelog": "### Features\n\n* add one-click unsubscribe with a signed token ([94e024a](https://github.com/JellyUX/Easy_Notif/commit/94e024a471f46b55322f16f36422cad105c423a4))\n* attach posters inline when no public server url is set ([5d537a6](https://github.com/JellyUX/Easy_Notif/commit/5d537a6ca6b3f80b9a6ac494afdb48b0c0695256))\n* expose campaigns and file-transformation state in the status endpoint ([50d79ff](https://github.com/JellyUX/Easy_Notif/commit/50d79ffa0f894a9cdfd01e0d2abbc65507ca84e5))\n* let each campaign choose a custom email template ([6cbe9d6](https://github.com/JellyUX/Easy_Notif/commit/6cbe9d6416618c88a27907451c160eb12bf6379a))\n\n### Bug Fixes\n\n* add french accents to email and unsubscribe-page text ([ce5cfd9](https://github.com/JellyUX/Easy_Notif/commit/ce5cfd959a8c296b8e83b57a812917393181245a))\n* attach the original poster capped at 500 KB instead of resizing ([868a035](https://github.com/JellyUX/Easy_Notif/commit/868a03568ebae3b404753c21e50289a772343568))\n* make the unsubscribe token a single url-safe segment ([8430a55](https://github.com/JellyUX/Easy_Notif/commit/8430a550f5b15d6ab22245e3753279a5316c8e9c))\n* show the specific template error in red and call it a template in french ([5718ba0](https://github.com/JellyUX/Easy_Notif/commit/5718ba03bcfbeae87e3e09e2c5a5e40fbfd620e2))",
+                "targetAbi": "10.11.10.0",
+                "sourceUrl": "https://github.com/JellyUX/Easy_Notif/releases/download/v0.9.0/easy-notif_0.9.0.0.zip",
+                "checksum": "2c4af63476b3c6f34dc58540ce3ac8ac",
+                "timestamp": "2026-09-07T20:10:30Z"
+            },
+            {
                 "version": "0.8.0.0",
                 "changelog": "### Features\n\n* add the personalised weekly watch recap ([bc33662](https://github.com/JellyUX/Easy_Notif/commit/bc33662ed0dc604c27e9bead84443805f8703ebe))\n* add the playback history store ([270ab7d](https://github.com/JellyUX/Easy_Notif/commit/270ab7d65a84c901e5ed30c5d12068863d2e5676))\n* record significant playback stops ([9527fa2](https://github.com/JellyUX/Easy_Notif/commit/9527fa267363092364ceb6b14bb5f7b9aba3c0fb))\n\n### Bug Fixes\n\n* count a repeated playback stop for the same view once ([c2e7184](https://github.com/JellyUX/Easy_Notif/commit/c2e7184e4fda007796ba376889f6aa44df4d1513))\n* send every manual campaign run instead of deduplicating it ([883b64a](https://github.com/JellyUX/Easy_Notif/commit/883b64a77b769d9c8408dc999d2f81019f4babc2))",
                 "targetAbi": "10.11.10.0",

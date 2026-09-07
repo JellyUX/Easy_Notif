@@ -1,3 +1,19 @@
+## [0.9.0](https://github.com/JellyUX/Easy_Notif/compare/v0.8.0...v0.9.0) (2026-09-07)
+
+### Features
+
+* add one-click unsubscribe with a signed token ([94e024a](https://github.com/JellyUX/Easy_Notif/commit/94e024a471f46b55322f16f36422cad105c423a4))
+* attach posters inline when no public server url is set ([5d537a6](https://github.com/JellyUX/Easy_Notif/commit/5d537a6ca6b3f80b9a6ac494afdb48b0c0695256))
+* expose campaigns and file-transformation state in the status endpoint ([50d79ff](https://github.com/JellyUX/Easy_Notif/commit/50d79ffa0f894a9cdfd01e0d2abbc65507ca84e5))
+* let each campaign choose a custom email template ([6cbe9d6](https://github.com/JellyUX/Easy_Notif/commit/6cbe9d6416618c88a27907451c160eb12bf6379a))
+
+### Bug Fixes
+
+* add french accents to email and unsubscribe-page text ([ce5cfd9](https://github.com/JellyUX/Easy_Notif/commit/ce5cfd959a8c296b8e83b57a812917393181245a))
+* attach the original poster capped at 500 KB instead of resizing ([868a035](https://github.com/JellyUX/Easy_Notif/commit/868a03568ebae3b404753c21e50289a772343568))
+* make the unsubscribe token a single url-safe segment ([8430a55](https://github.com/JellyUX/Easy_Notif/commit/8430a550f5b15d6ab22245e3753279a5316c8e9c))
+* show the specific template error in red and call it a template in french ([5718ba0](https://github.com/JellyUX/Easy_Notif/commit/5718ba03bcfbeae87e3e09e2c5a5e40fbfd620e2))
+
 ## [0.8.0](https://github.com/JellyUX/Easy_Notif/compare/v0.7.0...v0.8.0) (2026-09-07)
 
 ### Features

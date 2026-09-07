@@ -9,8 +9,8 @@ namespace Jellyfin.Plugin.EasyNotif.Media;
 /// <summary>
 /// Reads an item's primary image from disk as an inline <c>cid:</c> attachment, for the newsletter
 /// when no public server URL is configured (Synthese.md section 5.1). Read-only with respect to the
-/// library (R12). A poster larger than <see cref="MaxPosterBytes"/> is skipped rather than bloating
-/// the message; the item then simply has no image.
+/// library (R12). A poster larger than <see cref="PosterCache.MaxPosterBytes"/> is skipped rather
+/// than bloating the message; the item then simply has no image.
 /// </summary>
 public interface IPosterCache
 {

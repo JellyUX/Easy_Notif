@@ -1,3 +1,23 @@
+## [1.0.0](https://github.com/JellyUX/Easy_Notif/compare/v0.9.0...v1.0.0) (2026-09-08)
+
+### ⚠ BREAKING CHANGES
+
+* from 1.0.0 the /EasyNotif HTTP API (routes, verbs, status
+codes) and the schema:1 on-disk file formats (preferences.json, campaigns.json,
+quota.json, added-items.json, playback-history.json) are covered by SemVer. The
+unused PluginConfiguration.Enabled and PlaybackBackfilled fields are removed;
+existing config XML keeps loading because XmlSerializer ignores unknown elements.
+
+### Features
+
+* stabilise the public API and file formats for 1.0.0 ([7b965cf](https://github.com/JellyUX/Easy_Notif/commit/7b965cfc61a5bebe333920bc24b1d2ffec477f8e))
+
+### Bug Fixes
+
+* render the startup warning banner in the warning colour ([9d60e71](https://github.com/JellyUX/Easy_Notif/commit/9d60e7145ac305dd28cef823107327b505ea8533))
+* return 503 when a storage error hits the unsubscribe endpoint ([3e3c946](https://github.com/JellyUX/Easy_Notif/commit/3e3c946afe68fe7532e84d405b77af542108f962))
+* write the dev meta.json without a BOM so Jellyfin can parse it ([cd93d5c](https://github.com/JellyUX/Easy_Notif/commit/cd93d5cd4399d8dfb591b7e9be3bf79ba49af87a))
+
 ## [0.9.0](https://github.com/JellyUX/Easy_Notif/compare/v0.8.0...v0.9.0) (2026-09-07)
 
 ### Features

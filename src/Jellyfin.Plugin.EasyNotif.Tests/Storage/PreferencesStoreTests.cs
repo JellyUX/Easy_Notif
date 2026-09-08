@@ -132,6 +132,23 @@ public sealed class PreferencesStoreTests : IDisposable
     }
 
     [Fact]
+    public void Construction_WhenACorruptBackupAlreadyExists_KeepsOnlyTheNewest()
+    {
+        Directory.CreateDirectory(DataDir);
+        // A leftover backup from an earlier corruption event.
+        var stalePath = Path.Combine(DataDir, "preferences.json.corrupt-20200101000000");
+        File.WriteAllText(stalePath, "old garbage");
+        const string freshGarbage = "{ still not json";
+        File.WriteAllText(FilePath, freshGarbage);
+
+        BuildStore(new FileSystem());
+
+        var backup = Assert.Single(Directory.GetFiles(DataDir, "preferences.json.corrupt-*"));
+        Assert.False(File.Exists(stalePath));
+        Assert.Equal(freshGarbage, File.ReadAllText(backup));
+    }
+
+    [Fact]
     public void ReadAll_ServesTheMemoryCache_WithoutReadingTheFileAgain()
     {
         Directory.CreateDirectory(DataDir);

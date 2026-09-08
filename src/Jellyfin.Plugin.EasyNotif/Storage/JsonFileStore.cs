@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Jellyfin.Plugin.EasyNotif.IO;
 using MediaBrowser.Common.Configuration;
@@ -140,8 +141,29 @@ public abstract class JsonFileStore<T> : IDisposable
     {
         try
         {
-            var backup = $"{_filePath}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            // Keep only the most recent backup. A persistently corrupt file, or a disk that keeps
+            // failing reads, must not accumulate one snapshot per restart - a preferences.json
+            // backup holds cleartext addresses and a playback-history.json backup escapes the
+            // retention window entirely.
+            foreach (var stale in new List<string>(_fileSystem.EnumerateFiles(Directory, _fileName + ".corrupt-*")))
+            {
+                try
+                {
+                    _fileSystem.Delete(stale);
+                }
+                catch (IOException)
+                {
+                    // Best effort: a stale backup we cannot remove is not worth failing over.
+                }
+            }
+
+            var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture);
+            var backup = Path.Combine(Directory, $"{_fileName}.corrupt-{stamp}");
             _fileSystem.Move(_filePath, backup, overwrite: false);
+            _logger.LogWarning(
+                "[EasyNotif] Backed up the corrupt {FileName} as {Backup} and started fresh.",
+                _fileName,
+                Path.GetFileName(backup));
         }
         catch (IOException ex)
         {

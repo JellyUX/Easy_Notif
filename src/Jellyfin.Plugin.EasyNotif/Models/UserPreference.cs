@@ -32,7 +32,8 @@ public sealed class PreferencesFile
 {
     /// <summary>
     /// Gets or sets the storage schema version. A plain integer for a possible future one-shot
-    /// in-place correction, not a migrations framework. Deleting the file is always a valid reset.
+    /// in-place correction, not a migrations framework. Deleting the plugin data directory is
+    /// always a valid reset (a lone corrupt file may leave a <c>.corrupt-*</c> sibling).
     /// </summary>
     public int Schema { get; set; } = 1;
 

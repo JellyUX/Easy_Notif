@@ -10,12 +10,6 @@ namespace Jellyfin.Plugin.EasyNotif.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Gets or sets a value indicating whether the plugin injects its user settings panel into the
-    /// web client. When false, the HTTP API still works but no panel appears.
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
     /// Gets or sets a startup warning surfaced on the configuration page (for example, when the
     /// FileTransformation plugin is missing). Null when there is nothing to report.
     /// </summary>
@@ -65,10 +59,4 @@ public class PluginConfiguration : BasePluginConfiguration
     /// "Europe/Paris".
     /// </summary>
     public string SchedulerTimeZone { get; set; } = "Europe/Paris";
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the one-shot playback-history backfill from the
-    /// activity log has already run.
-    /// </summary>
-    public bool PlaybackBackfilled { get; set; }
 }

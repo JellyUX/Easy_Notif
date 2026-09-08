@@ -128,4 +128,28 @@ public sealed class TemplateEngineTests
     [Fact]
     public void ReferencedKeys_IsEmptyForAPlainString()
         => Assert.Empty(TemplateEngine.ReferencedKeys("no placeholders here"));
+
+    // R10: an admin-edited template with broken markup must degrade, never throw - the same
+    // Render call feeds both the preview endpoint and the live send path.
+    [Theory]
+    [InlineData("{{#if flag}}open but never closed")]
+    [InlineData("no opener {{/if}} dangling closer")]
+    [InlineData("{{#each rows}}{{name}}")]
+    [InlineData("unterminated {{ mustache")]
+    [InlineData("{{{raw without end")]
+    [InlineData("{{#if a}}{{#each b}}{{#if c}}deeply {{/if}} unbalanced")]
+    public void Render_MalformedMarkup_DoesNotThrow(string template)
+    {
+        var model = new Dictionary<string, object?>
+        {
+            ["flag"] = true,
+            ["rows"] = new[] { new Dictionary<string, object?> { ["name"] = "x" } },
+            ["a"] = true,
+            ["b"] = new[] { new Dictionary<string, object?> { ["c"] = true } }
+        };
+
+        var ex = Record.Exception(() => TemplateEngine.Render(template, model));
+
+        Assert.Null(ex);
+    }
 }

@@ -26,8 +26,19 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 /// require elevation.
 /// </para>
 /// </summary>
+/// <remarks>
+/// Public contract, covered by SemVer from 1.0.0: the <c>/EasyNotif</c> routes, their verbs and
+/// their status codes, plus the <c>Schema</c> integer on the persisted documents
+/// (<c>preferences.json</c>, <c>campaigns.json</c>, <c>quota.json</c>, <c>added-items.json</c>,
+/// <c>playback-history.json</c>). A breaking change to either needs a major version bump.
+/// <c>send-log.jsonl</c> is an append-only, self-healing diagnostic log and is not part of that
+/// guarantee. Authenticated actions can also return <c>401</c> / <c>403</c> from Jellyfin's auth
+/// middleware; those are declared once at the class level.
+/// </remarks>
 [ApiController]
 [Route("EasyNotif")]
+[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesResponseType(StatusCodes.Status403Forbidden)]
 public class EasyNotifController : ControllerBase
 {
     private static readonly Assembly PluginAssembly = typeof(EasyNotifController).Assembly;
@@ -448,7 +459,10 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>Gets the last lines of the plugin's dedicated log file. Administrators only.</summary>
     /// <param name="tail">How many lines to return at most (default 200, clamped 1-2000).</param>
-    /// <returns>The lines, oldest first; an empty array when no log file exists yet.</returns>
+    /// <returns>
+    /// The lines, oldest first; an empty array when no log file exists yet or the directory cannot
+    /// be read. This endpoint never fails: <see cref="IEasyNotifLog.Tail"/> swallows its own I/O.
+    /// </returns>
     [HttpGet("admin/logs")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -841,11 +855,12 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>Deletes a custom template. Administrators only.</summary>
     /// <param name="id">The custom template id.</param>
-    /// <returns>204; 403 for a base template; 409 when a campaign still points at it.</returns>
+    /// <returns>204; 403 for a base template; 404 when it does not exist; 409 when a campaign still points at it.</returns>
     [HttpDelete("admin/templates/{id}")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public ActionResult DeleteTemplate([FromRoute] string id) => Wrap(() =>
@@ -853,6 +868,11 @@ public class EasyNotifController : ControllerBase
         if (TemplateStore.BaseIds.Contains(id))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "base-template-read-only" });
+        }
+
+        if (!_templates.Exists(id))
+        {
+            return NotFound(new { error = "unknown-template" });
         }
 
         var user = _campaigns.All().FirstOrDefault(c => c.TemplateId == id);

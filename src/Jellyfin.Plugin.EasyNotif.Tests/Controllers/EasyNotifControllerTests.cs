@@ -93,6 +93,18 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void Controller_DeclaresTheAuthMiddlewareResponsesForTheWholeApi()
+    {
+        var declared = typeof(EasyNotifController)
+            .GetCustomAttributes<ProducesResponseTypeAttribute>()
+            .Select(a => a.StatusCode)
+            .ToHashSet();
+
+        Assert.Contains(StatusCodes.Status401Unauthorized, declared);
+        Assert.Contains(StatusCodes.Status403Forbidden, declared);
+    }
+
+    [Fact]
     public void MeEndpoints_ExposeNoUserIdParameter()
     {
         var meActions = typeof(EasyNotifController)
@@ -817,6 +829,15 @@ public sealed class EasyNotifControllerTests
         templates.Clone("newsletter", "x");
 
         Assert.IsType<NoContentResult>(BuildController(campaigns: SeededCampaigns(), templates: templates).DeleteTemplate("newsletter__x"));
+    }
+
+    [Fact]
+    public void DeleteTemplate_UnknownId_Returns404()
+    {
+        var result = BuildController(campaigns: SeededCampaigns(), templates: TestTemplateStore.Create())
+            .DeleteTemplate("newsletter__never-cloned");
+
+        Assert.Equal(StatusCodes.Status404NotFound, Assert.IsType<NotFoundObjectResult>(result).StatusCode);
     }
 
     [Fact]

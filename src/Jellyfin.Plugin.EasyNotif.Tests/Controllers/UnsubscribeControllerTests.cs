@@ -114,6 +114,18 @@ public sealed class UnsubscribeControllerTests
     }
 
     [Fact]
+    public void Post_StorageFailure_Returns503_NotAnUnhandledError()
+    {
+        var (controller, prefs, _) = Build();
+        prefs.Setup(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>()))
+            .Throws(new UnauthorizedAccessException("preferences.json is locked"));
+
+        var result = controller.Post(Token("news"));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<StatusCodeResult>(result).StatusCode);
+    }
+
+    [Fact]
     public void Post_CategoryAll_TogglesBothCategories()
     {
         var (controller, prefs, _) = Build();

@@ -45,12 +45,13 @@ public class UnsubscribeController : ControllerBase
 
     /// <summary>Renders the confirmation page for a token. Does not change anything.</summary>
     /// <param name="token">The signed unsubscribe token.</param>
-    /// <returns>The HTML page, or 404 for an invalid token.</returns>
+    /// <returns>The HTML page, 404 for an invalid token, or 503 when storage is unavailable.</returns>
     [HttpGet("u/{token}")]
     [AllowAnonymous]
     [Produces("text/html")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public IActionResult Get([FromRoute] string token)
     {
         if (!Resolve(token, out var userId, out var category))
@@ -58,7 +59,7 @@ public class UnsubscribeController : ControllerBase
             return NotFound();
         }
 
-        return Page(userId, category, done: false);
+        return Guarded(() => Page(userId, category, done: false));
     }
 
     /// <summary>Toggles the preference the token targets. One-click bodies get a bare 200.</summary>
@@ -87,25 +88,34 @@ public class UnsubscribeController : ControllerBase
         // No field (a one-click POST) means unsubscribe; the page's form sends resubscribe=true to opt back in.
         var target = resubscribe;
 
-        try
+        return Guarded(() =>
         {
             _preferences.SetCategories(userId, CategoryMap(category, target));
+
+            _easyNotifLog.Info("unsubscribe.action", new Dictionary<string, object?>
+            {
+                ["userId"] = userId,
+                ["category"] = category,
+                ["resubscribe"] = resubscribe,
+                ["oneClick"] = oneClick
+            });
+
+            return oneClick ? Ok() : Page(userId, category, done: true);
+        });
+    }
+
+    // Maps a storage or configuration failure to a bare 503, like EasyNotifController.Wrap.
+    private IActionResult Guarded(Func<IActionResult> action)
+    {
+        try
+        {
+            return action();
         }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             _logger.LogError(ex, "[EasyNotif] Could not apply an unsubscribe action.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
-
-        _easyNotifLog.Info("unsubscribe.action", new Dictionary<string, object?>
-        {
-            ["userId"] = userId,
-            ["category"] = category,
-            ["resubscribe"] = resubscribe,
-            ["oneClick"] = oneClick
-        });
-
-        return oneClick ? Ok() : Page(userId, category, done: true);
     }
 
     private bool Resolve(string token, out Guid userId, out string category)

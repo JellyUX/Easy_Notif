@@ -55,7 +55,11 @@ $meta = [ordered]@{
     autoUpdate = $false
     assemblies = @()
 }
-$meta | ConvertTo-Json | Set-Content -Path (Join-Path $pluginOutputDir "meta.json") -Encoding utf8
+# Write without a BOM: Jellyfin's PluginManager parses meta.json with System.Text.Json, which
+# rejects a leading U+FEFF ("'0xEF' is an invalid start of a value"). PS 5.1 "-Encoding utf8"
+# emits a BOM, so go through UTF8Encoding($false) explicitly.
+$metaPath = Join-Path $pluginOutputDir "meta.json"
+[System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "  meta.json written (version $version, status Active)"
 
 Write-Host "Restarting easynotif-test container..."

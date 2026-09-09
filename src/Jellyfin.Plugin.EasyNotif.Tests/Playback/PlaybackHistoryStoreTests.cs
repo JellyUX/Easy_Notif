@@ -227,6 +227,29 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Purge_RemovesEventsAndRollupForOneUser_LeavesOthers()
+    {
+        var store = Build();
+        var target = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        store.Start();
+
+        store.Record(Event(target, Guid.NewGuid(), _now, completed: true));
+        store.Record(Event(other, Guid.NewGuid(), _now, completed: true));
+        await WaitFor(() => store.GetWeek(target, _now.AddDays(-7)).Count == 1
+            && store.GetWeek(other, _now.AddDays(-7)).Count == 1);
+
+        store.Purge(target);
+
+        Assert.Empty(store.GetWeek(target, _now.AddDays(-7)));
+        Assert.Equal(0, store.GetYearToDate(target, _now.Year).Total);
+        Assert.Single(store.GetWeek(other, _now.AddDays(-7)));
+        Assert.Equal(1, store.GetYearToDate(other, _now.Year).Total);
+
+        await store.StopAsync();
+    }
+
+    [Fact]
     public void Construction_WhenFileIsCorrupt_StartsEmpty_LogsError()
     {
         Directory.CreateDirectory(DataDir);

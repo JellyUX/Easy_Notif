@@ -75,4 +75,11 @@ public interface IPreferenceService
     /// </summary>
     /// <returns>The admin rows.</returns>
     IReadOnlyList<AdminPreferenceRow> GetAllForAdmin();
+
+    /// <summary>
+    /// Removes a user's stored preference row entirely. Called when the Jellyfin account is deleted
+    /// so no cleartext address or opt-in survives the erasure.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    void Purge(Guid userId);
 }

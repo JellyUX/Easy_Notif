@@ -9,7 +9,9 @@ using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
+using Jellyfin.Data.Events.Users;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -48,6 +50,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IEmailComposer, EmailComposer>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
+        serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserPurgeConsumer>();
         serviceCollection.AddHostedService<StartupService>();
     }
 }

@@ -52,6 +52,16 @@ public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
     /// <inheritdoc/>
     public void Compact() => CompactCount++;
 
+    /// <summary>Gets the user ids passed to <see cref="Purge"/>, in order.</summary>
+    public List<Guid> Purged { get; } = [];
+
+    /// <inheritdoc/>
+    public void Purge(Guid userId)
+    {
+        Purged.Add(userId);
+        _events.RemoveAll(e => e.UserId == userId);
+    }
+
     /// <inheritdoc/>
     public void Start() => StartCount++;
 

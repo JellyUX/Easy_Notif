@@ -128,6 +128,34 @@ public sealed class PreferenceServiceTests
         Assert.Equal("alice@example.org", only.Email);
     }
 
+    [Fact]
+    public void GetRecipients_ExcludesUsersMissingFromTheUserManager()
+    {
+        var ghost = Guid.NewGuid(); // never returned by GetUsers()
+        _store.Rows.Add(new UserPreference
+        {
+            UserId = ghost,
+            ContactEmail = "ghost@example.org",
+            Categories = { [EmailCategory.News] = true }
+        });
+
+        Assert.Empty(_service.GetRecipients(EmailCategory.News));
+        Assert.Empty(_service.GetContactable());
+    }
+
+    [Fact]
+    public void Purge_RemovesTheRow_LeavesOthers()
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetContactEmail(_bob, "bob@example.org");
+
+        _service.Purge(_alice);
+
+        Assert.Null(_service.GetOrCreate(_alice).ContactEmail);
+        Assert.Equal("bob@example.org", _service.GetOrCreate(_bob).ContactEmail);
+        Assert.DoesNotContain(_store.Rows, r => r.UserId == _alice);
+    }
+
     // -------------------------------------------------------------------------
     // Admin table
     // -------------------------------------------------------------------------

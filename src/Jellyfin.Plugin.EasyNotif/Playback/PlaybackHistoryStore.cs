@@ -33,6 +33,12 @@ public interface IPlaybackHistoryStore
     /// <summary>Drops event lines older than 90 days. A no-op (no I/O) unless a month has rolled over.</summary>
     void Compact();
 
+    /// <summary>
+    /// Removes every event and rollup entry for a user. Called when the Jellyfin account is deleted.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    void Purge(Guid userId);
+
     /// <summary>Starts the background writer and stamps the tracking-start date on first run.</summary>
     void Start();
 
@@ -166,6 +172,23 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
             file.Events.RemoveAll(e => e.Ts < cutoff);
             file.LastCompactUtc = now;
             return true;
+        });
+    }
+
+    /// <inheritdoc/>
+    public void Purge(Guid userId)
+    {
+        var prefix = $"{userId:N}:";
+        Mutate(file =>
+        {
+            var changed = file.Events.RemoveAll(e => e.UserId == userId) > 0;
+            foreach (var key in file.Rollup.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            {
+                file.Rollup.Remove(key);
+                changed = true;
+            }
+
+            return changed;
         });
     }
 

@@ -82,17 +82,27 @@ public sealed class PreferenceService : IPreferenceService
 
     /// <inheritdoc/>
     public IReadOnlyList<Recipient> GetRecipients(EmailCategory category)
-        => _store.ReadAll()
-            .Where(p => p.Categories.GetValueOrDefault(category) && MailAddress.TryCreate(p.ContactEmail, out _))
+    {
+        var live = LiveUserIds();
+        return _store.ReadAll()
+            .Where(p => live.Contains(p.UserId)
+                && p.Categories.GetValueOrDefault(category)
+                && MailAddress.TryCreate(p.ContactEmail, out _))
             .Select(p => new Recipient(p.UserId, p.ContactEmail!))
             .ToList();
+    }
 
     /// <inheritdoc/>
     public IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null)
-        => _store.ReadAll()
-            .Where(p => (userIds is null || userIds.Contains(p.UserId)) && MailAddress.TryCreate(p.ContactEmail, out _))
+    {
+        var live = LiveUserIds();
+        return _store.ReadAll()
+            .Where(p => live.Contains(p.UserId)
+                && (userIds is null || userIds.Contains(p.UserId))
+                && MailAddress.TryCreate(p.ContactEmail, out _))
             .Select(p => new Recipient(p.UserId, p.ContactEmail!))
             .ToList();
+    }
 
     /// <inheritdoc/>
     public IReadOnlyList<AdminPreferenceRow> GetAllForAdmin()
@@ -118,6 +128,12 @@ public sealed class PreferenceService : IPreferenceService
             })
             .ToList();
     }
+
+    /// <inheritdoc/>
+    public void Purge(Guid userId)
+        => _store.Mutate(users => users.RemoveAll(p => p.UserId == userId) > 0);
+
+    private HashSet<Guid> LiveUserIds() => _userManager.GetUsers().Select(u => u.Id).ToHashSet();
 
     private static UserPreference Upsert(List<UserPreference> users, Guid userId)
     {

@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/JellyUX/Easy_Notif/compare/v1.0.1...v1.0.2) (2026-09-09)
+
+### Bug Fixes
+
+* validate the public server URL before storing it ([12a0097](https://github.com/JellyUX/Easy_Notif/commit/12a00970415ec8e566e18dcd22dd855e99bfc947))
+
 ## [1.0.1](https://github.com/JellyUX/Easy_Notif/compare/v1.0.0...v1.0.1) (2026-09-09)
 
 ### Bug Fixes

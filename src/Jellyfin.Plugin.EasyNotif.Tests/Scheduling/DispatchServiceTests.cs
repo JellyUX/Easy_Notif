@@ -39,6 +39,8 @@ public sealed class DispatchServiceTests
 
         public FakeConfigAccessor Config { get; }
 
+        public FakeSecretStore Secrets { get; }
+
         public FakeEasyNotifLog Log { get; } = new();
 
         public List<EmailMessage> Sent { get; } = [];
@@ -58,6 +60,9 @@ public sealed class DispatchServiceTests
                 FromEmail = "from@example.org",
                 ReplyTo = "reply@example.org"
             });
+            Secrets = new FakeSecretStore(
+                resendApiKey: Config.Config.ResendApiKey,
+                unsubscribeSecret: Config.Config.UnsubscribeSecret);
 
             Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
                 .ReturnsAsync(new PreparedCampaign
@@ -92,6 +97,7 @@ public sealed class DispatchServiceTests
                 Quota.Object,
                 SendLog.Object,
                 Config,
+                Secrets,
                 Log,
                 NullLogger<DispatchService>.Instance,
                 () => Now);

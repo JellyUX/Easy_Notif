@@ -24,19 +24,19 @@ public class ResendWebhookController : ControllerBase
 {
     private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
 
-    private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly ISendLog _sendLog;
     private readonly ILogger<ResendWebhookController> _logger;
     private readonly IEasyNotifLog _easyNotifLog;
 
     /// <summary>Initializes a new instance of the <see cref="ResendWebhookController"/> class.</summary>
-    /// <param name="config">The plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
-    public ResendWebhookController(IConfigAccessor config, ISendLog sendLog, ILogger<ResendWebhookController> logger, IEasyNotifLog easyNotifLog)
+    public ResendWebhookController(ISecretStore secrets, ISendLog sendLog, ILogger<ResendWebhookController> logger, IEasyNotifLog easyNotifLog)
     {
-        _config = config;
+        _secrets = secrets;
         _sendLog = sendLog;
         _logger = logger;
         _easyNotifLog = easyNotifLog;
@@ -66,7 +66,7 @@ public class ResendWebhookController : ControllerBase
             return BadRequest();
         }
 
-        var secret = _config.Get().WebhookSigningSecret;
+        var secret = _secrets.Get().WebhookSigningSecret;
         if (!SvixVerifier.Verify(secret, id, timestamp, body, signature, DateTimeOffset.UtcNow, Tolerance))
         {
             _logger.LogWarning("[EasyNotif] Rejected a Resend webhook: signature verification failed.");

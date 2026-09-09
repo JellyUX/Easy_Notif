@@ -227,12 +227,12 @@ public sealed class EasyNotifControllerTests
     [Fact]
     public void PutSettings_WithANewSecret_OverwritesIt()
     {
-        var config = new FakeConfig(new PluginConfiguration { ResendApiKey = "re_old" });
-        var controller = BuildController(config: config);
+        var secrets = new FakeSecretStore(resendApiKey: "re_old");
+        var controller = BuildController(secrets: secrets);
 
         controller.PutSettings(new SettingsUpdate { ResendApiKey = " re_new " });
 
-        Assert.Equal("re_new", config.Config.ResendApiKey);
+        Assert.Equal("re_new", secrets.ResendApiKey);
     }
 
     [Fact]
@@ -954,6 +954,7 @@ public sealed class EasyNotifControllerTests
     private static EasyNotifController BuildController(
         Mock<IPreferenceService>? service = null,
         IConfigAccessor? config = null,
+        FakeSecretStore? secrets = null,
         Mock<IAuthorizationContext>? auth = null,
         Mock<IEmailSender>? emailSender = null,
         Mock<IQuotaGuard>? quota = null,
@@ -966,6 +967,13 @@ public sealed class EasyNotifControllerTests
         Mock<IFileTransformationDetector>? fileTransformation = null,
         FakeEasyNotifLog? easyNotifLog = null)
     {
+        var effectiveConfig = config ?? new FakeConfig();
+        var cfgValues = effectiveConfig.Get();
+        var effectiveSecrets = secrets ?? new FakeSecretStore(
+            cfgValues.ResendApiKey,
+            cfgValues.WebhookSigningSecret,
+            cfgValues.UnsubscribeSecret);
+
         Mock<IQuotaGuard> quotaMock;
         if (quota is null)
         {
@@ -979,7 +987,8 @@ public sealed class EasyNotifControllerTests
 
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
-            config ?? new FakeConfig(),
+            effectiveConfig,
+            effectiveSecrets,
             (auth ?? AuthReturning(DefaultUserId)).Object,
             (emailSender ?? new Mock<IEmailSender>()).Object,
             quotaMock.Object,

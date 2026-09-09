@@ -32,9 +32,11 @@ public class ResendEmailSenderTests
         var logger = new CapturingLogger<ResendEmailSender>();
         var easyNotifLog = new FakeEasyNotifLog();
         var limiter = new SendRateLimiter(TimeSpan.Zero, () => DateTimeOffset.UtcNow, (_, _) => Task.CompletedTask);
+        var effective = config ?? Config();
         var sender = new ResendEmailSender(
             http,
-            new FakeConfigAccessor(config ?? Config()),
+            new FakeConfigAccessor(effective),
+            new FakeSecretStore(resendApiKey: effective.ResendApiKey),
             limiter,
             logger,
             easyNotifLog,
@@ -349,6 +351,7 @@ public class ResendEmailSenderTests
             var sender = new ResendEmailSender(
                 http,
                 new FakeConfigAccessor(Config()),
+                new FakeSecretStore(resendApiKey: ApiKey),
                 limiter,
                 new CapturingLogger<ResendEmailSender>(),
                 realLog,

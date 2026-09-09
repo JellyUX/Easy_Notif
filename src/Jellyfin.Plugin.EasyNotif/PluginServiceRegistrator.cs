@@ -28,6 +28,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IFileSystem, FileSystem>();
         serviceCollection.AddSingleton<IEasyNotifLog, EasyNotifLog>();
         serviceCollection.AddSingleton<IConfigAccessor, PluginConfigAccessor>();
+        serviceCollection.AddSingleton<ISecretStore, SecretStore>();
         serviceCollection.AddSingleton<IPreferencesStore, PreferencesStore>();
         serviceCollection.AddSingleton<IPreferenceService, PreferenceService>();
         serviceCollection.AddHttpClient(ResendEmailSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));

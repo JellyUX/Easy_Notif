@@ -45,6 +45,7 @@ public class EasyNotifController : ControllerBase
 
     private readonly IPreferenceService _preferences;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IAuthorizationContext _authContext;
     private readonly IEmailSender _emailSender;
     private readonly IQuotaGuard _quota;
@@ -63,6 +64,7 @@ public class EasyNotifController : ControllerBase
     /// </summary>
     /// <param name="preferences">The preference service.</param>
     /// <param name="config">The plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="authContext">Jellyfin request authorization context.</param>
     /// <param name="emailSender">The email transport.</param>
     /// <param name="quota">The send quota guard.</param>
@@ -78,6 +80,7 @@ public class EasyNotifController : ControllerBase
     public EasyNotifController(
         IPreferenceService preferences,
         IConfigAccessor config,
+        ISecretStore secrets,
         IAuthorizationContext authContext,
         IEmailSender emailSender,
         IQuotaGuard quota,
@@ -93,6 +96,7 @@ public class EasyNotifController : ControllerBase
     {
         _preferences = preferences;
         _config = config;
+        _secrets = secrets;
         _authContext = authContext;
         _emailSender = emailSender;
         _quota = quota;
@@ -340,6 +344,7 @@ public class EasyNotifController : ControllerBase
     public ActionResult GetSettings() => Wrap(() =>
     {
         var cfg = _config.Get();
+        var secrets = _secrets.Get();
         return Ok(new
         {
             fromEmail = cfg.FromEmail,
@@ -347,8 +352,8 @@ public class EasyNotifController : ControllerBase
             replyTo = cfg.ReplyTo,
             publicServerUrl = cfg.PublicServerUrl,
             schedulerTimeZone = cfg.SchedulerTimeZone,
-            resendApiKeySet = !string.IsNullOrEmpty(cfg.ResendApiKey),
-            webhookSigningSecretSet = !string.IsNullOrEmpty(cfg.WebhookSigningSecret),
+            resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
+            webhookSigningSecretSet = !string.IsNullOrEmpty(secrets.WebhookSigningSecret),
             startupWarning = cfg.StartupWarning
         });
     });
@@ -399,20 +404,21 @@ public class EasyNotifController : ControllerBase
 
             if (!string.IsNullOrWhiteSpace(body.ResendApiKey))
             {
-                cfg.ResendApiKey = body.ResendApiKey.Trim();
+                _secrets.SetResendApiKey(body.ResendApiKey.Trim());
             }
 
             if (!string.IsNullOrWhiteSpace(body.WebhookSigningSecret))
             {
-                cfg.WebhookSigningSecret = body.WebhookSigningSecret.Trim();
+                _secrets.SetWebhookSigningSecret(body.WebhookSigningSecret.Trim());
             }
 
             _config.Save();
+            var secrets = _secrets.Get();
             _easyNotifLog.Info("settings.updated", new Dictionary<string, object?>
             {
                 ["fromEmail"] = cfg.FromEmail,
-                ["resendApiKeySet"] = !string.IsNullOrEmpty(cfg.ResendApiKey),
-                ["webhookSigningSecretSet"] = !string.IsNullOrEmpty(cfg.WebhookSigningSecret)
+                ["resendApiKeySet"] = !string.IsNullOrEmpty(secrets.ResendApiKey),
+                ["webhookSigningSecretSet"] = !string.IsNullOrEmpty(secrets.WebhookSigningSecret)
             });
             return NoContent();
         });
@@ -436,7 +442,7 @@ public class EasyNotifController : ControllerBase
         var tz = RecurrenceSchedule.ResolveTimeZone(cfg.SchedulerTimeZone);
         return Ok(new
         {
-            configured = !string.IsNullOrWhiteSpace(cfg.ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
+            configured = !string.IsNullOrWhiteSpace(_secrets.Get().ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
             fromEmail = cfg.FromEmail,
             publicUrlSet = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
             fileTransformation = _fileTransformation.IsAvailable(),

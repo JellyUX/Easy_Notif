@@ -1,11 +1,14 @@
+using System.Text.Json.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.EasyNotif.Configuration;
 
 /// <summary>
-/// Plugin configuration. Holds the transport secrets and the small set of URLs the plugin needs.
-/// The real business data (preferences, campaigns, playback history, templates, logs) lives in one
-/// deletable directory under DataPath, not in this XML. See CLAUDE.md and Synthese.md section 11.
+/// Plugin configuration. Holds the small set of URLs the plugin needs. The transport secrets live in
+/// <see cref="ISecretStore"/> (a separate <c>secrets.json</c>), not here, so they are never returned
+/// by Jellyfin's stock <c>GET /Plugins/{guid}/Configuration</c> endpoint. The real business data
+/// (preferences, campaigns, playback history, templates, logs) lives in one deletable directory
+/// under DataPath, not in this XML. See CLAUDE.md and Synthese.md section 11.
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
@@ -16,8 +19,10 @@ public class PluginConfiguration : BasePluginConfiguration
     public string? StartupWarning { get; set; }
 
     /// <summary>
-    /// Gets or sets the Resend API key (secret). Masked on read, never logged. Format: "re_...".
+    /// Gets or sets the Resend API key. Kept only as the one-time migration source into
+    /// <see cref="ISecretStore"/>; blanked after migration. Not serialized to JSON.
     /// </summary>
+    [JsonIgnore]
     public string? ResendApiKey { get; set; }
 
     /// <summary>
@@ -37,14 +42,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public string? ReplyTo { get; set; }
 
     /// <summary>
-    /// Gets or sets the Resend webhook signing secret (secret). Format: "whsec_...".
+    /// Gets or sets the Resend webhook signing secret. Kept only as the one-time migration source
+    /// into <see cref="ISecretStore"/>; blanked after migration. Not serialized to JSON.
     /// </summary>
+    [JsonIgnore]
     public string? WebhookSigningSecret { get; set; }
 
     /// <summary>
-    /// Gets or sets the HMAC secret used to sign one-click unsubscribe tokens. Generated once on
-    /// first start when empty.
+    /// Gets or sets the HMAC secret used to sign one-click unsubscribe tokens. Kept only as the
+    /// one-time migration source into <see cref="ISecretStore"/>; blanked after migration. Not
+    /// serialized to JSON.
     /// </summary>
+    [JsonIgnore]
     public string? UnsubscribeSecret { get; set; }
 
     /// <summary>

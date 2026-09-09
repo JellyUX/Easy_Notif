@@ -37,6 +37,8 @@ public class ManualEmailServiceTests
 
         public FakeConfigAccessor Config { get; }
 
+        public FakeSecretStore Secrets { get; }
+
         public ManualEmailService Service { get; }
 
         public Harness(PluginConfiguration? config = null, bool sendSucceeds = true)
@@ -47,6 +49,7 @@ public class ManualEmailServiceTests
                 PublicServerUrl = "https://media.example.org",
                 UnsubscribeSecret = "unsub-secret-0123456789"
             });
+            Secrets = new FakeSecretStore(unsubscribeSecret: Config.Config.UnsubscribeSecret);
 
             Sender.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
                 .Returns<EmailMessage, CancellationToken>((m, _) =>
@@ -65,6 +68,7 @@ public class ManualEmailServiceTests
                 Sender.Object,
                 Preferences.Object,
                 Config,
+                Secrets,
                 Quota.Object,
                 SendLog.Object,
                 NullLogger<ManualEmailService>.Instance);

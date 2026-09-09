@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Media;
@@ -28,6 +27,7 @@ public sealed class StartupService : IHostedService
     private readonly ILogger<StartupService> _logger;
     private readonly IFileTransformationDetector _detector;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ICampaignStore _campaigns;
     private readonly ILibraryManager _libraryManager;
@@ -41,6 +41,7 @@ public sealed class StartupService : IHostedService
     /// <param name="logger">Logger.</param>
     /// <param name="detector">FileTransformation reflection bridge.</param>
     /// <param name="config">Plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="libraryManager">The Jellyfin library manager (for the ItemAdded event).</param>
@@ -51,6 +52,7 @@ public sealed class StartupService : IHostedService
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
         IConfigAccessor config,
+        ISecretStore secrets,
         IEasyNotifLog easyNotifLog,
         ICampaignStore campaigns,
         ILibraryManager libraryManager,
@@ -61,6 +63,7 @@ public sealed class StartupService : IHostedService
         _logger = logger;
         _detector = detector;
         _config = config;
+        _secrets = secrets;
         _easyNotifLog = easyNotifLog;
         _campaigns = campaigns;
         _libraryManager = libraryManager;
@@ -73,9 +76,14 @@ public sealed class StartupService : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         var cfg = _config.Get();
-        if (EnsureUnsubscribeSecret(cfg))
+        if (_secrets.MigrateFrom(cfg))
         {
             _config.Save();
+            _logger.LogInformation("[EasyNotif] Migrated the transport secrets out of the plugin configuration.");
+        }
+
+        if (_secrets.EnsureUnsubscribeSecret())
+        {
             _logger.LogInformation("[EasyNotif] Generated the unsubscribe signing secret.");
         }
 
@@ -155,27 +163,6 @@ public sealed class StartupService : IHostedService
                 _history.Record(playbackEvent);
             }
         }
-    }
-
-    /// <summary>
-    /// Fills <see cref="PluginConfiguration.UnsubscribeSecret"/> with a fresh 32-byte base64url
-    /// value when it is empty. Returns true when it generated one (the caller then persists).
-    /// </summary>
-    /// <param name="config">The configuration to fill.</param>
-    /// <returns>True when a secret was generated.</returns>
-    internal static bool EnsureUnsubscribeSecret(PluginConfiguration config)
-    {
-        if (!string.IsNullOrEmpty(config.UnsubscribeSecret))
-        {
-            return false;
-        }
-
-        var bytes = RandomNumberGenerator.GetBytes(32);
-        config.UnsubscribeSecret = Convert.ToBase64String(bytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-        return true;
     }
 
     /// <summary>

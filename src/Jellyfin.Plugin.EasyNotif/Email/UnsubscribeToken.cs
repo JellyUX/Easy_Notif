@@ -15,7 +15,7 @@ public static class UnsubscribeToken
     private const int SignatureBytes = 32; // HMAC-SHA256
 
     /// <summary>Builds a token for a user and a category.</summary>
-    /// <param name="secret">The plugin unsubscribe secret (<see cref="Configuration.PluginConfiguration.UnsubscribeSecret"/>).</param>
+    /// <param name="secret">The plugin unsubscribe secret (from <see cref="Configuration.ISecretStore"/>).</param>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="category">The category to unsubscribe from: <c>news</c>, <c>recap</c> or <c>all</c>.</param>
     /// <returns>The token.</returns>

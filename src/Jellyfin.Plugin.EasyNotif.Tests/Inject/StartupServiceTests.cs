@@ -29,11 +29,13 @@ public sealed class StartupServiceTests
         FakeEasyNotifLog? easyNotifLog = null,
         FakeCampaignStore? campaigns = null,
         Mock<ISessionManager>? sessionManager = null,
-        FakePlaybackHistoryStore? history = null)
+        FakePlaybackHistoryStore? history = null,
+        FakeSecretStore? secrets = null)
         => new(
             NullLogger<StartupService>.Instance,
             detector.Object,
             config,
+            secrets ?? new FakeSecretStore(unsubscribeSecret: "set"),
             easyNotifLog ?? new FakeEasyNotifLog(),
             campaigns ?? new FakeCampaignStore(),
             Mock.Of<ILibraryManager>(),
@@ -81,46 +83,47 @@ public sealed class StartupServiceTests
     }
 
     [Fact]
-    public void EnsureUnsubscribeSecret_WhenEmpty_GeneratesABase64UrlValue()
-    {
-        var cfg = new PluginConfiguration();
-
-        var generated = StartupService.EnsureUnsubscribeSecret(cfg);
-
-        Assert.True(generated);
-        Assert.False(string.IsNullOrEmpty(cfg.UnsubscribeSecret));
-        Assert.Matches(new Regex("^[A-Za-z0-9_-]+$"), cfg.UnsubscribeSecret!);
-        Assert.True(cfg.UnsubscribeSecret!.Length >= 40, "a 32-byte secret is about 43 base64url chars");
-    }
-
-    [Fact]
-    public void EnsureUnsubscribeSecret_WhenAlreadySet_ReturnsFalse_LeavesItUnchanged()
-    {
-        var cfg = new PluginConfiguration { UnsubscribeSecret = "existing-value" };
-
-        Assert.False(StartupService.EnsureUnsubscribeSecret(cfg));
-        Assert.Equal("existing-value", cfg.UnsubscribeSecret);
-    }
-
-    [Fact]
-    public async Task StartAsync_WhenSecretMissing_GeneratesItAndPersists()
+    public async Task StartAsync_WhenSecretMissing_GeneratesItInTheStore()
     {
         var config = new FakeConfigAccessor();
+        var secrets = new FakeSecretStore();
 
-        await Build(Detector(available: true), config).StartAsync(CancellationToken.None);
+        await Build(Detector(available: true), config, secrets: secrets).StartAsync(CancellationToken.None);
 
-        Assert.False(string.IsNullOrEmpty(config.Config.UnsubscribeSecret));
-        Assert.True(config.SaveCount >= 1);
+        Assert.False(string.IsNullOrEmpty(secrets.UnsubscribeSecret));
     }
 
     [Fact]
     public async Task StartAsync_WhenSecretPresent_DoesNotRegenerateIt()
     {
-        var config = new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "keep-me" });
+        var config = new FakeConfigAccessor();
+        var secrets = new FakeSecretStore(unsubscribeSecret: "keep-me");
 
-        await Build(Detector(available: true), config).StartAsync(CancellationToken.None);
+        await Build(Detector(available: true), config, secrets: secrets).StartAsync(CancellationToken.None);
 
-        Assert.Equal("keep-me", config.Config.UnsubscribeSecret);
+        Assert.Equal("keep-me", secrets.UnsubscribeSecret);
+    }
+
+    [Fact]
+    public async Task StartAsync_MigratesLegacySecretsIntoTheStore_AndBlanksThem()
+    {
+        var config = new FakeConfigAccessor(new PluginConfiguration
+        {
+            ResendApiKey = "re_legacy",
+            WebhookSigningSecret = "whsec_legacy",
+            UnsubscribeSecret = "unsub_legacy"
+        });
+        var secrets = new FakeSecretStore();
+
+        await Build(Detector(available: true), config, secrets: secrets).StartAsync(CancellationToken.None);
+
+        Assert.Equal("re_legacy", secrets.ResendApiKey);
+        Assert.Equal("whsec_legacy", secrets.WebhookSigningSecret);
+        Assert.Equal("unsub_legacy", secrets.UnsubscribeSecret);
+        Assert.Null(config.Config.ResendApiKey);
+        Assert.Null(config.Config.WebhookSigningSecret);
+        Assert.Null(config.Config.UnsubscribeSecret);
+        Assert.True(config.SaveCount >= 1);
     }
 
     [Fact]

@@ -36,7 +36,7 @@ public sealed class UnsubscribeControllerTests
         });
         var log = new FakeEasyNotifLog();
         var controller = new UnsubscribeController(
-            new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = Secret }),
+            new FakeSecretStore(unsubscribeSecret: Secret),
             prefs.Object,
             log,
             NullLogger<UnsubscribeController>.Instance)

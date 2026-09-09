@@ -61,6 +61,7 @@ public sealed class ManualEmailService : IManualEmailService
     private readonly IEmailSender _sender;
     private readonly IPreferenceService _preferences;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
     private readonly ILogger<ManualEmailService> _logger;
@@ -69,6 +70,7 @@ public sealed class ManualEmailService : IManualEmailService
     /// <param name="sender">The email transport.</param>
     /// <param name="preferences">The preference service (for recipient resolution).</param>
     /// <param name="config">The plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="logger">Logger.</param>
@@ -76,6 +78,7 @@ public sealed class ManualEmailService : IManualEmailService
         IEmailSender sender,
         IPreferenceService preferences,
         IConfigAccessor config,
+        ISecretStore secrets,
         IQuotaGuard quota,
         ISendLog sendLog,
         ILogger<ManualEmailService> logger)
@@ -83,6 +86,7 @@ public sealed class ManualEmailService : IManualEmailService
         _sender = sender;
         _preferences = preferences;
         _config = config;
+        _secrets = secrets;
         _quota = quota;
         _sendLog = sendLog;
         _logger = logger;
@@ -128,7 +132,7 @@ public sealed class ManualEmailService : IManualEmailService
                 Html = string.IsNullOrWhiteSpace(request.Html) ? null : request.Html,
                 Text = string.IsNullOrEmpty(text) ? null : text,
                 ReplyTo = cfg.ReplyTo,
-                Headers = isTest ? null : BuildUnsubscribeHeaders(cfg, recipient.UserId),
+                Headers = isTest ? null : BuildUnsubscribeHeaders(cfg, _secrets.Get().UnsubscribeSecret, recipient.UserId),
                 Tags = [new EmailTag("context", "manual")],
                 Attachments = request.Attachments,
                 IdempotencyKey = null
@@ -208,6 +212,6 @@ public sealed class ManualEmailService : IManualEmailService
         }
     }
 
-    private static IReadOnlyDictionary<string, string>? BuildUnsubscribeHeaders(PluginConfiguration cfg, Guid userId)
-        => UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, cfg.UnsubscribeSecret, userId, UnsubscribeCategory);
+    private static IReadOnlyDictionary<string, string>? BuildUnsubscribeHeaders(PluginConfiguration cfg, string? unsubscribeSecret, Guid userId)
+        => UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, unsubscribeSecret, userId, UnsubscribeCategory);
 }

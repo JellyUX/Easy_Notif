@@ -28,6 +28,7 @@ public sealed class ResendEmailSender : IEmailSender
 
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly SendRateLimiter _rateLimiter;
     private readonly ILogger<ResendEmailSender> _logger;
     private readonly IEasyNotifLog _easyNotifLog;
@@ -36,22 +37,25 @@ public sealed class ResendEmailSender : IEmailSender
     /// <summary>Initializes a new instance of the <see cref="ResendEmailSender"/> class.</summary>
     /// <param name="httpClientFactory">The HTTP client factory.</param>
     /// <param name="config">The plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="rateLimiter">The shared send rate limiter.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     public ResendEmailSender(
         IHttpClientFactory httpClientFactory,
         IConfigAccessor config,
+        ISecretStore secrets,
         SendRateLimiter rateLimiter,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog)
-        : this(httpClientFactory, config, rateLimiter, logger, easyNotifLog, Task.Delay)
+        : this(httpClientFactory, config, secrets, rateLimiter, logger, easyNotifLog, Task.Delay)
     {
     }
 
     internal ResendEmailSender(
         IHttpClientFactory httpClientFactory,
         IConfigAccessor config,
+        ISecretStore secrets,
         SendRateLimiter rateLimiter,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog,
@@ -59,6 +63,7 @@ public sealed class ResendEmailSender : IEmailSender
     {
         _httpClientFactory = httpClientFactory;
         _config = config;
+        _secrets = secrets;
         _rateLimiter = rateLimiter;
         _logger = logger;
         _easyNotifLog = easyNotifLog;
@@ -71,7 +76,8 @@ public sealed class ResendEmailSender : IEmailSender
         ArgumentNullException.ThrowIfNull(message);
 
         var cfg = _config.Get();
-        if (!IsConfigured(cfg))
+        var apiKey = _secrets.Get().ResendApiKey;
+        if (!IsConfigured(apiKey, cfg))
         {
             _logger.LogWarning(
                 "[EasyNotif] Cannot send email: the Resend transport is not configured (API key or sender address missing).");
@@ -86,7 +92,7 @@ public sealed class ResendEmailSender : IEmailSender
 
         var payload = BuildPayload(message, cfg);
         var stopwatch = Stopwatch.StartNew();
-        var result = await PostWithRetryAsync(EmailsEndpoint, payload, message.IdempotencyKey, cfg.ResendApiKey!, ExtractId, cancellationToken)
+        var result = await PostWithRetryAsync(EmailsEndpoint, payload, message.IdempotencyKey, apiKey!, ExtractId, cancellationToken)
             .ConfigureAwait(false);
         stopwatch.Stop();
 
@@ -142,7 +148,8 @@ public sealed class ResendEmailSender : IEmailSender
         ArgumentNullException.ThrowIfNull(messages);
 
         var cfg = _config.Get();
-        if (!IsConfigured(cfg))
+        var apiKey = _secrets.Get().ResendApiKey;
+        if (!IsConfigured(apiKey, cfg))
         {
             _logger.LogWarning(
                 "[EasyNotif] Cannot send email batch: the Resend transport is not configured.");
@@ -150,7 +157,7 @@ public sealed class ResendEmailSender : IEmailSender
         }
 
         var array = messages.Select(m => BuildPayload(m, cfg)).ToArray();
-        var single = await PostWithRetryAsync(BatchEndpoint, array, idempotencyKey: null, cfg.ResendApiKey!, ExtractBatchIds, cancellationToken)
+        var single = await PostWithRetryAsync(BatchEndpoint, array, idempotencyKey: null, apiKey!, ExtractBatchIds, cancellationToken)
             .ConfigureAwait(false);
 
         if (!single.Success)
@@ -164,8 +171,8 @@ public sealed class ResendEmailSender : IEmailSender
 
     private static readonly SendResult NotConfigured = new(false, null, 0, "Resend is not configured.");
 
-    private static bool IsConfigured(PluginConfiguration cfg)
-        => !string.IsNullOrWhiteSpace(cfg.ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail);
+    private static bool IsConfigured(string? apiKey, PluginConfiguration cfg)
+        => !string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail);
 
     private static Dictionary<string, object?> BuildPayload(EmailMessage message, PluginConfiguration cfg)
     {

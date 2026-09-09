@@ -138,6 +138,16 @@ public abstract class JsonFileStore<T> : IDisposable
         var tmp = _filePath + ".tmp";
         _fileSystem.WriteAllText(tmp, Serialize(value));
         _fileSystem.Move(tmp, _filePath, overwrite: true);
+        OnWritten(_filePath);
+    }
+
+    /// <summary>
+    /// Called after the file has been written and renamed into place. The default does nothing;
+    /// override to tighten file permissions or run another post-write side effect.
+    /// </summary>
+    /// <param name="filePath">The absolute path to the file just written.</param>
+    protected virtual void OnWritten(string filePath)
+    {
     }
 
     private void TryBackupCorruptFile()

@@ -17,6 +17,7 @@ public sealed class EmailComposer : IEmailComposer
     private readonly WeeklyRecapComposer _recapComposer;
     private readonly ServerLinkContext _links;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="EmailComposer"/> class.</summary>
@@ -26,6 +27,7 @@ public sealed class EmailComposer : IEmailComposer
     /// <param name="recapComposer">The weekly recap composer.</param>
     /// <param name="links">The captured server identity (for the heading).</param>
     /// <param name="config">The plugin configuration accessor (for the unsubscribe link).</param>
+    /// <param name="secrets">The transport secret store (for the unsubscribe link).</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public EmailComposer(
         INewsletterDigestService digest,
@@ -34,6 +36,7 @@ public sealed class EmailComposer : IEmailComposer
         WeeklyRecapComposer recapComposer,
         ServerLinkContext links,
         IConfigAccessor config,
+        ISecretStore secrets,
         IEasyNotifLog log)
     {
         _digest = digest;
@@ -42,6 +45,7 @@ public sealed class EmailComposer : IEmailComposer
         _recapComposer = recapComposer;
         _links = links;
         _config = config;
+        _secrets = secrets;
         _log = log;
     }
 
@@ -55,6 +59,7 @@ public sealed class EmailComposer : IEmailComposer
             : campaign.TemplateId;
 
         var cfg = _config.Get();
+        var unsubscribeSecret = _secrets.Get().UnsubscribeSecret;
         var category = campaign.Category.ToString().ToLowerInvariant();
         var lang = campaign.MailLanguage == "en" ? "en" : "fr";
 
@@ -62,12 +67,12 @@ public sealed class EmailComposer : IEmailComposer
         {
             if (recipient.UserId == Guid.Empty
                 || string.IsNullOrWhiteSpace(cfg.PublicServerUrl)
-                || string.IsNullOrWhiteSpace(cfg.UnsubscribeSecret))
+                || string.IsNullOrWhiteSpace(unsubscribeSecret))
             {
                 return null;
             }
 
-            var token = UnsubscribeToken.Create(cfg.UnsubscribeSecret, recipient.UserId, category);
+            var token = UnsubscribeToken.Create(unsubscribeSecret, recipient.UserId, category);
             return $"{cfg.PublicServerUrl.TrimEnd('/')}/EasyNotif/u/{token}?lang={lang}";
         }
 

@@ -21,23 +21,23 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 [Route("EasyNotif")]
 public class UnsubscribeController : ControllerBase
 {
-    private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IPreferenceService _preferences;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<UnsubscribeController> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="UnsubscribeController"/> class.</summary>
-    /// <param name="config">The plugin configuration accessor (for the unsubscribe secret).</param>
+    /// <param name="secrets">The transport secret store (for the unsubscribe secret).</param>
     /// <param name="preferences">The preference service.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public UnsubscribeController(
-        IConfigAccessor config,
+        ISecretStore secrets,
         IPreferenceService preferences,
         IEasyNotifLog easyNotifLog,
         ILogger<UnsubscribeController> logger)
     {
-        _config = config;
+        _secrets = secrets;
         _preferences = preferences;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
@@ -123,7 +123,7 @@ public class UnsubscribeController : ControllerBase
         userId = Guid.Empty;
         category = string.Empty;
 
-        var secret = _config.Get().UnsubscribeSecret;
+        var secret = _secrets.Get().UnsubscribeSecret;
         if (!UnsubscribeToken.TryVerify(secret ?? string.Empty, token, out userId, out category))
         {
             return false;

@@ -31,11 +31,14 @@ public sealed class EmailComposerTests
 
         public FakeConfigAccessor Config { get; }
 
+        public FakeSecretStore Secrets { get; }
+
         public EmailComposer Composer { get; }
 
         public Harness(PluginConfiguration? config = null)
         {
             Config = new FakeConfigAccessor(config ?? new PluginConfiguration());
+            Secrets = new FakeSecretStore(unsubscribeSecret: Config.Config.UnsubscribeSecret);
             Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
                 .ReturnsAsync(new NewsletterDigest([], []));
             Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
@@ -47,6 +50,7 @@ public sealed class EmailComposerTests
                 new WeeklyRecapComposer(TestTemplateStore.Create()),
                 new ServerLinkContext("srv", "Home"),
                 Config,
+                Secrets,
                 Log);
         }
     }

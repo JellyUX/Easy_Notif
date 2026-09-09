@@ -73,6 +73,7 @@ public sealed class DispatchService : IDispatchService
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
     private readonly IConfigAccessor _config;
+    private readonly ISecretStore _secrets;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<DispatchService> _logger;
     private readonly Func<DateTime> _now;
@@ -86,6 +87,7 @@ public sealed class DispatchService : IDispatchService
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="config">The plugin configuration accessor.</param>
+    /// <param name="secrets">The transport secret store.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public DispatchService(
@@ -96,9 +98,10 @@ public sealed class DispatchService : IDispatchService
         IQuotaGuard quota,
         ISendLog sendLog,
         IConfigAccessor config,
+        ISecretStore secrets,
         IEasyNotifLog easyNotifLog,
         ILogger<DispatchService> logger)
-        : this(campaigns, preferences, composer, sender, quota, sendLog, config, easyNotifLog, logger, () => DateTime.UtcNow)
+        : this(campaigns, preferences, composer, sender, quota, sendLog, config, secrets, easyNotifLog, logger, () => DateTime.UtcNow)
     {
     }
 
@@ -110,6 +113,7 @@ public sealed class DispatchService : IDispatchService
         IQuotaGuard quota,
         ISendLog sendLog,
         IConfigAccessor config,
+        ISecretStore secrets,
         IEasyNotifLog easyNotifLog,
         ILogger<DispatchService> logger,
         Func<DateTime> now)
@@ -121,6 +125,7 @@ public sealed class DispatchService : IDispatchService
         _quota = quota;
         _sendLog = sendLog;
         _config = config;
+        _secrets = secrets;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
         _now = now;
@@ -279,7 +284,8 @@ public sealed class DispatchService : IDispatchService
         // the same slot (the slot barely moves for a daily cadence).
         var runSlot = (campaign.NextRunUtc ?? now).ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
 
-        if (string.IsNullOrWhiteSpace(cfg.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
+        var secrets = _secrets.Get();
+        if (string.IsNullOrWhiteSpace(secrets.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
         {
             _easyNotifLog.Warn("dispatch.skipped", new Dictionary<string, object?>
             {
@@ -368,7 +374,7 @@ public sealed class DispatchService : IDispatchService
                 Html = content.Html,
                 Text = content.Text,
                 ReplyTo = cfg.ReplyTo,
-                Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, cfg.UnsubscribeSecret, recipient.UserId, category),
+                Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, secrets.UnsubscribeSecret, recipient.UserId, category),
                 Tags =
                 [
                     new EmailTag("context", campaign.Id),

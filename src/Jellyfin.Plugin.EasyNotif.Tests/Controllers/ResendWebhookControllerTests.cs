@@ -29,8 +29,8 @@ public sealed class ResendWebhookControllerTests
 
     private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null)
     {
-        var config = new FakeConfigAccessor(new PluginConfiguration { WebhookSigningSecret = secret });
-        return new ResendWebhookController(config, sendLog.Object, NullLogger<ResendWebhookController>.Instance, easyNotifLog ?? new FakeEasyNotifLog())
+        var secrets = new FakeSecretStore(webhookSigningSecret: secret);
+        return new ResendWebhookController(secrets, sendLog.Object, NullLogger<ResendWebhookController>.Instance, easyNotifLog ?? new FakeEasyNotifLog())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

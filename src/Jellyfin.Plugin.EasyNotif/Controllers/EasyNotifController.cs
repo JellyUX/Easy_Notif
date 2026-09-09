@@ -888,7 +888,7 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>Renders a candidate template body with sample data for the editor preview. Administrators only.</summary>
     /// <param name="body">The base id, language and candidate body.</param>
-    /// <returns>200 with the rendered HTML; 400 on an unknown base id.</returns>
+    /// <returns>200 with the rendered HTML; 400 on an unknown base id or a body that fails validation.</returns>
     [HttpPost("admin/templates/preview")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -901,7 +901,14 @@ public class EasyNotifController : ControllerBase
             return BadRequest(new { error = "invalid-base" });
         }
 
-        var html = Templating.TemplateEngine.Render(body?.Content ?? string.Empty, Templating.TemplateSampleModel.For(baseId));
+        var content = body?.Content ?? string.Empty;
+        var validation = _templates.Validate(baseId, content);
+        if (!validation.Ok)
+        {
+            return BadRequest(new { error = validation.Reason, key = validation.Key });
+        }
+
+        var html = Templating.TemplateEngine.Render(content, Templating.TemplateSampleModel.For(baseId));
         return Ok(new { html });
     }
 

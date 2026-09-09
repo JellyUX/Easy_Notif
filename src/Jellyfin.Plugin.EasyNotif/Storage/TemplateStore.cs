@@ -78,7 +78,7 @@ public sealed record TemplateInfo(string Id, string BaseId, bool Custom, IReadOn
 
 /// <summary>The result of validating a candidate template body.</summary>
 /// <param name="Ok">True when the body is acceptable.</param>
-/// <param name="Reason">A short machine reason when not: <c>too-large</c>, <c>script</c>, <c>unknown-key</c>.</param>
+/// <param name="Reason">A short machine reason when not: <c>too-large</c>, <c>script</c>, <c>too-deep</c>, <c>unknown-key</c>.</param>
 /// <param name="Key">The offending placeholder for <c>unknown-key</c>.</param>
 public sealed record TemplateValidation(bool Ok, string? Reason = null, string? Key = null);
 
@@ -89,6 +89,7 @@ public sealed class TemplateStore : ITemplateStore
     public static readonly IReadOnlyList<string> BaseIds = ["newsletter", "weekly-recap"];
 
     private const int MaxBytes = 64 * 1024;
+    private const int MaxNesting = 32;
     private const string CustomSeparator = "__";
 
     private static readonly Regex SlugPattern = new("^[a-z0-9][a-z0-9-]{0,30}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -288,6 +289,11 @@ public sealed class TemplateStore : ITemplateStore
         if (content.Contains("<script", StringComparison.OrdinalIgnoreCase))
         {
             return new TemplateValidation(false, "script");
+        }
+
+        if (TemplateEngine.NestingDepth(content) > MaxNesting)
+        {
+            return new TemplateValidation(false, "too-deep");
         }
 
         var allowed = KnownKeys(baseId);

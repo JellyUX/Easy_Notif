@@ -124,6 +124,20 @@ public sealed class TemplateStoreTests : IDisposable
         => Assert.True(Build().Validate("newsletter", "<a href=\"{{unsubscribeUrl}}\">x</a>").Ok);
 
     [Fact]
+    public void Validate_RejectsExcessivelyNestedContent()
+    {
+        const int depth = 40;
+        var deep = string.Concat(Enumerable.Repeat("{{#if heading}}", depth))
+            + "x"
+            + string.Concat(Enumerable.Repeat("{{/if}}", depth));
+
+        var result = Build().Validate("newsletter", deep);
+
+        Assert.False(result.Ok);
+        Assert.Equal("too-deep", result.Reason);
+    }
+
+    [Fact]
     public void Delete_RemovesBothLanguages()
     {
         var store = Build();

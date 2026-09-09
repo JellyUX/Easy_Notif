@@ -152,4 +152,29 @@ public sealed class TemplateEngineTests
 
         Assert.Null(ex);
     }
+
+    // R-01: deep *balanced* nesting recurses per level. Without a depth cap this overflows the
+    // stack, and a StackOverflowException kills the whole server process.
+    [Fact]
+    public void Render_DeeplyNestedMarkup_Completes_WithoutExhaustingTheStack()
+    {
+        const int depth = 5000;
+        var template = string.Concat(Enumerable.Repeat("{{#if flag}}", depth))
+            + "x"
+            + string.Concat(Enumerable.Repeat("{{/if}}", depth));
+        var model = new Dictionary<string, object?> { ["flag"] = true };
+
+        var result = TemplateEngine.Render(template, model);
+
+        // The over-deep region is dropped, so the inner "x" does not appear - but it returned.
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void NestingDepth_CountsTheDeepestBalancedNesting()
+    {
+        Assert.Equal(0, TemplateEngine.NestingDepth("{{title}} flat {{summary}}"));
+        Assert.Equal(2, TemplateEngine.NestingDepth("{{#if a}}{{#each b}}{{x}}{{/each}}{{/if}}{{#if c}}y{{/if}}"));
+        Assert.Equal(3, TemplateEngine.NestingDepth("{{#if a}}{{#if a}}{{#each b}}z{{/each}}{{/if}}{{/if}}"));
+    }
 }

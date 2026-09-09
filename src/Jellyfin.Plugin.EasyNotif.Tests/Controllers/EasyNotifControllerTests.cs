@@ -850,6 +850,19 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void PreviewTemplate_WithAnOversizedBody_Returns400_WithoutRendering()
+    {
+        var result = BuildController().PreviewTemplate(new TemplatePreviewRequest
+        {
+            BaseId = "newsletter",
+            Content = new string('x', 70 * 1024)
+        });
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("too-large", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PutCampaign_TemplateIncompatibleWithType_Returns400()
     {
         var templates = TestTemplateStore.Create();

@@ -13,6 +13,13 @@ namespace Jellyfin.Plugin.EasyNotif.Templating;
 /// </summary>
 public static class TemplateEngine
 {
+    /// <summary>
+    /// The maximum block nesting the renderer will descend into. Real templates nest two or three
+    /// levels; the cap only exists so that a pathologically nested body (an admin footgun, or a
+    /// crafted template) cannot exhaust the call stack and take the server process down with it.
+    /// </summary>
+    private const int MaxRenderDepth = 64;
+
     /// <summary>Renders a template against a model.</summary>
     /// <param name="template">The template text.</param>
     /// <param name="model">The root model. Values may be strings, numbers, booleans, nested
@@ -25,8 +32,53 @@ public static class TemplateEngine
 
         var output = new StringBuilder(template.Length);
         var scopes = new List<Frame> { new(model, null, -1) };
-        RenderRegion(template, 0, template.Length, scopes, output);
+        RenderRegion(template, 0, template.Length, scopes, output, depth: 0);
         return output.ToString();
+    }
+
+    /// <summary>
+    /// Returns the deepest block nesting in a template (a running max of open
+    /// <c>{{#if}}</c> / <c>{{#each}}</c> minus their closers). Cheap; used to reject a
+    /// pathologically nested body at save time rather than truncating it silently at render time.
+    /// </summary>
+    /// <param name="template">The template text.</param>
+    /// <returns>The maximum nesting depth (0 for a flat template).</returns>
+    public static int NestingDepth(string template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+
+        var depth = 0;
+        var max = 0;
+        var i = 0;
+        while (true)
+        {
+            var open = template.IndexOf("{{", i, StringComparison.Ordinal);
+            if (open < 0)
+            {
+                break;
+            }
+
+            var close = template.IndexOf("}}", open, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                break;
+            }
+
+            var inner = template[(open + 2)..close].Trim().TrimStart('{');
+            if (inner.StartsWith("#if ", StringComparison.Ordinal) || inner.StartsWith("#each ", StringComparison.Ordinal))
+            {
+                depth++;
+                max = Math.Max(max, depth);
+            }
+            else if ((inner is "/if" or "/each") && depth > 0)
+            {
+                depth--;
+            }
+
+            i = close + 2;
+        }
+
+        return max;
     }
 
     private sealed record Frame(IReadOnlyDictionary<string, object?>? Data, object? Current, int Index);
@@ -56,8 +108,15 @@ public static class TemplateEngine
         return keys;
     }
 
-    private static void RenderRegion(string t, int start, int end, List<Frame> scopes, StringBuilder output)
+    private static void RenderRegion(string t, int start, int end, List<Frame> scopes, StringBuilder output, int depth)
     {
+        if (depth > MaxRenderDepth)
+        {
+            // Stop descending rather than throw: a StackOverflowException is uncatchable and would
+            // kill the process. The over-deep region is simply left unrendered.
+            return;
+        }
+
         var i = start;
         while (i < end)
         {
@@ -88,7 +147,7 @@ public static class TemplateEngine
                 var (bodyEnd, regionEnd) = FindBlockEnd(t, afterTag, end, "#if", "/if");
                 if (IsTruthy(Resolve(scopes, key)))
                 {
-                    RenderRegion(t, afterTag, bodyEnd, scopes, output);
+                    RenderRegion(t, afterTag, bodyEnd, scopes, output, depth + 1);
                 }
 
                 i = regionEnd;
@@ -103,7 +162,7 @@ public static class TemplateEngine
                     foreach (var item in list)
                     {
                         scopes.Add(new Frame(item as IReadOnlyDictionary<string, object?>, item, index));
-                        RenderRegion(t, afterTag, bodyEnd, scopes, output);
+                        RenderRegion(t, afterTag, bodyEnd, scopes, output, depth + 1);
                         scopes.RemoveAt(scopes.Count - 1);
                         index++;
                     }

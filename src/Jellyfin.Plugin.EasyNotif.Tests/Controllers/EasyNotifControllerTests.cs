@@ -394,6 +394,7 @@ public sealed class EasyNotifControllerTests
         email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SendResult(true, "re_1", 200, null));
         var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
         var sendLog = new Mock<ISendLog>();
         SendLogEntry? logged = null;
         sendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
@@ -417,12 +418,57 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public async Task SendMyTestEmail_WhenQuotaIsOver_Returns503_AndSendsNothing()
+    {
+        var email = new Mock<IEmailSender>();
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(3000, 100, 3000, 100, true, true));
+
+        var result = await BuildController(ServiceWithContactEmail("a@b.co"), emailSender: email, quota: quota)
+            .SendMyTestEmail(new TestEmailRequest());
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<ObjectResult>(result).StatusCode);
+        email.Verify(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SendMyTestEmail_WithinTheCooldown_Returns429_AndSendsOnce()
+    {
+        var email = new Mock<IEmailSender>();
+        email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendResult(true, "re_1", 200, null));
+        var controller = BuildController(ServiceWithContactEmail("a@b.co"), emailSender: email);
+
+        var first = await controller.SendMyTestEmail(new TestEmailRequest());
+        var second = await controller.SendMyTestEmail(new TestEmailRequest());
+
+        Assert.IsType<OkObjectResult>(first);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsType<ObjectResult>(second).StatusCode);
+        email.Verify(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendManualEmail_WhenQuotaIsOver_Returns503_AndDoesNotCallTheService()
+    {
+        var manual = new Mock<IManualEmailService>();
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(3000, 100, 3000, 100, true, true));
+
+        var result = await BuildController(quota: quota, manualEmail: manual)
+            .SendManualEmail(new ManualSendRequest { Subject = "hi", Text = "x" });
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<ObjectResult>(result).StatusCode);
+        manual.Verify(m => m.SendAsync(It.IsAny<ManualEmailRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task SendMyTestEmail_OnFailure_DoesNotRecordQuota_AndLogsFailed()
     {
         var email = new Mock<IEmailSender>();
         email.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SendResult(false, null, 422, "bad"));
         var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
         var sendLog = new Mock<ISendLog>();
         SendLogEntry? logged = null;
         sendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
@@ -911,6 +957,7 @@ public sealed class EasyNotifControllerTests
         Mock<IAuthorizationContext>? auth = null,
         Mock<IEmailSender>? emailSender = null,
         Mock<IQuotaGuard>? quota = null,
+        SendCooldown? sendCooldown = null,
         Mock<ISendLog>? sendLog = null,
         Mock<IManualEmailService>? manualEmail = null,
         ICampaignStore? campaigns = null,
@@ -919,12 +966,24 @@ public sealed class EasyNotifControllerTests
         Mock<IFileTransformationDetector>? fileTransformation = null,
         FakeEasyNotifLog? easyNotifLog = null)
     {
+        Mock<IQuotaGuard> quotaMock;
+        if (quota is null)
+        {
+            quotaMock = new Mock<IQuotaGuard>();
+            quotaMock.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        }
+        else
+        {
+            quotaMock = quota;
+        }
+
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
             config ?? new FakeConfig(),
             (auth ?? AuthReturning(DefaultUserId)).Object,
             (emailSender ?? new Mock<IEmailSender>()).Object,
-            (quota ?? new Mock<IQuotaGuard>()).Object,
+            quotaMock.Object,
+            sendCooldown ?? new SendCooldown(),
             (sendLog ?? new Mock<ISendLog>()).Object,
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
             campaigns ?? new FakeCampaignStore(),

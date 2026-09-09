@@ -30,6 +30,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IPreferenceService, PreferenceService>();
         serviceCollection.AddHttpClient(ResendEmailSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
         serviceCollection.AddSingleton<SendRateLimiter>();
+        serviceCollection.AddSingleton<SendCooldown>();
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();

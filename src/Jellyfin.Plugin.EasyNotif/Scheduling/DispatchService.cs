@@ -194,6 +194,16 @@ public sealed class DispatchService : IDispatchService
                 return new CampaignPreviewResult(false, false, 0, 0);
             }
 
+            if (_quota.Snapshot().Over)
+            {
+                _easyNotifLog.Warn("dispatch.skipped", new Dictionary<string, object?>
+                {
+                    ["campaignId"] = campaign.Id,
+                    ["reason"] = "quota-over-preview"
+                });
+                return new CampaignPreviewResult(true, false, 0, 0);
+            }
+
             var now = _now();
             var cfg = _config.Get();
             var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken, freshWindow: true).ConfigureAwait(false);

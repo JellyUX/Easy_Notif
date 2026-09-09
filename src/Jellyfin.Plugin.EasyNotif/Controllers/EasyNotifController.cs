@@ -48,6 +48,7 @@ public class EasyNotifController : ControllerBase
     private readonly IAuthorizationContext _authContext;
     private readonly IEmailSender _emailSender;
     private readonly IQuotaGuard _quota;
+    private readonly SendCooldown _sendCooldown;
     private readonly ISendLog _sendLog;
     private readonly IManualEmailService _manualEmail;
     private readonly ICampaignStore _campaigns;
@@ -65,6 +66,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="authContext">Jellyfin request authorization context.</param>
     /// <param name="emailSender">The email transport.</param>
     /// <param name="quota">The send quota guard.</param>
+    /// <param name="sendCooldown">The per-user cooldown for the self-test send.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="manualEmail">The manual admin email service.</param>
     /// <param name="campaigns">The campaign store.</param>
@@ -79,6 +81,7 @@ public class EasyNotifController : ControllerBase
         IAuthorizationContext authContext,
         IEmailSender emailSender,
         IQuotaGuard quota,
+        SendCooldown sendCooldown,
         ISendLog sendLog,
         IManualEmailService manualEmail,
         ICampaignStore campaigns,
@@ -93,6 +96,7 @@ public class EasyNotifController : ControllerBase
         _authContext = authContext;
         _emailSender = emailSender;
         _quota = quota;
+        _sendCooldown = sendCooldown;
         _sendLog = sendLog;
         _manualEmail = manualEmail;
         _campaigns = campaigns;
@@ -183,12 +187,14 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>Sends the caller a test email to their contact address.</summary>
     /// <param name="body">Optional request body carrying the UI language.</param>
-    /// <returns>200 with <c>{ ok }</c>; 400 when the caller has no contact address; 503 when storage
-    /// is unavailable.</returns>
+    /// <returns>200 with <c>{ ok }</c>; 400 when the caller has no contact address; 429 when the
+    /// per-user cooldown is still running; 503 when the send quota is exhausted or storage is
+    /// unavailable.</returns>
     [HttpPost("me/test")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult> SendMyTestEmail([FromBody] TestEmailRequest? body)
     {
@@ -208,6 +214,16 @@ public class EasyNotifController : ControllerBase
         if (string.IsNullOrWhiteSpace(address))
         {
             return BadRequest(new { error = "no-contact-email" });
+        }
+
+        if (!_sendCooldown.TryConsume(userId))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = "cooldown" });
+        }
+
+        if (_quota.Snapshot().Over)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "quota-exceeded" });
         }
 
         var lang = string.Equals(body?.Lang, "fr", StringComparison.OrdinalIgnoreCase) ? "fr" : "en";
@@ -486,6 +502,11 @@ public class EasyNotifController : ControllerBase
         if (body is null || string.IsNullOrWhiteSpace(body.Subject))
         {
             return BadRequest(new { error = "subject-required" });
+        }
+
+        if (_quota.Snapshot().Over)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "quota-exceeded" });
         }
 
         List<EmailAttachment> attachments;

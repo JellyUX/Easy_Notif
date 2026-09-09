@@ -184,6 +184,26 @@ public sealed class EasyNotifControllerTests
         Assert.IsType<BadRequestResult>(result);
     }
 
+    [Theory]
+    [InlineData("not-a-url")]
+    [InlineData("ftp://evil.example.org")]
+    [InlineData("//evil.example.org")]
+    [InlineData("https://ok.example.org\r\nX-Injected: 1")]
+    public void PutSettings_WithAMalformedPublicServerUrl_Returns400(string url)
+    {
+        var result = BuildController().PutSettings(new SettingsUpdate { PublicServerUrl = url });
+
+        Assert.IsType<BadRequestResult>(result);
+    }
+
+    [Fact]
+    public void PutSettings_WithABlankPublicServerUrl_Returns204()
+    {
+        var result = BuildController().PutSettings(new SettingsUpdate { PublicServerUrl = "  " });
+
+        Assert.IsType<NoContentResult>(result);
+    }
+
     // -------------------------------------------------------------------------
     // Settings: secrets never leak, blank never overwrites
     // -------------------------------------------------------------------------

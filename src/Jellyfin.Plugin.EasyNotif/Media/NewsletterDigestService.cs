@@ -2,6 +2,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -62,8 +63,9 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <inheritdoc/>
     public async Task<NewsletterDigest> GetNewSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken, int limit = 1000)
     {
-        var baseUrl = _config.Get().PublicServerUrl?.TrimEnd('/');
-        var hasPublicUrl = !string.IsNullOrWhiteSpace(baseUrl);
+        var configuredUrl = _config.Get().PublicServerUrl;
+        var hasPublicUrl = PublicUrl.IsValid(configuredUrl);
+        var baseUrl = hasPublicUrl ? configuredUrl!.TrimEnd('/') : null;
         var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);
 
         // Primary source: items the ItemAdded event recorded as added since the window start, in

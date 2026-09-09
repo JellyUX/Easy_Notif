@@ -436,6 +436,23 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_WithAMalformedPublicUrl_OmitsTheHeader()
+    {
+        var harness = new Harness(config: new PluginConfiguration
+        {
+            ResendApiKey = "re_key",
+            FromEmail = "from@example.org",
+            PublicServerUrl = "https://media.example.org\r\nX-Injected: 1",
+            UnsubscribeSecret = "unsub-secret-0123456789"
+        });
+        harness.Recipients(Alice);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Null(harness.Sent[0].Headers);
+    }
+
+    [Fact]
     public async Task RunDueAsync_EmptyDigest_DoesNotSend_ButAdvancesNextRun()
     {
         var harness = new Harness();

@@ -5,6 +5,7 @@ using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
+using Jellyfin.Plugin.EasyNotif.Util;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
@@ -66,7 +67,7 @@ public sealed class EmailComposer : IEmailComposer
         string? UnsubscribeUrl(Recipient recipient)
         {
             if (recipient.UserId == Guid.Empty
-                || string.IsNullOrWhiteSpace(cfg.PublicServerUrl)
+                || !PublicUrl.IsValid(cfg.PublicServerUrl)
                 || string.IsNullOrWhiteSpace(unsubscribeSecret))
             {
                 return null;

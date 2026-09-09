@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Jellyfin.Plugin.EasyNotif.Util;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
@@ -81,8 +82,9 @@ public static class UnsubscribeToken
 
     /// <summary>
     /// Builds the <c>List-Unsubscribe</c> / <c>List-Unsubscribe-Post</c> header pair for a
-    /// one-click unsubscribe link, or null when the public server URL or the secret is not set
-    /// (Synthese.md section 7.2). Consumed by <c>GET|POST /EasyNotif/u/{token}</c>.
+    /// one-click unsubscribe link, or null when the secret is not set or the public server URL is
+    /// missing or not a valid http/https URL (Synthese.md section 7.2). Consumed by
+    /// <c>GET|POST /EasyNotif/u/{token}</c>.
     /// </summary>
     /// <param name="publicServerUrl">The public base URL of this server.</param>
     /// <param name="secret">The plugin unsubscribe secret.</param>
@@ -95,7 +97,7 @@ public static class UnsubscribeToken
         Guid userId,
         string category)
     {
-        if (string.IsNullOrWhiteSpace(publicServerUrl) || string.IsNullOrWhiteSpace(secret))
+        if (string.IsNullOrWhiteSpace(secret) || !PublicUrl.IsValid(publicServerUrl))
         {
             return null;
         }

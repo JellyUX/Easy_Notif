@@ -362,8 +362,8 @@ public class EasyNotifController : ControllerBase
     /// Updates the plugin settings. A blank secret leaves the stored one untouched. Administrators only.
     /// </summary>
     /// <param name="body">The settings.</param>
-    /// <returns>204 on success; 400 on an invalid time zone or address; 503 when the plugin instance
-    /// is unavailable.</returns>
+    /// <returns>204 on success; 400 on an invalid time zone, address or public server URL; 503 when
+    /// the plugin instance is unavailable.</returns>
     [HttpPut("admin/settings")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -388,6 +388,11 @@ public class EasyNotifController : ControllerBase
             {
                 return BadRequest();
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(body.PublicServerUrl) && !PublicUrl.IsValid(body.PublicServerUrl.Trim()))
+        {
+            return BadRequest();
         }
 
         return Wrap(() =>

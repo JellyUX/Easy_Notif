@@ -54,7 +54,11 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
     private const int MaxRecords = 20000;
 
     private readonly Channel<Guid> _channel =
-        Channel.CreateUnbounded<Guid>(new UnboundedChannelOptions { SingleReader = true });
+        Channel.CreateBounded<Guid>(new BoundedChannelOptions(10_000)
+        {
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.DropWrite
+        });
     private readonly Func<DateTime> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly CancellationTokenSource _cts = new();
@@ -140,21 +144,29 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
 
             var now = _now();
             var cutoff = now - Retention;
-            Mutate(file =>
+            try
             {
-                file.Items.RemoveAll(r => r.Ts < cutoff);
-                foreach (var id in batch)
+                Mutate(file =>
                 {
-                    file.Items.Add(new AddedItemRecord(now, id));
-                }
+                    file.Items.RemoveAll(r => r.Ts < cutoff);
+                    foreach (var id in batch)
+                    {
+                        file.Items.Add(new AddedItemRecord(now, id));
+                    }
 
-                if (file.Items.Count > MaxRecords)
-                {
-                    file.Items.RemoveRange(0, file.Items.Count - MaxRecords);
-                }
+                    if (file.Items.Count > MaxRecords)
+                    {
+                        file.Items.RemoveRange(0, file.Items.Count - MaxRecords);
+                    }
 
-                return true;
-            });
+                    return true;
+                });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // A transient write failure must not kill the drain: log the lost batch and keep going.
+                _logger.LogError(ex, "[EasyNotif] Failed to flush {Count} added-item record(s); the drain continues.", batch.Count);
+            }
         }
     }
 

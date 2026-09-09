@@ -96,7 +96,11 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
     private const int MaxEvents = 50000;
 
     private readonly Channel<PlaybackEvent> _channel =
-        Channel.CreateUnbounded<PlaybackEvent>(new UnboundedChannelOptions { SingleReader = true });
+        Channel.CreateBounded<PlaybackEvent>(new BoundedChannelOptions(10_000)
+        {
+            SingleReader = true,
+            FullMode = BoundedChannelFullMode.DropWrite
+        });
     private readonly Func<DateTime> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly CancellationTokenSource _cts = new();
@@ -235,21 +239,29 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
             }
 
             var cutoff = _now() - Retention;
-            Mutate(file =>
+            try
             {
-                file.Events.RemoveAll(e => e.Ts < cutoff);
-                foreach (var ev in batch)
+                Mutate(file =>
                 {
-                    Ingest(file, ev);
-                }
+                    file.Events.RemoveAll(e => e.Ts < cutoff);
+                    foreach (var ev in batch)
+                    {
+                        Ingest(file, ev);
+                    }
 
-                if (file.Events.Count > MaxEvents)
-                {
-                    file.Events.RemoveRange(0, file.Events.Count - MaxEvents);
-                }
+                    if (file.Events.Count > MaxEvents)
+                    {
+                        file.Events.RemoveRange(0, file.Events.Count - MaxEvents);
+                    }
 
-                return true;
-            });
+                    return true;
+                });
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // A transient write failure must not kill the drain: log the lost batch and keep going.
+                _logger.LogError(ex, "[EasyNotif] Failed to flush {Count} playback event(s); the drain continues.", batch.Count);
+            }
         }
     }
 

@@ -242,6 +242,33 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task DrainLoop_SurvivesAWriteFailure_AndPersistsTheNextBatch()
+    {
+        var fs = new CountingFileSystem();
+        var logger = new Mock<ILogger<PlaybackHistoryStore>>();
+        var store = Build(fs, logger.Object);
+        var user = Guid.NewGuid();
+        store.Start();                     // stamps TrackingSinceUtc (a synchronous write)
+        fs.ThrowOnNextWriteAllText = true; // arm the failure for the first drain flush
+
+        // First batch: the flush to disk throws. The drain must catch it and keep running.
+        store.Record(Event(user, Guid.NewGuid(), _now, completed: true));
+        await WaitFor(() => fs.FailedWrites == 1);
+
+        // Second batch: the drain is still alive and processes it (a pre-fix drain would be dead here).
+        store.Record(Event(user, Guid.NewGuid(), _now, completed: true));
+        await WaitFor(() => store.GetWeek(user, _now.AddDays(-7)).Count == 2);
+
+        // And it reached disk: a fresh instance built on the same directory sees both events.
+        await store.StopAsync();
+        Assert.Equal(2, Build(new FileSystem()).GetWeek(user, _now.AddDays(-7)).Count);
+
+        logger.Verify(
+            l => l.Log(LogLevel.Error, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), It.IsAny<Exception>(), It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+    }
+
+    [Fact]
     public async Task Start_RebuildsTheRollup_WhenItIsMissingButEventsExist()
     {
         var user = Guid.NewGuid();
@@ -283,18 +310,33 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
         }
     }
 
-    /// <summary>Wraps a real <see cref="FileSystem"/> and counts atomic writes (Move calls).</summary>
+    /// <summary>Wraps a real <see cref="FileSystem"/>, counts atomic writes, and can fail one write.</summary>
     private sealed class CountingFileSystem : IFileSystem
     {
         private readonly FileSystem _inner = new();
 
         public int Writes { get; private set; }
 
+        /// <summary>When true, the next <see cref="WriteAllText"/> throws once, then resets.</summary>
+        public bool ThrowOnNextWriteAllText { get; set; }
+
+        public int FailedWrites { get; private set; }
+
         public bool FileExists(string path) => _inner.FileExists(path);
 
         public string ReadAllText(string path) => _inner.ReadAllText(path);
 
-        public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+        public void WriteAllText(string path, string contents)
+        {
+            if (ThrowOnNextWriteAllText)
+            {
+                ThrowOnNextWriteAllText = false;
+                FailedWrites++;
+                throw new IOException("simulated disk failure");
+            }
+
+            _inner.WriteAllText(path, contents);
+        }
 
         public void Move(string sourceFileName, string destFileName, bool overwrite)
         {

@@ -28,8 +28,11 @@ public abstract class JsonFileStore<T> : IDisposable
     private readonly string _filePath;
     private readonly string _fileName;
     private readonly IFileSystem _fileSystem;
-    private readonly ILogger _logger;
     private readonly ReaderWriterLockSlim _lock = new();
+
+    /// <summary>The store logger, so derived types (background drains) can report a swallowed error.</summary>
+    protected readonly ILogger _logger;
+
     private T _cache;
     private bool _disposed;
 

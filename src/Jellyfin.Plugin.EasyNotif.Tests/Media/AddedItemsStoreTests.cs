@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Media;
 using MediaBrowser.Common.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -18,13 +19,17 @@ public sealed class AddedItemsStoreTests : IDisposable
     private readonly List<AddedItemsStore> _stores = [];
     private DateTime _now = new(2026, 6, 15, 12, 0, 0, DateTimeKind.Utc);
 
-    private AddedItemsStore Build()
+    private AddedItemsStore Build(IFileSystem? fileSystem = null, ILogger<AddedItemsStore>? logger = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
         // No real delay: the drain loop's debounce completes immediately.
         var store = new AddedItemsStore(
-            paths.Object, new FileSystem(), NullLogger<AddedItemsStore>.Instance, () => _now, (_, _) => Task.CompletedTask);
+            paths.Object,
+            fileSystem ?? new FileSystem(),
+            logger ?? NullLogger<AddedItemsStore>.Instance,
+            () => _now,
+            (_, _) => Task.CompletedTask);
         _stores.Add(store);
         return store;
     }
@@ -86,6 +91,29 @@ public sealed class AddedItemsStoreTests : IDisposable
         await store.StopAsync();
     }
 
+    [Fact]
+    public async Task DrainLoop_SurvivesAWriteFailure_AndPersistsTheNextBatch()
+    {
+        var fs = new FailingFileSystem { ThrowOnNextWriteAllText = true };
+        var logger = new Mock<ILogger<AddedItemsStore>>();
+        var store = Build(fs, logger.Object);
+        store.Start();
+
+        // First batch: the flush throws. The id is lost, but the drain must keep running.
+        store.RecordAdded(Guid.NewGuid());
+        await WaitFor(() => fs.FailedWrites == 1);
+
+        // Second batch: the drain is still alive and persists it.
+        var freshId = Guid.NewGuid();
+        store.RecordAdded(freshId);
+        await WaitFor(() => store.AddedSince(_now.AddMinutes(-1)).Contains(freshId));
+
+        logger.Verify(
+            l => l.Log(LogLevel.Error, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), It.IsAny<Exception>(), It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.AtLeastOnce);
+        await store.StopAsync();
+    }
+
     public void Dispose()
     {
         foreach (var store in _stores)
@@ -103,5 +131,42 @@ public sealed class AddedItemsStoreTests : IDisposable
         catch (IOException)
         {
         }
+    }
+
+    /// <summary>A real <see cref="FileSystem"/> that can fail one write on demand.</summary>
+    private sealed class FailingFileSystem : IFileSystem
+    {
+        private readonly FileSystem _inner = new();
+
+        /// <summary>When true, the next <see cref="WriteAllText"/> throws once, then resets.</summary>
+        public bool ThrowOnNextWriteAllText { get; set; }
+
+        public int FailedWrites { get; private set; }
+
+        public bool FileExists(string path) => _inner.FileExists(path);
+
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+
+        public void WriteAllText(string path, string contents)
+        {
+            if (ThrowOnNextWriteAllText)
+            {
+                ThrowOnNextWriteAllText = false;
+                FailedWrites++;
+                throw new IOException("simulated disk failure");
+            }
+
+            _inner.WriteAllText(path, contents);
+        }
+
+        public void Move(string sourceFileName, string destFileName, bool overwrite) => _inner.Move(sourceFileName, destFileName, overwrite);
+
+        public void Delete(string path) => _inner.Delete(path);
+
+        public void CreateDirectory(string path) => _inner.CreateDirectory(path);
+
+        public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+
+        public IEnumerable<string> EnumerateFiles(string path, string searchPattern) => _inner.EnumerateFiles(path, searchPattern);
     }
 }

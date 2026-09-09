@@ -8,9 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   build-test:
@@ -47,6 +45,10 @@ jobs:
     needs: build-test
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # semantic-release/git pushes the release commit + tag; /github creates the release
+      issues: write          # semantic-release/github comments on released issues
+      pull-requests: write   # ... and on released PRs
     steps:
       - uses: actions/checkout@v7
         with:
@@ -65,11 +67,14 @@ jobs:
         with:
           node-version: lts/*
 
+      # jprm builds the published zip and the MD5 recorded in manifest.json, so its version is
+      # pinned deliberately. Bump it in a dedicated ci: commit with a reason - same policy as the
+      # semantic-release chain (see dependabot.yml).
       - name: Install JPRM
-        run: pip install jprm
+        run: pip install jprm==1.1.0
 
       - name: Install semantic-release dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run semantic-release
         env:

@@ -39,14 +39,15 @@
     [
       "@semantic-release/exec",
       {
-        "prepareCmd": "mkdir -p artifacts && python3 .github/scripts/set-plugin-version.py ${nextRelease.version} && jprm plugin build . --version=${nextRelease.version}.0 --output=./artifacts && python3 .github/scripts/update-manifest.py ${nextRelease.version}"
+        "prepareCmd": "mkdir -p artifacts && python3 .github/scripts/set-plugin-version.py ${nextRelease.version} && jprm plugin build . --version=${nextRelease.version}.0 --output=./artifacts && python3 .github/scripts/update-manifest.py ${nextRelease.version} && cd artifacts && for f in *.zip; do sha256sum \"$f\" > \"$f.sha256\"; done"
       }
     ],
     [
       "@semantic-release/github",
       {
         "assets": [
-          { "path": "./artifacts/*.zip", "label": "Easy Notif plugin" }
+          { "path": "./artifacts/*.zip", "label": "Easy Notif plugin" },
+          { "path": "./artifacts/*.zip.sha256", "label": "SHA-256 checksum" }
         ]
       }
     ],

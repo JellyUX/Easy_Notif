@@ -24,6 +24,26 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # dotnet list exits 0 even when it finds vulnerable packages, so the JSON report is checked.
+      - name: Audit NuGet packages
+        run: |
+          dotnet list package --vulnerable --include-transitive --format json > nuget-audit.json
+          python3 - <<'EOF'
+          import json, sys
+          with open("nuget-audit.json", encoding="utf-8") as f:
+              data = json.load(f)
+          hits = [
+              f"{p['path']}: {pkg['id']} {pkg.get('resolvedVersion', '')}"
+              for p in data.get("projects", [])
+              for fw in p.get("frameworks", [])
+              for kind in ("topLevelPackages", "transitivePackages")
+              for pkg in fw.get(kind, [])
+              if pkg.get("vulnerabilities")
+          ]
+          print("\n".join(hits) or "OK - no vulnerable NuGet package")
+          sys.exit(1 if hits else 0)
+          EOF
+
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
@@ -36,6 +56,9 @@ jobs:
 
       - name: Install Node dependencies
         run: npm ci
+
+      - name: Audit npm production dependencies
+        run: npm audit --omit=dev
 
       - name: Run Vitest
         run: npm test

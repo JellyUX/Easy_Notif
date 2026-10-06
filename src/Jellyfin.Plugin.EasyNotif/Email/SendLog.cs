@@ -151,6 +151,10 @@ public sealed class SendLog : JsonFileStore<SendLogFile>, ISendLog
         => string.Join('\n', value.Entries.Select(e => JsonSerializer.Serialize(e, LineOptions)));
 
     /// <inheritdoc/>
+    /// <remarks>JSON Lines carry no root <c>Schema</c>: the file is always at the current schema.</remarks>
+    protected override int ReadSchema(string raw) => CurrentSchema;
+
+    /// <inheritdoc/>
     protected override SendLogFile Deserialize(string raw)
     {
         var file = new SendLogFile();

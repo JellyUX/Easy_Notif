@@ -18,6 +18,21 @@ namespace Jellyfin.Plugin.EasyNotif.Storage;
 /// removed with no trace by deleting one directory.
 /// </para>
 /// </summary>
+/// <remarks>
+/// File format contract (covered by SemVer since 1.0.0):
+/// <list type="bullet">
+/// <item>Evolve a format by addition only: a new file, or a new optional property whose absence
+/// means the previous behaviour. An older version ignores the unknown property, so a rollback reads
+/// the file without loss.</item>
+/// <item>The root <c>Schema</c> integer is raised only for a change an older version cannot read.
+/// The store then overrides <see cref="CurrentSchema"/> and <see cref="Migrate"/>; the original file
+/// is saved as <c>&lt;file&gt;.schema&lt;N&gt;.bak</c> right before the first write of the migrated
+/// document.</item>
+/// <item>A file with a <c>Schema</c> above <see cref="CurrentSchema"/> (written by a newer version)
+/// is loaded read-only: every write throws <see cref="StoreReadOnlyException"/> and the file is never
+/// renamed to <c>.corrupt-*</c> nor overwritten.</item>
+/// </list>
+/// </remarks>
 /// <typeparam name="T">The on-disk document type. Must have a public parameterless constructor
 /// whose result is the valid "empty" state.</typeparam>
 public abstract class JsonFileStore<T> : IDisposable
@@ -35,6 +50,9 @@ public abstract class JsonFileStore<T> : IDisposable
 
     private T _cache;
     private bool _disposed;
+    private bool _readOnly;
+    private int _loadedSchema;
+    private string? _pendingMigrationBackup;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JsonFileStore{T}"/> class and loads the file.
@@ -91,6 +109,11 @@ public abstract class JsonFileStore<T> : IDisposable
         _lock.EnterWriteLock();
         try
         {
+            if (_readOnly)
+            {
+                throw new StoreReadOnlyException(_fileName, _loadedSchema, CurrentSchema);
+            }
+
             if (mutation(_cache))
             {
                 Write(_cache);
@@ -112,8 +135,42 @@ public abstract class JsonFileStore<T> : IDisposable
     /// <returns>The document, or a fresh instance when the text is empty.</returns>
     protected virtual T Deserialize(string raw) => JsonSerializer.Deserialize<T>(raw) ?? new T();
 
+    /// <summary>Gets the schema version this build reads and writes. Raise it only with a
+    /// <see cref="Migrate"/> override (see the format contract in the type remarks).</summary>
+    protected virtual int CurrentSchema => 1;
+
+    /// <summary>Reads the schema version of the file text: the root <c>Schema</c> integer, or 1 when
+    /// it is absent (files written before the property existed). Override for a non-JSON layout.</summary>
+    /// <param name="raw">The file text.</param>
+    /// <returns>The schema version the file was written with.</returns>
+    /// <exception cref="JsonException">The text is not JSON, or <c>Schema</c> is not an integer.</exception>
+    protected virtual int ReadSchema(string raw)
+    {
+        using var document = JsonDocument.Parse(raw);
+        if (document.RootElement.ValueKind != JsonValueKind.Object
+            || !document.RootElement.TryGetProperty("Schema", out var schema))
+        {
+            return 1;
+        }
+
+        if (schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var version))
+        {
+            throw new JsonException("The Schema property is not an integer.");
+        }
+
+        return version;
+    }
+
+    /// <summary>Upgrades a document read from an older schema, in memory. The default returns it
+    /// unchanged; an override must also set the document's <c>Schema</c> to <see cref="CurrentSchema"/>.</summary>
+    /// <param name="document">The document deserialized from the older file.</param>
+    /// <param name="fromSchema">The schema version the file was written with.</param>
+    /// <returns>The migrated document.</returns>
+    protected virtual T Migrate(T document, int fromSchema) => document;
+
     private T Load()
     {
+        _loadedSchema = CurrentSchema;
         if (!_fileSystem.FileExists(_filePath))
         {
             return new T();
@@ -121,7 +178,26 @@ public abstract class JsonFileStore<T> : IDisposable
 
         try
         {
-            return Deserialize(_fileSystem.ReadAllText(_filePath));
+            var raw = _fileSystem.ReadAllText(_filePath);
+            _loadedSchema = ReadSchema(raw);
+            if (_loadedSchema > CurrentSchema)
+            {
+                return LoadReadOnly(raw);
+            }
+
+            var document = Deserialize(raw);
+            if (_loadedSchema < CurrentSchema)
+            {
+                document = Migrate(document, _loadedSchema);
+                _pendingMigrationBackup = raw;
+                _logger.LogInformation(
+                    "[EasyNotif] Migrated {FileName} from schema {From} to {To} in memory.",
+                    _fileName,
+                    _loadedSchema,
+                    CurrentSchema);
+            }
+
+            return document;
         }
         catch (Exception ex) when (ex is JsonException or IOException)
         {
@@ -133,8 +209,40 @@ public abstract class JsonFileStore<T> : IDisposable
         }
     }
 
+    private T LoadReadOnly(string raw)
+    {
+        // Written by a newer version (for example after a plugin rollback). Never rewrite nor
+        // quarantine it: the newer version will read it again once reinstalled.
+        _readOnly = true;
+        _logger.LogError(
+            "[EasyNotif] {FileName} has schema {Schema}, newer than the supported {Supported}; it is read-only until the plugin is updated.",
+            _fileName,
+            _loadedSchema,
+            CurrentSchema);
+        try
+        {
+            return Deserialize(raw);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "[EasyNotif] {FileName} could not be read with this version; serving an empty document.", _fileName);
+            return new T();
+        }
+    }
+
     private void Write(T value)
     {
+        if (_pendingMigrationBackup is not null)
+        {
+            var backup = $"{_filePath}.schema{_loadedSchema}.bak";
+            if (!_fileSystem.FileExists(backup))
+            {
+                _fileSystem.WriteAllText(backup, _pendingMigrationBackup);
+            }
+
+            _pendingMigrationBackup = null;
+        }
+
         var tmp = _filePath + ".tmp";
         _fileSystem.WriteAllText(tmp, Serialize(value));
         _fileSystem.Move(tmp, _filePath, overwrite: true);

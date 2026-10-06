@@ -47,7 +47,10 @@ public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
     /// <param name="logger">Logger.</param>
     public CampaignStore(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<CampaignStore> logger)
         : base(applicationPaths, fileSystem, logger, "campaigns.json")
-        => SeedSystemCampaigns();
+    {
+        SeedSystemCampaigns();
+        DisableInvalidCampaigns();
+    }
 
     /// <inheritdoc/>
     public IReadOnlyList<Campaign> All()
@@ -112,6 +115,31 @@ public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
                     Enabled = false
                 });
                 changed = true;
+            }
+
+            return changed;
+        });
+    }
+
+    /// <summary>
+    /// Disables, and persists as disabled, every enabled campaign whose schedule a hand-edited file
+    /// left out of range, so it cannot break startup or the dispatch tick. The admin re-enables it
+    /// after fixing the schedule.
+    /// </summary>
+    private void DisableInvalidCampaigns()
+    {
+        Mutate(file =>
+        {
+            var changed = false;
+            foreach (var campaign in file.Campaigns.Where(c => c.Enabled && !c.Schedule.IsValid()))
+            {
+                campaign.Enabled = false;
+                changed = true;
+                _logger.LogWarning(
+                    "[EasyNotif] Campaign {CampaignId} has an invalid schedule (IntervalDays={IntervalDays}, DayOfMonth={DayOfMonth}); disabled it.",
+                    campaign.Id,
+                    campaign.Schedule.IntervalDays,
+                    campaign.Schedule.DayOfMonth);
             }
 
             return changed;

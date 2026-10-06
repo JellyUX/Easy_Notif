@@ -57,6 +57,57 @@ public sealed class CampaignStoreTests : IDisposable
         Assert.Equal(new TimeOnly(8, 0), recap.Schedule.Time);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(366)]
+    [InlineData(int.MaxValue)]
+    public void Load_EnabledCampaignWithAnInvalidInterval_IsDisabledAndPersisted(int intervalDays)
+    {
+        Build().Update("newsletter", c =>
+        {
+            c.Enabled = true;
+            c.Schedule = RecurrenceSchedule.EveryNDays(1, new TimeOnly(9, 0)) with { IntervalDays = intervalDays };
+        });
+
+        var logger = new Mock<ILogger<CampaignStore>>();
+        Assert.False(Build(logger.Object).Get("newsletter")!.Enabled);
+        logger.Verify(
+            l => l.Log(LogLevel.Warning, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+
+        // Persisted: a third load reads it disabled without warning again.
+        var quiet = new Mock<ILogger<CampaignStore>>();
+        Assert.False(Build(quiet.Object).Get("newsletter")!.Enabled);
+        quiet.Verify(
+            l => l.Log(LogLevel.Warning, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public void Load_EnabledCampaignWithDayOfMonthZero_IsDisabled()
+    {
+        Build().Update("newsletter", c =>
+        {
+            c.Enabled = true;
+            c.Schedule = RecurrenceSchedule.Monthly(1, new TimeOnly(9, 0)) with { DayOfMonth = 0 };
+        });
+
+        Assert.False(Build().Get("newsletter")!.Enabled);
+    }
+
+    [Fact]
+    public void Load_EnabledCampaignWithAValidSchedule_StaysEnabled()
+    {
+        Build().Update("newsletter", c =>
+        {
+            c.Enabled = true;
+            c.Schedule = RecurrenceSchedule.EveryNDays(365, new TimeOnly(9, 0));
+        });
+
+        Assert.True(Build().Get("newsletter")!.Enabled);
+    }
+
     [Fact]
     public void Seeding_IsIdempotent_AndDoesNotClobberAnEditedRow()
     {

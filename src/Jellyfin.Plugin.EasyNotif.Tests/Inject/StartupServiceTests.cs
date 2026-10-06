@@ -51,6 +51,30 @@ public sealed class StartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_WhenAStepThrows_RunsTheRemainingSteps()
+    {
+        var detector = Detector(available: true);
+        var secrets = new Mock<ISecretStore>();
+        secrets.Setup(s => s.MigrateFrom(It.IsAny<PluginConfiguration>())).Throws(new IOException("disk"));
+        secrets.Setup(s => s.EnsureUnsubscribeSecret()).Throws(new IOException("disk"));
+        var service = new StartupService(
+            NullLogger<StartupService>.Instance,
+            detector.Object,
+            new FakeConfigAccessor(new PluginConfiguration()),
+            secrets.Object,
+            new FakeEasyNotifLog(),
+            new FakeCampaignStore(),
+            Mock.Of<ILibraryManager>(),
+            new FakeAddedItemsStore(),
+            Mock.Of<ISessionManager>(),
+            new FakePlaybackHistoryStore());
+
+        await service.StartAsync(CancellationToken.None);
+
+        detector.Verify(d => d.RegisterTransformation(It.IsAny<JObject>()), Times.Once);
+    }
+
+    [Fact]
     public async Task StartAsync_WhenDetectorUnavailable_SetsStartupWarning_DoesNotRegister()
     {
         var detector = Detector(available: false);

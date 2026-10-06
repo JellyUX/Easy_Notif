@@ -1044,7 +1044,7 @@ public class EasyNotifController : ControllerBase
                 return true;
 
             case RecurrenceKind.EveryNDays:
-                if (body.IntervalDays is not { } interval || interval < 1)
+                if (body.IntervalDays is not { } interval || interval is < 1 or > RecurrenceSchedule.MaxIntervalDays)
                 {
                     error = "invalid-interval-days";
                     return false;

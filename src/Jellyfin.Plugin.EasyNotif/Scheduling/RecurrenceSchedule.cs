@@ -30,6 +30,9 @@ public enum RecurrenceKind
 /// </summary>
 public sealed record RecurrenceSchedule
 {
+    /// <summary>The largest accepted <see cref="IntervalDays"/>.</summary>
+    public const int MaxIntervalDays = 365;
+
     /// <summary>Gets the recurrence shape.</summary>
     public required RecurrenceKind Kind { get; init; }
 
@@ -43,8 +46,17 @@ public sealed record RecurrenceSchedule
     /// <summary>Gets the 1-31 day of month for a <see cref="RecurrenceKind.Monthly"/> schedule; null otherwise.</summary>
     public int? DayOfMonth { get; init; }
 
-    /// <summary>Gets the day interval (>= 1) for an <see cref="RecurrenceKind.EveryNDays"/> schedule; null otherwise.</summary>
+    /// <summary>Gets the day interval (1 to <see cref="MaxIntervalDays"/>) for an <see cref="RecurrenceKind.EveryNDays"/> schedule; null otherwise.</summary>
     public int? IntervalDays { get; init; }
+
+    /// <summary>
+    /// Checks the fields a JSON file can set outside the factory methods. A null field is accepted
+    /// (the calendar falls back to a default); an out-of-range one is not.
+    /// </summary>
+    /// <returns>True when the schedule can be evaluated.</returns>
+    public bool IsValid()
+        => (IntervalDays is null || IntervalDays is >= 1 and <= MaxIntervalDays)
+            && (DayOfMonth is null || DayOfMonth is >= 1 and <= 31);
 
     /// <summary>Creates a daily schedule.</summary>
     /// <param name="time">The local time of day.</param>
@@ -72,13 +84,14 @@ public sealed record RecurrenceSchedule
     }
 
     /// <summary>Creates an every-N-days schedule.</summary>
-    /// <param name="intervalDays">The day interval (>= 1).</param>
+    /// <param name="intervalDays">The day interval (1 to <see cref="MaxIntervalDays"/>).</param>
     /// <param name="time">The local time of day.</param>
     /// <returns>The schedule.</returns>
-    /// <exception cref="ArgumentOutOfRangeException">The interval is less than 1.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The interval is outside 1 to <see cref="MaxIntervalDays"/>.</exception>
     public static RecurrenceSchedule EveryNDays(int intervalDays, TimeOnly time)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(intervalDays, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(intervalDays, MaxIntervalDays);
         return new() { Kind = RecurrenceKind.EveryNDays, Time = time, IntervalDays = intervalDays };
     }
 
@@ -146,25 +159,17 @@ public sealed record RecurrenceSchedule
         {
             case RecurrenceKind.Daily:
             {
+                // Today's slot is at most one day behind fromLocal, so one step always clears it.
                 var candidate = fromLocal.Date + timeOfDay;
-                while (candidate <= fromLocal)
-                {
-                    candidate = candidate.AddDays(1);
-                }
-
-                return candidate;
+                return candidate > fromLocal ? candidate : candidate.AddDays(1);
             }
 
             case RecurrenceKind.EveryNDays:
             {
-                var step = IntervalDays ?? 1;
+                // Clamped in case an unvalidated value reaches here: 0 or less used to loop forever.
+                var step = Math.Clamp(IntervalDays ?? 1, 1, MaxIntervalDays);
                 var candidate = fromLocal.Date + timeOfDay;
-                while (candidate <= fromLocal)
-                {
-                    candidate = candidate.AddDays(step);
-                }
-
-                return candidate;
+                return candidate > fromLocal ? candidate : candidate.AddDays(step);
             }
 
             case RecurrenceKind.Weekly:
@@ -181,7 +186,7 @@ public sealed record RecurrenceSchedule
 
             case RecurrenceKind.Monthly:
             {
-                var wanted = DayOfMonth ?? 1;
+                var wanted = Math.Clamp(DayOfMonth ?? 1, 1, 31);
                 var candidate = MonthlyCandidate(fromLocal.Year, fromLocal.Month, wanted, timeOfDay);
                 if (candidate <= fromLocal)
                 {

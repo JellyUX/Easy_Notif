@@ -712,6 +712,21 @@ public sealed class EasyNotifControllerTests
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(366)]
+    public void PutCampaign_IntervalDaysOutOfRange_Returns400(int intervalDays)
+    {
+        var body = new CampaignUpdate
+        {
+            Schedule = new ScheduleUpdate { Kind = "EveryNDays", Time = "09:00", IntervalDays = intervalDays }
+        };
+
+        var result = BuildController(campaigns: SeededCampaigns()).PutCampaign("newsletter", body);
+
+        Assert.IsType<BadRequestObjectResult>(result);
+    }
+
     [Fact]
     public void PutCampaign_ValidScheduleChange_Returns204_RecomputesNextRun()
     {

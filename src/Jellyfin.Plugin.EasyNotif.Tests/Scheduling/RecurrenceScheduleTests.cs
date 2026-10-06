@@ -160,6 +160,36 @@ public sealed class RecurrenceScheduleTests
     }
 
     [Fact]
+    public void EveryNDays_Factory_RejectsAnIntervalAboveTheMaximum()
+        => Assert.Throws<ArgumentOutOfRangeException>(() => RecurrenceSchedule.EveryNDays(366, Nine));
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(int.MaxValue)]
+    public void EveryNDays_UnvalidatedInterval_StillResolves_AndIsReportedInvalid(int intervalDays)
+    {
+        // A hand-edited file bypasses the factory; 0 or -1 used to loop forever, int.MaxValue to throw.
+        var schedule = RecurrenceSchedule.EveryNDays(1, Nine) with { IntervalDays = intervalDays };
+
+        var next = schedule.NextRunUtc(Utc(2026, 6, 15, 12, 0), Paris);
+
+        Assert.False(schedule.IsValid());
+        Assert.True(next > Utc(2026, 6, 15, 12, 0));
+    }
+
+    [Fact]
+    public void Monthly_DayOfMonthZero_StillResolves_AndIsReportedInvalid()
+    {
+        var schedule = RecurrenceSchedule.Monthly(1, Nine) with { DayOfMonth = 0 };
+
+        var next = schedule.NextRunUtc(Utc(2026, 6, 15, 12, 0), Paris);
+
+        Assert.False(schedule.IsValid());
+        Assert.Equal(new DateTime(2026, 7, 1), TimeZoneInfo.ConvertTimeFromUtc(next, Paris).Date);
+    }
+
+    [Fact]
     public void EveryNDays_One_SoonAfter_FiresTheSameDay()
     {
         // The manual "set to every 1 day at now+3min -> fires in ~3min" case.

@@ -75,49 +75,48 @@ public sealed class StartupService : IHostedService
     /// <inheritdoc/>
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        // Each step is isolated: one failing (a bad data file, an unreadable secret store) must not
+        // stop the others, nor Jellyfin's own startup.
         var cfg = _config.Get();
-        if (_secrets.MigrateFrom(cfg))
+        RunStep("secrets-migration", () =>
         {
-            _config.Save();
-            _logger.LogInformation("[EasyNotif] Migrated the transport secrets out of the plugin configuration.");
-        }
+            if (_secrets.MigrateFrom(cfg))
+            {
+                _config.Save();
+                _logger.LogInformation("[EasyNotif] Migrated the transport secrets out of the plugin configuration.");
+            }
+        });
 
-        if (_secrets.EnsureUnsubscribeSecret())
+        RunStep("unsubscribe-secret", () =>
         {
-            _logger.LogInformation("[EasyNotif] Generated the unsubscribe signing secret.");
-        }
+            if (_secrets.EnsureUnsubscribeSecret())
+            {
+                _logger.LogInformation("[EasyNotif] Generated the unsubscribe signing secret.");
+            }
+        });
 
-        _easyNotifLog.Info("plugin.startup", new Dictionary<string, object?>
+        RunStep("startup-log", () => _easyNotifLog.Info("plugin.startup", new Dictionary<string, object?>
         {
             ["version"] = Plugin.Instance?.Version?.ToString() ?? "unknown",
             ["publicServerUrlSet"] = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
             ["timeZone"] = cfg.SchedulerTimeZone
+        }));
+
+        RunStep("campaign-schedule", () => ScheduleEnabledCampaigns(cfg));
+
+        RunStep("added-items", () =>
+        {
+            _addedItems.Start();
+            _libraryManager.ItemAdded += OnItemAdded;
         });
 
-        ScheduleEnabledCampaigns(cfg);
-
-        _addedItems.Start();
-        _libraryManager.ItemAdded += OnItemAdded;
-
-        _history.Start();
-        _sessionManager.PlaybackStopped += OnPlaybackStopped;
-
-        if (!_detector.IsAvailable())
+        RunStep("playback-history", () =>
         {
-            const string Warning =
-                "FileTransformation plugin is not installed. Easy Notif cannot inject its settings "
-                + "panel into the web client. Install jellyfin-plugin-file-transformation and restart "
-                + "Jellyfin. The plugin's HTTP API still works.";
+            _history.Start();
+            _sessionManager.PlaybackStopped += OnPlaybackStopped;
+        });
 
-            _logger.LogError("[EasyNotif] {Warning}", Warning);
-            _easyNotifLog.Error("filetransformation.missing", new Dictionary<string, object?> { ["present"] = false });
-            SetStartupWarning(Warning);
-            return Task.CompletedTask;
-        }
-
-        SetStartupWarning(null);
-        RegisterIndexHtmlTransformation();
-        _easyNotifLog.Info("filetransformation.detected", new Dictionary<string, object?> { ["present"] = true });
+        RunStep("filetransformation", RegisterWebInjection);
         return Task.CompletedTask;
     }
 
@@ -186,6 +185,38 @@ public sealed class StartupService : IHostedService
                 ["nextRunUtc"] = next
             });
         }
+    }
+
+    private void RunStep(string step, Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EasyNotif] Startup step {Step} failed; continuing with the next one.", step);
+        }
+    }
+
+    private void RegisterWebInjection()
+    {
+        if (!_detector.IsAvailable())
+        {
+            const string Warning =
+                "FileTransformation plugin is not installed. Easy Notif cannot inject its settings "
+                + "panel into the web client. Install jellyfin-plugin-file-transformation and restart "
+                + "Jellyfin. The plugin's HTTP API still works.";
+
+            _logger.LogError("[EasyNotif] {Warning}", Warning);
+            _easyNotifLog.Error("filetransformation.missing", new Dictionary<string, object?> { ["present"] = false });
+            SetStartupWarning(Warning);
+            return;
+        }
+
+        SetStartupWarning(null);
+        RegisterIndexHtmlTransformation();
+        _easyNotifLog.Info("filetransformation.detected", new Dictionary<string, object?> { ["present"] = true });
     }
 
     private void RegisterIndexHtmlTransformation()

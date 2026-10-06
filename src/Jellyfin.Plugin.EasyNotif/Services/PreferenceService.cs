@@ -1,4 +1,6 @@
 using System.Net.Mail;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Util;
@@ -133,7 +135,12 @@ public sealed class PreferenceService : IPreferenceService
     public void Purge(Guid userId)
         => _store.Mutate(users => users.RemoveAll(p => p.UserId == userId) > 0);
 
-    private HashSet<Guid> LiveUserIds() => _userManager.GetUsers().Select(u => u.Id).ToHashSet();
+    // A disabled Jellyfin account keeps its preferences row but receives nothing until re-enabled.
+    private HashSet<Guid> LiveUserIds()
+        => _userManager.GetUsers()
+            .Where(u => !u.HasPermission(PermissionKind.IsDisabled))
+            .Select(u => u.Id)
+            .ToHashSet();
 
     private static UserPreference Upsert(List<UserPreference> users, Guid userId)
     {

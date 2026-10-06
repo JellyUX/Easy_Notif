@@ -1,4 +1,6 @@
+using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -141,6 +143,28 @@ public sealed class PreferenceServiceTests
 
         Assert.Empty(_service.GetRecipients(EmailCategory.News));
         Assert.Empty(_service.GetContactable());
+    }
+
+    [Fact]
+    public void GetRecipientsAndContactable_ExcludeADisabledAccount_ButTheAdminTableKeepsIt()
+    {
+        var disabled = new User("carol", "Default", "Default") { Id = Guid.NewGuid() };
+        disabled.SetPermission(PermissionKind.IsDisabled, true);
+        _users.Setup(m => m.GetUsers()).Returns([new User("alice", "Default", "Default") { Id = _alice }, disabled]);
+        foreach (var id in new[] { _alice, disabled.Id })
+        {
+            _store.Rows.Add(new UserPreference
+            {
+                UserId = id,
+                ContactEmail = $"u{id:N}@example.org",
+                Categories = { [EmailCategory.News] = true }
+            });
+        }
+
+        Assert.Equal([_alice], _service.GetRecipients(EmailCategory.News).Select(r => r.UserId));
+        Assert.Equal([_alice], _service.GetContactable().Select(r => r.UserId));
+        Assert.Empty(_service.GetContactable([disabled.Id]));
+        Assert.Contains(_service.GetAllForAdmin(), r => r.UserId == disabled.Id);
     }
 
     [Fact]

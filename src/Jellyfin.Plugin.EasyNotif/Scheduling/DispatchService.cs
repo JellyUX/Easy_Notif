@@ -66,6 +66,8 @@ public sealed record CampaignRunResult(string CampaignId, int Sent, int Failed, 
 /// <inheritdoc cref="IDispatchService"/>
 public sealed class DispatchService : IDispatchService
 {
+    private const int MaxLastErrorLength = 300;
+
     private readonly ICampaignStore _campaigns;
     private readonly IPreferenceService _preferences;
     private readonly IEmailComposer _composer;
@@ -155,7 +157,16 @@ public sealed class DispatchService : IDispatchService
             var tz = ResolveTimeZone(cfg.SchedulerTimeZone);
             foreach (var campaign in due)
             {
-                await RunCampaignAsync(campaign, now, tz, cfg, manualRun: false, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await RunCampaignAsync(campaign, now, tz, cfg, manualRun: false, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // One failing campaign must not starve the others. Its NextRunUtc is left as is,
+                    // so the next tick retries the same slot (same idempotency keys, no duplicates).
+                    RecordFailure(campaign, now, ex);
+                }
             }
         }
         finally
@@ -259,6 +270,30 @@ public sealed class DispatchService : IDispatchService
         }
     }
 
+    private void RecordFailure(Campaign campaign, DateTime now, Exception ex)
+    {
+        _easyNotifLog.Error("dispatch.error", new Dictionary<string, object?> { ["campaignId"] = campaign.Id }, ex);
+
+        var error = $"{ex.GetType().Name}: {ex.Message}";
+        if (error.Length > MaxLastErrorLength)
+        {
+            error = error[..MaxLastErrorLength];
+        }
+
+        try
+        {
+            _campaigns.Update(campaign.Id, c =>
+            {
+                c.LastError = error;
+                c.LastErrorUtc = now;
+            });
+        }
+        catch (Exception storeEx) when (storeEx is IOException or InvalidOperationException)
+        {
+            _logger.LogWarning(storeEx, "[EasyNotif] Could not record the failure of campaign {CampaignId}.", campaign.Id);
+        }
+    }
+
     private TimeZoneInfo ResolveTimeZone(string? ianaId)
     {
         var tz = RecurrenceSchedule.ResolveTimeZone(ianaId);
@@ -313,6 +348,8 @@ public sealed class DispatchService : IDispatchService
             {
                 c.LastSentUtc = now;
                 c.NextRunUtc = skippedNext;
+                c.LastError = null;
+                c.LastErrorUtc = null;
             });
             _easyNotifLog.Info("dispatch.campaign", new Dictionary<string, object?>
             {
@@ -431,6 +468,8 @@ public sealed class DispatchService : IDispatchService
             {
                 c.LastSentUtc = now;
                 c.NextRunUtc = advanced;
+                c.LastError = null;
+                c.LastErrorUtc = null;
             });
             next = advanced;
         }

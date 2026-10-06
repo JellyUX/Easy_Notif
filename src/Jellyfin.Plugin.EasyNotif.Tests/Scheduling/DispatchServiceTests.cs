@@ -168,6 +168,43 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_FirstCampaignThrows_SecondStillSends_AndTheFailureIsRecorded()
+    {
+        var recap = DueNewsletter();
+        recap.Id = "weekly-recap";
+        recap.Category = EmailCategory.Recap;
+        var harness = new Harness([DueNewsletter(), recap]);
+        harness.Recipients(Alice);
+        harness.Composer.Setup(c => c.PrepareAsync(It.Is<Campaign>(x => x.Id == "newsletter"), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ThrowsAsync(new InvalidOperationException(new string('x', 500)));
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Single(harness.Sent);
+        var failed = harness.Campaigns.Get("newsletter")!;
+        Assert.Equal(Now.AddMinutes(-1), failed.NextRunUtc); // not advanced: the next tick retries
+        Assert.StartsWith("InvalidOperationException: x", failed.LastError);
+        Assert.Equal(300, failed.LastError!.Length);
+        Assert.Equal(Now, failed.LastErrorUtc);
+        Assert.True(harness.Campaigns.Get("weekly-recap")!.NextRunUtc > Now);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_SuccessfulRun_ClearsAPreviousError()
+    {
+        var campaign = DueNewsletter();
+        campaign.LastError = "IOException: disk";
+        campaign.LastErrorUtc = Now.AddDays(-1);
+        var harness = new Harness([campaign]);
+        harness.Recipients(Alice);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Null(harness.Campaigns.Get("newsletter")!.LastError);
+        Assert.Null(harness.Campaigns.Get("newsletter")!.LastErrorUtc);
+    }
+
+    [Fact]
     public async Task RunDueAsync_NotDueCampaign_LeavesNextRunUnchanged()
     {
         var future = Now.AddDays(2);

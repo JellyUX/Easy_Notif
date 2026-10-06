@@ -50,6 +50,15 @@ public sealed class Campaign
 
     /// <summary>Gets or sets the next UTC time the campaign is due, or null when not scheduled yet.</summary>
     public DateTime? NextRunUtc { get; set; }
+
+    /// <summary>
+    /// Gets or sets the last scheduled-run failure (<c>Type: message</c>, truncated), or null. Cleared
+    /// by the next run that completes.
+    /// </summary>
+    public string? LastError { get; set; }
+
+    /// <summary>Gets or sets the UTC time of <see cref="LastError"/>, or null.</summary>
+    public DateTime? LastErrorUtc { get; set; }
 }
 
 /// <summary>On-disk shape of <c>campaigns.json</c>.</summary>

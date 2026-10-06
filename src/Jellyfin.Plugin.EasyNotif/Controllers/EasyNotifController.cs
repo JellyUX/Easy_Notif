@@ -591,6 +591,8 @@ public class EasyNotifController : ControllerBase
         templateId = c.TemplateId,
         lastSentUtc = c.LastSentUtc,
         nextRunUtc = c.NextRunUtc,
+        lastError = c.LastError,
+        lastErrorUtc = c.LastErrorUtc,
         lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
         nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
         timeZone = tz.Id,

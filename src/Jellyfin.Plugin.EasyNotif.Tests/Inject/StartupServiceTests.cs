@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml.Serialization;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Models;
@@ -148,6 +149,28 @@ public sealed class StartupServiceTests
         Assert.Null(config.Config.WebhookSigningSecret);
         Assert.Null(config.Config.UnsubscribeSecret);
         Assert.True(config.SaveCount >= 1);
+    }
+
+    [Fact]
+    public async Task StartAsync_AfterMigration_TheSerializedConfigurationHoldsNoSecret()
+    {
+        var config = new FakeConfigAccessor(new PluginConfiguration
+        {
+            ResendApiKey = "re_legacy",
+            WebhookSigningSecret = "whsec_legacy",
+            UnsubscribeSecret = "unsub_legacy"
+        });
+
+        await Build(Detector(available: true), config, secrets: new FakeSecretStore()).StartAsync(CancellationToken.None);
+
+        // Jellyfin persists plugin configuration with System.Xml.Serialization.XmlSerializer.
+        using var writer = new StringWriter();
+        new XmlSerializer(typeof(PluginConfiguration)).Serialize(writer, config.Config);
+        var xml = writer.ToString();
+        foreach (var leaked in new[] { "ResendApiKey", "WebhookSigningSecret", "UnsubscribeSecret", "re_legacy", "whsec_legacy", "unsub_legacy" })
+        {
+            Assert.DoesNotContain(leaked, xml, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

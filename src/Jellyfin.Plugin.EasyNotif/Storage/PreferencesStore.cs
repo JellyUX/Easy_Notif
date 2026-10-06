@@ -25,7 +25,7 @@ public sealed class PreferencesStore : JsonFileStore<PreferencesFile>, IPreferen
 
     /// <inheritdoc/>
     public IReadOnlyList<UserPreference> ReadAll()
-        => Read(file => (IReadOnlyList<UserPreference>)[.. file.Users]);
+        => Read(file => (IReadOnlyList<UserPreference>)[.. file.Users.Select(u => u.Clone())]);
 
     /// <inheritdoc/>
     public void Mutate(Func<List<UserPreference>, bool> mutation)

@@ -109,6 +109,19 @@ public sealed class CampaignStoreTests : IDisposable
     }
 
     [Fact]
+    public void AllAndGet_ReturnDetachedCopies()
+    {
+        var store = Build();
+
+        store.Get("newsletter")!.Enabled = true;
+        store.All().Single(c => c.Id == "newsletter").NextRunUtc = DateTime.UtcNow;
+
+        var reread = store.Get("newsletter")!;
+        Assert.False(reread.Enabled);
+        Assert.Null(reread.NextRunUtc);
+    }
+
+    [Fact]
     public void Seeding_IsIdempotent_AndDoesNotClobberAnEditedRow()
     {
         Build().Update("newsletter", c =>

@@ -54,11 +54,11 @@ public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
 
     /// <inheritdoc/>
     public IReadOnlyList<Campaign> All()
-        => Read(file => (IReadOnlyList<Campaign>)[.. file.Campaigns]);
+        => Read(file => (IReadOnlyList<Campaign>)[.. file.Campaigns.Select(c => c.Clone())]);
 
     /// <inheritdoc/>
     public Campaign? Get(string id)
-        => Read(file => file.Campaigns.FirstOrDefault(c => c.Id == id));
+        => Read(file => file.Campaigns.FirstOrDefault(c => c.Id == id)?.Clone());
 
     /// <inheritdoc/>
     public bool Update(string id, Action<Campaign> mutate)

@@ -49,6 +49,25 @@ public sealed class PreferencesStoreTests : IDisposable
     };
 
     [Fact]
+    public void ReadAll_ReturnsDetachedCopies()
+    {
+        var store = BuildStore(new FileSystem());
+        store.Mutate(users =>
+        {
+            users.Add(NewPref());
+            return true;
+        });
+
+        var leaked = store.ReadAll()[0];
+        leaked.ContactEmail = "evil@example.org";
+        leaked.Categories[EmailCategory.News] = false;
+
+        var reread = Assert.Single(store.ReadAll());
+        Assert.Equal("a@b.co", reread.ContactEmail);
+        Assert.True(reread.Categories[EmailCategory.News]);
+    }
+
+    [Fact]
     public void Mutate_WhenMutationReturnsTrue_WritesJsonAtomically_NoStrayTempFile()
     {
         var store = BuildStore(new FileSystem());

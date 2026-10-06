@@ -23,6 +23,16 @@ public sealed class UserPreference
 
     /// <summary>Gets or sets the UTC time this record was last changed.</summary>
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>Returns a detached copy with its own <see cref="Categories"/> dictionary.</summary>
+    /// <returns>The copy.</returns>
+    public UserPreference Clone() => new()
+    {
+        UserId = UserId,
+        ContactEmail = ContactEmail,
+        Categories = new Dictionary<EmailCategory, bool>(Categories),
+        UpdatedAt = UpdatedAt
+    };
 }
 
 /// <summary>

@@ -59,6 +59,10 @@ public sealed class Campaign
 
     /// <summary>Gets or sets the UTC time of <see cref="LastError"/>, or null.</summary>
     public DateTime? LastErrorUtc { get; set; }
+
+    /// <summary>Returns a detached copy; every field is a value, a string or the immutable <see cref="Schedule"/>.</summary>
+    /// <returns>The copy.</returns>
+    public Campaign Clone() => (Campaign)MemberwiseClone();
 }
 
 /// <summary>On-disk shape of <c>campaigns.json</c>.</summary>

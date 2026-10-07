@@ -36,6 +36,12 @@ public sealed class PreparedCampaign
 
     /// <summary>Gets the series count of the prepared digest (newsletter only; 0 otherwise).</summary>
     public int SeriesCount { get; init; }
+
+    /// <summary>
+    /// Gets the action recording the prepared content as announced at the given run instant, or null
+    /// when there is nothing to record. Called by a run that advances the window, never by a retry.
+    /// </summary>
+    public Action<DateTime>? MarkAnnounced { get; init; }
 }
 
 /// <summary>

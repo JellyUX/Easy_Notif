@@ -112,7 +112,8 @@ public sealed class EmailComposer : IEmailComposer
                         : _newsletter.Compose(campaign, scoped, _links.ServerName, templateId, UnsubscribeUrl(recipient));
                 },
                 MovieCount = digest.Movies.Count,
-                SeriesCount = digest.Series.Count
+                SeriesCount = digest.Series.Count,
+                MarkAnnounced = digest.IsEmpty ? null : runUtc => _digest.MarkAnnounced(digest.Keys, runUtc)
             };
         }
 

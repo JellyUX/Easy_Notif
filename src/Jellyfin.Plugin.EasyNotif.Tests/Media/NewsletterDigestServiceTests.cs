@@ -39,6 +39,11 @@ public sealed class NewsletterDigestServiceTests
 
         public Mock<IPosterCache> PosterCache { get; } = new();
 
+        public FakeAnnouncedStore Announced { get; } = new();
+
+        /// <summary>Every real item of the library, answering the "same key under another id" queries.</summary>
+        public List<BaseItem> Existing { get; } = [];
+
         public NewsletterDigestService Service { get; }
 
         public InternalItemsQuery? CapturedMainQuery { get; private set; }
@@ -55,6 +60,18 @@ public sealed class NewsletterDigestServiceTests
                         return ById.Where(i => ids.Contains(i.Id)).ToList();
                     }
 
+                    if (q.AncestorIds is { Length: > 0 } ancestors)
+                    {
+                        return Existing.OfType<Episode>().Where(e => ancestors.Contains(e.SeriesId)).ToList<BaseItem>();
+                    }
+
+                    if (q.HasAnyProviderId is { Count: > 0 } providers)
+                    {
+                        return Existing.OfType<Movie>()
+                            .Where(m => providers.Any(p => m.GetProviderId(p.Key) == p.Value))
+                            .ToList<BaseItem>();
+                    }
+
                     CapturedMainQuery = q;
                     return MainItems;
                 });
@@ -62,7 +79,7 @@ public sealed class NewsletterDigestServiceTests
                 .Setup(p => p.GetInlineAsync(It.IsAny<BaseItem>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((EmailAttachment?)null);
             Service = new NewsletterDigestService(
-                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, PosterCache.Object, new FakeEasyNotifLog());
+                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, PosterCache.Object, Announced, new FakeEasyNotifLog());
         }
 
         public List<BaseItem> SeriesItems => ById;
@@ -291,5 +308,141 @@ public sealed class NewsletterDigestServiceTests
         h.Library.Verify(
             l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()),
             Times.Never);
+    }
+
+    private static readonly DateTime W0 = new(2026, 6, 1, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime W1 = W0.AddDays(7);
+
+    private static Episode Numbered(int season, int number)
+        => new() { Id = Guid.NewGuid(), SeriesId = SeriesAId, SeriesName = "Series A", ParentIndexNumber = season, IndexNumber = number, DateCreated = W0 };
+
+    private static Movie WithTmdb(string name, string tmdb)
+    {
+        var m = Movie(name, created: W0);
+        m.SetProviderId(MetadataProvider.Tmdb, tmdb);
+        return m;
+    }
+
+    // Records an item as added at `at` and resolvable by id, as the ItemAdded tracking would.
+    private static void Track(Harness h, BaseItem item, DateTime at)
+    {
+        h.ById.Add(item);
+        h.AddedItems.Seed(item.Id, at);
+    }
+
+    // Sends the window starting at `since` as the dispatcher would: build, then record at `runUtc`.
+    private static NewsletterDigest Send(Harness h, DateTime since, DateTime runUtc)
+    {
+        var digest = h.Digest(since);
+        h.Service.MarkAnnounced(digest.Keys, runUtc);
+        return digest;
+    }
+
+    [Fact]
+    public void SameIdReplayed_IsNotAnnouncedInTheNextWindow()
+    {
+        var h = new Harness();
+        h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
+        var episode = Numbered(1, 1);
+        Track(h, episode, W0.AddHours(1));
+        Assert.Equal(1, Send(h, W0, W1).TotalItems);
+
+        h.AddedItems.Seed(episode.Id, W1.AddHours(1)); // a repeated ItemAdded for the same id
+
+        Assert.True(h.Digest(W1).IsEmpty);
+    }
+
+    [Fact]
+    public void SameEpisodeUnderAnotherId_IsNotAnnouncedInTheNextWindow()
+    {
+        var h = new Harness();
+        h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
+        var original = Numbered(1, 1);
+        Track(h, original, W0.AddHours(1));
+        Send(h, W0, W1);
+
+        h.ById.Remove(original); // replaced, renamed or moved: the old id is gone
+        Track(h, Numbered(1, 1), W1.AddHours(1));
+        var fresh = Numbered(1, 2);
+        Track(h, fresh, W1.AddHours(1));
+
+        var digest = h.Digest(W1);
+
+        Assert.Equal([fresh.Id], digest.ItemIds);
+    }
+
+    [Fact]
+    public void SameMovieWithTheSameProviderIds_IsNotAnnouncedInTheNextWindow()
+    {
+        var h = new Harness();
+        var original = WithTmdb("Arrival", "329865");
+        Track(h, original, W0.AddHours(1));
+        Send(h, W0, W1);
+
+        h.ById.Remove(original);
+        Track(h, WithTmdb("Arrival (2016)", "329865"), W1.AddHours(1));
+
+        Assert.True(h.Digest(W1).IsEmpty);
+    }
+
+    [Fact]
+    public void RetryOfTheSentWindow_StillFindsItsContent()
+    {
+        var h = new Harness();
+        var movie = WithTmdb("Dune", "438631");
+        Track(h, movie, W0.AddHours(1));
+        Send(h, W0, W1);
+
+        var rebuilt = h.Digest(W0); // the retry queue rebuilds the original window
+
+        Assert.Equal([movie.Id], rebuilt.ItemIds);
+    }
+
+    [Fact]
+    public void TwoIdsWithOneKeyInAWindow_AreListedOnce()
+    {
+        var h = new Harness();
+        h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
+        Track(h, Numbered(2, 10), W0.AddHours(1));
+        Track(h, Numbered(2, 10), W0.AddHours(1)); // a move: the new id arrives before the old one leaves
+
+        var digest = h.Digest(W0);
+
+        Assert.Equal(1, digest.TotalItems);
+        Assert.Single(digest.Keys);
+    }
+
+    [Fact]
+    public void KeyAlreadyInTheLibraryUnderAnotherId_IsSkipped_ButAVirtualEpisodeDoesNotCount()
+    {
+        var h = new Harness();
+        h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
+        var older = Numbered(1, 1); // present before the registry existed, never announced
+        h.Existing.Add(older);
+        var missing = Numbered(1, 2);
+        missing.IsVirtualItem = true; // a "missing episode" placeholder
+        h.Existing.Add(missing);
+
+        var copy = Numbered(1, 1);
+        var real = Numbered(1, 2);
+        Track(h, copy, W0.AddHours(1));
+        Track(h, real, W0.AddHours(1));
+        h.Existing.AddRange([copy, real]);
+
+        var digest = h.Digest(W0);
+
+        Assert.Equal([real.Id], digest.ItemIds);
+    }
+
+    [Fact]
+    public void MovieAlreadyInTheLibraryWithTheSameProviderId_IsSkipped()
+    {
+        var h = new Harness();
+        h.Existing.Add(WithTmdb("Matrix", "603"));
+        var copy = WithTmdb("Matrix 4K", "603");
+        Track(h, copy, W0.AddHours(1));
+        h.Existing.Add(copy);
+
+        Assert.True(h.Digest(W0).IsEmpty);
     }
 }

@@ -372,6 +372,32 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_MarksTheContentAnnouncedAtTheRunInstant_ButARetryDoesNot()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob);
+        var marked = new List<DateTime>();
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = _ => new EmailContent("S", "<p>B</p>", "B"),
+                MarkAnnounced = marked.Add
+            });
+        harness.Respond = m => IsFor(m, Bob) ? Unavailable() : Ok();
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Equal([Now], marked);
+
+        harness.Respond = _ => Ok();
+        harness.Clock = Now.AddMinutes(15);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.True(IsFor(Assert.Single(harness.Sent.Skip(2)), Bob)); // the retry did run
+        Assert.Equal([Now], marked);
+    }
+
+    [Fact]
     public async Task RunDueAsync_RetryKeepsFailing_IsAbandonedAfterFiveAttempts_WithAWarning()
     {
         var harness = new Harness();

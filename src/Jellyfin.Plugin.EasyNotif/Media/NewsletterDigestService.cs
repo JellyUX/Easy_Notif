@@ -2,6 +2,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -25,6 +26,11 @@ public interface INewsletterDigestService
     /// <param name="limit">A hard cap on the number of most-recently-added items pulled from the library.</param>
     /// <returns>The digest.</returns>
     Task<NewsletterDigest> GetNewSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken, int limit = 1000);
+
+    /// <summary>Records the keys of a sent digest as announced by the newsletter at <paramref name="runUtc"/>.</summary>
+    /// <param name="keys">The digest's <see cref="NewsletterDigest.Keys"/>.</param>
+    /// <param name="runUtc">The run instant, which becomes the next window start.</param>
+    void MarkAnnounced(IEnumerable<string> keys, DateTime runUtc);
 }
 
 /// <inheritdoc cref="INewsletterDigestService"/>
@@ -35,6 +41,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     private readonly ServerLinkContext _links;
     private readonly IAddedItemsStore _addedItems;
     private readonly IPosterCache _posterCache;
+    private readonly IAnnouncedStore _announced;
     private readonly Logging.IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="NewsletterDigestService"/> class.</summary>
@@ -43,6 +50,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <param name="links">The captured server identity for deep links.</param>
     /// <param name="addedItems">The server-time added-items store.</param>
     /// <param name="posterCache">The inline poster cache (used only when no public URL is set).</param>
+    /// <param name="announced">The registry of keys already announced.</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public NewsletterDigestService(
         ILibraryManager libraryManager,
@@ -50,6 +58,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
         ServerLinkContext links,
         IAddedItemsStore addedItems,
         IPosterCache posterCache,
+        IAnnouncedStore announced,
         Logging.IEasyNotifLog log)
     {
         _libraryManager = libraryManager;
@@ -57,6 +66,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
         _links = links;
         _addedItems = addedItems;
         _posterCache = posterCache;
+        _announced = announced;
         _log = log;
     }
 
@@ -88,17 +98,32 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
         });
 
-        var items = tracked
+        var candidates = tracked
             .Concat(byDate.Where(i => i.DateCreated >= since))
             .Where(i => i is Movie or Episode && !i.IsVirtualItem)
             .DistinctBy(i => i.Id)
             .ToList();
+
+        // One entry per business key: a file re-created under a new id (replaced, renamed, moved)
+        // keeps its key, so it is neither listed twice nor announced again in a later window.
+        var byKey = candidates
+            .GroupBy(MediaKey.For, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var alreadyAnnounced = _announced.AnnouncedOnOrBefore(AnnouncedStore.NewsletterChannel, byKey.Keys, since);
+        var inLibrary = KeysPresentOutside(byKey, candidates.Select(i => i.Id).ToHashSet());
+        var kept = byKey
+            .Where(kv => !alreadyAnnounced.Contains(kv.Key) && !inLibrary.Contains(kv.Key))
+            .ToList();
+        var items = kept.Select(kv => kv.Value).ToList();
 
         _log.Info("newsletter.query", new Dictionary<string, object?>
         {
             ["since"] = since,
             ["tracked"] = trackedIds.Count,
             ["byDate"] = byDate.Count(i => i.DateCreated >= since),
+            ["duplicateKeys"] = candidates.Count - byKey.Count,
+            ["alreadyAnnounced"] = alreadyAnnounced.Count,
+            ["inLibrary"] = inLibrary.Count,
             ["matched"] = items.Count,
             ["hitLimit"] = byDate.Count >= limit
         });
@@ -173,7 +198,62 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             .Select(x => x.Series)
             .ToList();
 
-        return new NewsletterDigest(movies, series, [.. inlinePosters.Values]);
+        return new NewsletterDigest(movies, series, [.. inlinePosters.Values]) { Keys = [.. kept.Select(kv => kv.Key)] };
+    }
+
+    /// <inheritdoc/>
+    public void MarkAnnounced(IEnumerable<string> keys, DateTime runUtc)
+        => _announced.Record(AnnouncedStore.NewsletterChannel, keys, runUtc);
+
+    // The keys that already exist in the library under an id outside the window: one query per series
+    // touched (its real episodes) and one per movie with a provider id. Virtual items (the missing
+    // episodes Jellyfin lists ahead of the file) never count as present.
+    private HashSet<string> KeysPresentOutside(IReadOnlyDictionary<string, BaseItem> byKey, IReadOnlySet<Guid> windowIds)
+    {
+        var present = new HashSet<string>(StringComparer.Ordinal);
+
+        var seriesIds = byKey
+            .Where(kv => kv.Value is Episode && kv.Key.StartsWith("ep:", StringComparison.Ordinal))
+            .Select(kv => ((Episode)kv.Value).SeriesId)
+            .Distinct();
+        foreach (var seriesId in seriesIds)
+        {
+            AddPresent(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Episode],
+                AncestorIds = [seriesId],
+                Recursive = true,
+                IsVirtualItem = false,
+                DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
+            });
+        }
+
+        foreach (var (key, item) in byKey.Where(kv => kv.Key.StartsWith("movie:", StringComparison.Ordinal)))
+        {
+            var provider = key.StartsWith("movie:tmdb:", StringComparison.Ordinal) ? MetadataProvider.Tmdb : MetadataProvider.Imdb;
+            AddPresent(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie],
+                HasAnyProviderId = new Dictionary<string, string> { [provider.ToString()] = item.GetProviderId(provider)! },
+                Recursive = true,
+                IsVirtualItem = false,
+                DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
+            });
+        }
+
+        return present;
+
+        void AddPresent(InternalItemsQuery query)
+        {
+            foreach (var other in _libraryManager.GetItemList(query).Where(i => !i.IsVirtualItem && !windowIds.Contains(i.Id)))
+            {
+                var key = MediaKey.For(other);
+                if (byKey.ContainsKey(key))
+                {
+                    present.Add(key);
+                }
+            }
+        }
     }
 
     private static string? Trimmed(string? value)

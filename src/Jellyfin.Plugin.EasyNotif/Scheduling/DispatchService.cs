@@ -466,6 +466,7 @@ public sealed class DispatchService : IDispatchService
                 c.LastErrorUtc = null;
             });
             next = advanced;
+            MarkAnnounced(campaign.Id, prepared, now);
         }
 
         _easyNotifLog.Info("dispatch.campaign", new Dictionary<string, object?>
@@ -480,6 +481,25 @@ public sealed class DispatchService : IDispatchService
         });
 
         return new CampaignRunResult(campaign.Id, sent, failed, withoutEmail, next) { Found = true };
+    }
+
+    // The window has advanced past this content; a failed write only loses the re-announce guard for
+    // these keys, so it is logged and the run still counts as done.
+    private void MarkAnnounced(string campaignId, PreparedCampaign prepared, DateTime now)
+    {
+        if (prepared.MarkAnnounced is null)
+        {
+            return;
+        }
+
+        try
+        {
+            prepared.MarkAnnounced(now);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _easyNotifLog.Error("dispatch.announced", new Dictionary<string, object?> { ["campaignId"] = campaignId }, ex);
+        }
     }
 
     private void QueueRetry(string campaignId, string keyPrefix, DateTime now, DateTime? windowStart, List<Guid> userIds)

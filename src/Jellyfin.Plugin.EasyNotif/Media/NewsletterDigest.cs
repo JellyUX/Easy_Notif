@@ -24,6 +24,12 @@ public sealed record NewsletterDigest(
     /// <summary>Gets the inline poster attachments (never null).</summary>
     public IReadOnlyList<EmailAttachment> Posters => InlinePosters ?? [];
 
+    /// <summary>
+    /// Gets the business keys (<see cref="MediaKey"/>) of every movie and episode in the digest, recorded
+    /// as announced once the run is sent. Not carried over by <see cref="For"/>.
+    /// </summary>
+    public IReadOnlyList<string> Keys { get; init; } = [];
+
     /// <summary>Gets the ids an access check must cover: every movie and every new episode.</summary>
     public IReadOnlyList<Guid> ItemIds
         => [.. Movies.Select(m => m.Id), .. Series.SelectMany(s => s.EpisodeList.Select(e => e.Id))];

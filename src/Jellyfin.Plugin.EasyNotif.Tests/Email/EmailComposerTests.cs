@@ -90,11 +90,26 @@ public sealed class EmailComposerTests
     }
 
     [Fact]
+    public async Task Newsletter_MarkAnnounced_RecordsTheDigestKeysAtTheGivenInstant()
+    {
+        var h = new Harness();
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>())).ReturnsAsync(
+            new NewsletterDigest([new DigestMovie(Guid.NewGuid(), "Dune", 2021, null, [], null, null, null)], []) { Keys = ["movie:tmdb:438631"] });
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+        prepared.MarkAnnounced!(Now);
+
+        h.Digest.Verify(d => d.MarkAnnounced(
+            It.Is<IEnumerable<string>>(k => k.SequenceEqual(new[] { "movie:tmdb:438631" })), Now), Times.Once);
+    }
+
+    [Fact]
     public async Task Newsletter_EmptyDigest_DoesNotSend_ButStillRenders()
     {
         var prepared = await new Harness().Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
 
         Assert.False(prepared.ShouldSend);
+        Assert.Null(prepared.MarkAnnounced);
         Assert.Equal("empty-digest", prepared.SkipReason);
         var content = prepared.Render(Anyone)!;
         Assert.Contains("Rien de neuf", content.Html!, StringComparison.Ordinal);

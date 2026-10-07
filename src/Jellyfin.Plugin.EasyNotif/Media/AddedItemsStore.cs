@@ -149,7 +149,11 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
                 Mutate(file =>
                 {
                     file.Items.RemoveAll(r => r.Ts < cutoff);
-                    foreach (var id in batch)
+
+                    // A repeated ItemAdded for a known id keeps its first add time: re-recording it
+                    // would pull an already announced item into the next window.
+                    var known = file.Items.Select(r => r.Id).ToHashSet();
+                    foreach (var id in batch.Where(known.Add))
                     {
                         file.Items.Add(new AddedItemRecord(now, id));
                     }

@@ -92,6 +92,25 @@ public sealed class AddedItemsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RepeatedItemAdded_KeepsTheFirstAddTime()
+    {
+        var store = Build();
+        store.Start();
+        var id = Guid.NewGuid();
+        store.RecordAdded(id);
+        await WaitFor(() => store.AddedSince(_now.AddMinutes(-1)).Contains(id));
+
+        _now = _now.AddDays(7);
+        var marker = Guid.NewGuid();
+        store.RecordAdded(id);
+        store.RecordAdded(marker);
+        await WaitFor(() => store.AddedSince(_now.AddMinutes(-1)).Contains(marker));
+
+        Assert.DoesNotContain(id, store.AddedSince(_now.AddMinutes(-1)));
+        await store.StopAsync();
+    }
+
+    [Fact]
     public async Task DrainLoop_SurvivesAWriteFailure_AndPersistsTheNextBatch()
     {
         var fs = new FailingFileSystem { ThrowOnNextWriteAllText = true };

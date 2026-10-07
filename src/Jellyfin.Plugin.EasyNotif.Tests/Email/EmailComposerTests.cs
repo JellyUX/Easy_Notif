@@ -137,6 +137,39 @@ public sealed class EmailComposerTests
     }
 
     [Fact]
+    public async Task Newsletter_LastSentMonthsAgo_WindowIsCappedAtFourteenDays()
+    {
+        var h = new Harness();
+
+        await h.Composer.PrepareAsync(Newsletter(Now.AddDays(-90)), Now, CancellationToken.None);
+
+        h.Digest.Verify(d => d.GetNewSinceAsync(Now.AddDays(-14), It.IsAny<CancellationToken>(), It.IsAny<int>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Newsletter_CapIsFilledWithTheRecipientsVisibleItems()
+    {
+        var h = new Harness(new PluginConfiguration { NewsletterMaxMovies = 2, PublicServerUrl = "https://media.example.org" });
+        var movies = Enumerable.Range(1, 5)
+            .Select(i => new DigestMovie(Guid.NewGuid(), $"Movie {i}", 2020, null, [], null, null, null))
+            .ToList();
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(new NewsletterDigest(movies, []));
+        var hidden = movies[0].Id;
+        h.Access.Setup(a => a.VisibleTo(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns((Guid _, IReadOnlyCollection<Guid> ids) => ids.Where(id => id != hidden).ToHashSet());
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+        var html = prepared.Render(Anyone)!.Html!;
+
+        Assert.DoesNotContain("Movie 1", html, StringComparison.Ordinal);
+        Assert.Contains("Movie 2", html, StringComparison.Ordinal);
+        Assert.Contains("Movie 3", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Movie 4", html, StringComparison.Ordinal);
+        Assert.Contains("<a href=\"https://media.example.org/web/\" style=\"color:#6b7280;\">et 2 autres films</a>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Newsletter_FreshWindow_IgnoresLastSent_AndLooksBackSevenDays()
     {
         var h = new Harness();

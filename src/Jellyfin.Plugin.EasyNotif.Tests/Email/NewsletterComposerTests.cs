@@ -111,4 +111,49 @@ public sealed class NewsletterComposerTests
         Assert.DoesNotContain("/EasyNotif/u/", content.Html!, StringComparison.Ordinal);
         Assert.DoesNotContain("Unsubscribe:", content.Text!, StringComparison.Ordinal);
     }
+
+    // 500 items with long fields and remote posters, the worst realistic case for the HTML size.
+    private static NewsletterDigest FiveHundredItems()
+    {
+        var overview = new string('x', 300);
+        var movies = Enumerable.Range(0, 300)
+            .Select(i => new DigestMovie(Guid.NewGuid(), $"Movie {i:D3}", 2020, overview, ["Drama", "Thriller"], "PG-13", $"https://media.example.org/Items/{i}/Images/Primary?maxWidth=300&quality=85", $"https://media.example.org/web/#/details?id={i}&serverId=srv"))
+            .ToList();
+        var series = Enumerable.Range(0, 200)
+            .Select(i => new DigestSeries(Guid.NewGuid(), $"Series {i:D3}", 1, [1], overview, $"https://media.example.org/Items/s{i}/Images/Primary?maxWidth=300&quality=85", $"https://media.example.org/web/#/details?id=s{i}&serverId=srv"))
+            .ToList();
+        return new NewsletterDigest(movies, series).Capped(30, 30);
+    }
+
+    [Theory]
+    [InlineData("fr", "et 270 autres films", "et 170 autres séries")]
+    [InlineData("en", "and 270 more movies", "and 170 more series")]
+    public void FiveHundredItems_ListThirtyOfEach_WithMoreLines_AndStayUnderGmailsClip(string lang, string moreMovies, string moreSeries)
+    {
+        var content = Composer.Compose(Campaign(lang), FiveHundredItems(), "Home", "newsletter", libraryUrl: "https://media.example.org/web/");
+
+        var html = content.Html!;
+        Assert.Contains("Movie 029", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Movie 030", html, StringComparison.Ordinal);
+        Assert.Contains("Series 029", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("Series 030", html, StringComparison.Ordinal);
+        Assert.Contains($">{moreMovies}</a>", html, StringComparison.Ordinal);
+        Assert.Contains($">{moreSeries}</a>", html, StringComparison.Ordinal);
+        Assert.Contains(moreMovies + "  https://media.example.org/web/", content.Text!, StringComparison.Ordinal);
+        Assert.Contains("500", content.Subject, StringComparison.Ordinal); // the subject still counts everything
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(html) < 102 * 1024, $"HTML is {System.Text.Encoding.UTF8.GetByteCount(html)} bytes");
+    }
+
+    [Fact]
+    public void MoreLine_WithoutLibraryUrl_IsPlainText()
+    {
+        var html = Composer.Compose(Campaign(), FiveHundredItems(), "Home", "newsletter").Html!;
+
+        Assert.Contains(">et 270 autres films</td>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("/web/\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UncappedDigest_HasNoMoreLine()
+        => Assert.DoesNotContain("et 0", Compose(Campaign(), OneOfEach(), "Home").Html!, StringComparison.Ordinal);
 }

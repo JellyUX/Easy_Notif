@@ -12,6 +12,9 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// <inheritdoc cref="IEmailComposer"/>
 public sealed class EmailComposer : IEmailComposer
 {
+    /// <summary>The longest newsletter window, whatever the last send.</summary>
+    public static readonly TimeSpan MaxNewsletterWindow = TimeSpan.FromDays(14);
+
     private readonly INewsletterDigestService _digest;
     private readonly IAccessFilter _access;
     private readonly NewsletterComposer _newsletter;
@@ -83,8 +86,17 @@ public sealed class EmailComposer : IEmailComposer
 
         if (campaign.Type == CampaignType.Newsletter)
         {
+            // A campaign re-enabled after months would otherwise list everything since its last send.
             var since = freshWindow ? nowUtc.AddDays(-7) : campaign.LastSentUtc ?? nowUtc.AddDays(-7);
+            if (since < nowUtc - MaxNewsletterWindow)
+            {
+                since = nowUtc - MaxNewsletterWindow;
+            }
+
             var digest = await _digest.GetNewSinceAsync(since, cancellationToken).ConfigureAwait(false);
+            var maxMovies = Math.Clamp(cfg.NewsletterMaxMovies, 1, PluginConfiguration.MaxNewsletterCap);
+            var maxSeries = Math.Clamp(cfg.NewsletterMaxSeries, 1, PluginConfiguration.MaxNewsletterCap);
+            var libraryUrl = PublicUrl.IsValid(cfg.PublicServerUrl) ? $"{cfg.PublicServerUrl.TrimEnd('/')}/web/" : null;
 
             _log.Info("newsletter.digest", new Dictionary<string, object?>
             {
@@ -109,7 +121,7 @@ public sealed class EmailComposer : IEmailComposer
                         : digest.For(_access.VisibleTo(recipient.UserId, digest.ItemIds));
                     return scoped.IsEmpty && !digest.IsEmpty
                         ? null
-                        : _newsletter.Compose(campaign, scoped, _links.ServerName, templateId, UnsubscribeUrl(recipient));
+                        : _newsletter.Compose(campaign, scoped.Capped(maxMovies, maxSeries), _links.ServerName, templateId, UnsubscribeUrl(recipient), libraryUrl);
                 },
                 MovieCount = digest.Movies.Count,
                 SeriesCount = digest.Series.Count,

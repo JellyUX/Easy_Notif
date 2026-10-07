@@ -91,8 +91,13 @@ Base id `newsletter`. Sample data is shown in the editor preview.
 | `{{#if isEmpty}}` | bool | True when nothing new was added in the window. Use it for a "nothing new" block. |
 | `{{#if hasMovies}}` | bool | True when there is at least one new movie. |
 | `{{#if hasSeries}}` | bool | True when there is at least one series with new episodes. |
-| `{{#each movies}}` | list | New movies, newest first. Fields below. |
-| `{{#each series}}` | list | Series with new episodes, newest first. Fields below. |
+| `{{#each movies}}` | list | New movies, newest first, up to the configured cap (default 30). Fields below. |
+| `{{#each series}}` | list | Series with new episodes, newest first, up to the configured cap (default 30). Fields below. |
+| `{{moreMovies}}` / `{{moreSeries}}` | number | How many movies / series the cap left out (0 when none). |
+| `{{#if moreMoviesLabel}}` / `{{moreMoviesLabel}}` | text | e.g. `et 12 autres films` / `and 12 more movies`. Absent when nothing was left out. |
+| `{{#if moreSeriesLabel}}` / `{{moreSeriesLabel}}` | text | Same for series. |
+| `{{#if libraryUrl}}` / `{{libraryUrl}}` | text | The server's web client (`<public URL>/web/`), for the "and N more" lines. Absent when no public server URL is set. |
+| `{{#if noLibraryLink}}` | bool | True when there is no `libraryUrl` (render the label without a link). |
 | `{{#if unsubscribeUrl}}` / `{{unsubscribeUrl}}` | text | One-click unsubscribe link for the recipient. Absent when no public server URL is set. Keep a link to it in the footer. |
 
 ### Inside `{{#each movies}}`

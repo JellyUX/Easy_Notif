@@ -321,6 +321,34 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void PutSettings_StoresTheNewsletterCaps_AndANullCapIsLeftUnchanged()
+    {
+        var config = new FakeConfig();
+        var controller = BuildController(config: config);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { NewsletterMaxMovies = 10, NewsletterMaxSeries = 200 }));
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { NewsletterMaxMovies = 5 }));
+
+        Assert.Equal(5, config.Config.NewsletterMaxMovies);
+        Assert.Equal(200, config.Config.NewsletterMaxSeries);
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(null, 201)]
+    [InlineData(-3, 30)]
+    public void PutSettings_WithANewsletterCapOutOfRange_Returns400(int? maxMovies, int? maxSeries)
+    {
+        var config = new FakeConfig();
+
+        var result = BuildController(config: config).PutSettings(new SettingsUpdate { NewsletterMaxMovies = maxMovies, NewsletterMaxSeries = maxSeries });
+
+        Assert.IsType<BadRequestResult>(result);
+        Assert.Equal(PluginConfiguration.DefaultNewsletterCap, config.Config.NewsletterMaxMovies);
+        Assert.Equal(PluginConfiguration.DefaultNewsletterCap, config.Config.NewsletterMaxSeries);
+    }
+
+    [Fact]
     public void PutSettings_OnSuccess_LogsAnUpdateEvent_WithoutTheKey()
     {
         var easyNotifLog = new FakeEasyNotifLog();

@@ -78,4 +78,36 @@ public sealed class NewsletterDigestTests
         => Assert.Equal(
             new[] { Dune, Forbidden, S1E1, S2E1, S2E2, AdultEpisode }.Order(),
             Full().ItemIds.Order());
+
+    [Fact]
+    public void Capped_KeepsTheFirstEntries_CountsTheRest_AndDropsTheirPosters()
+    {
+        var movies = Enumerable.Range(0, 300)
+            .Select(i => new DigestMovie(Guid.NewGuid(), $"M{i}", null, null, [], null, $"cid:m{i}", null))
+            .ToList();
+        var series = Enumerable.Range(0, 200)
+            .Select(i => new DigestSeries(Guid.NewGuid(), $"S{i}", 3, [1], null, $"cid:s{i}", null))
+            .ToList();
+        var posters = movies.Select(m => Poster(m.PosterUrl![4..])).Concat(series.Select(s => Poster(s.PosterUrl![4..]))).ToList();
+        var digest = new NewsletterDigest(movies, series, posters) { Keys = ["k"] };
+
+        var capped = digest.Capped(30, 30);
+
+        Assert.Equal(movies.Take(30), capped.Movies);
+        Assert.Equal(series.Take(30), capped.Series);
+        Assert.Equal(270, capped.MoreMovies);
+        Assert.Equal(170, capped.MoreSeries);
+        Assert.Equal(digest.TotalItems, capped.TotalItems); // 300 movies + 600 episodes, still counted
+        Assert.Equal(60, capped.Posters.Count);
+        Assert.Equal(["k"], capped.Keys);
+    }
+
+    [Fact]
+    public void Capped_UnderTheCap_IsUnchanged()
+    {
+        var digest = Full();
+
+        Assert.Same(digest, digest.Capped(30, 30));
+        Assert.Equal(0, digest.MoreMovies);
+    }
 }

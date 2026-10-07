@@ -128,7 +128,8 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             ["hitLimit"] = byDate.Count >= limit
         });
 
-        var movieItems = items.OfType<Movie>().ToList();
+        // Newest first, like the series, so a capped newsletter keeps the latest additions.
+        var movieItems = items.OfType<Movie>().OrderByDescending(m => m.DateCreated).ToList();
 
         var groups = items.OfType<Episode>()
             .Where(e => e.SeriesId != Guid.Empty)

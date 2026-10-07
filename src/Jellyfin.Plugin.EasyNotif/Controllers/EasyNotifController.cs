@@ -358,6 +358,8 @@ public class EasyNotifController : ControllerBase
             replyTo = cfg.ReplyTo,
             publicServerUrl = cfg.PublicServerUrl,
             schedulerTimeZone = cfg.SchedulerTimeZone,
+            newsletterMaxMovies = cfg.NewsletterMaxMovies,
+            newsletterMaxSeries = cfg.NewsletterMaxSeries,
             resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
             webhookSigningSecretSet = !string.IsNullOrEmpty(secrets.WebhookSigningSecret),
             startupWarning = cfg.StartupWarning
@@ -401,6 +403,14 @@ public class EasyNotifController : ControllerBase
             return BadRequest();
         }
 
+        foreach (var cap in new[] { body.NewsletterMaxMovies, body.NewsletterMaxSeries })
+        {
+            if (cap is < 1 or > PluginConfiguration.MaxNewsletterCap)
+            {
+                return BadRequest();
+            }
+        }
+
         return Wrap(() =>
         {
             var cfg = _config.Get();
@@ -408,6 +418,8 @@ public class EasyNotifController : ControllerBase
             cfg.FromName = Trimmed(body.FromName);
             cfg.ReplyTo = Trimmed(body.ReplyTo);
             cfg.PublicServerUrl = Trimmed(body.PublicServerUrl);
+            cfg.NewsletterMaxMovies = body.NewsletterMaxMovies ?? cfg.NewsletterMaxMovies;
+            cfg.NewsletterMaxSeries = body.NewsletterMaxSeries ?? cfg.NewsletterMaxSeries;
             if (!string.IsNullOrWhiteSpace(body.SchedulerTimeZone))
             {
                 cfg.SchedulerTimeZone = body.SchedulerTimeZone.Trim();
@@ -1399,6 +1411,12 @@ public sealed class SettingsUpdate
 
     /// <summary>Gets or sets the IANA scheduler time zone.</summary>
     public string? SchedulerTimeZone { get; set; }
+
+    /// <summary>Gets or sets the newsletter movie cap (1 to 200). Null leaves it unchanged.</summary>
+    public int? NewsletterMaxMovies { get; set; }
+
+    /// <summary>Gets or sets the newsletter series cap (1 to 200). Null leaves it unchanged.</summary>
+    public int? NewsletterMaxSeries { get; set; }
 
     /// <summary>Gets or sets a new Resend API key. Blank leaves the stored one untouched.</summary>
     public string? ResendApiKey { get; set; }

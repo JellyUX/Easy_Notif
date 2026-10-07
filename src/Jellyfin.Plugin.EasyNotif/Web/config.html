@@ -96,6 +96,15 @@
                     </select>
                 </div>
                 <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifMaxMovies" data-i18n="settings.maxMovies">Newsletter: movies listed</label>
+                    <input is="emby-input" type="number" id="enotifMaxMovies" min="1" max="200" step="1" required />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifMaxSeries" data-i18n="settings.maxSeries">Newsletter: series listed</label>
+                    <input is="emby-input" type="number" id="enotifMaxSeries" min="1" max="200" step="1" required />
+                    <div class="fieldDescription" data-i18n="settings.cap.help">From 1 to 200. Beyond that, the newsletter ends each section with "and N more".</div>
+                </div>
+                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
                     <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />
                     <div class="fieldDescription enotif-hint" id="enotifApiKeyHint"></div>

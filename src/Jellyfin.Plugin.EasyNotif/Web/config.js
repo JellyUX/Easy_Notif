@@ -446,6 +446,8 @@
             _el('enotifReplyTo').value = s.replyTo || '';
             _el('enotifPublicUrl').value = s.publicServerUrl || '';
             _el('enotifTimeZone').value = s.schedulerTimeZone || 'Europe/Paris';
+            _el('enotifMaxMovies').value = s.newsletterMaxMovies || 30;
+            _el('enotifMaxSeries').value = s.newsletterMaxSeries || 30;
             _el('enotifApiKey').value = '';
             _el('enotifWebhookSecret').value = '';
             _el('enotifApiKeyHint').textContent = _secretHint(dict, s.resendApiKeySet);
@@ -474,7 +476,9 @@
             FromName: _el('enotifFromName').value,
             ReplyTo: _el('enotifReplyTo').value,
             PublicServerUrl: _el('enotifPublicUrl').value,
-            SchedulerTimeZone: _el('enotifTimeZone').value
+            SchedulerTimeZone: _el('enotifTimeZone').value,
+            NewsletterMaxMovies: parseInt(_el('enotifMaxMovies').value, 10),
+            NewsletterMaxSeries: parseInt(_el('enotifMaxSeries').value, 10)
         };
         var key = _el('enotifApiKey').value.trim();
         var secret = _el('enotifWebhookSecret').value.trim();

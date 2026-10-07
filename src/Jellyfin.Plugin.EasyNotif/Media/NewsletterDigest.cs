@@ -18,8 +18,17 @@ public sealed record NewsletterDigest(
     /// <summary>Gets a value indicating whether nothing new was added in the window.</summary>
     public bool IsEmpty => Movies.Count == 0 && Series.Count == 0;
 
-    /// <summary>Gets the count of distinct additions (movies plus new episodes).</summary>
-    public int TotalItems => Movies.Count + Series.Sum(s => s.NewEpisodeCount);
+    /// <summary>Gets the count of distinct additions (movies plus new episodes), those cut by <see cref="Capped"/> included.</summary>
+    public int TotalItems => Movies.Count + Series.Sum(s => s.NewEpisodeCount) + HiddenItems;
+
+    /// <summary>Gets how many movies <see cref="Capped"/> left out of <see cref="Movies"/>.</summary>
+    public int MoreMovies { get; init; }
+
+    /// <summary>Gets how many series <see cref="Capped"/> left out of <see cref="Series"/>.</summary>
+    public int MoreSeries { get; init; }
+
+    /// <summary>Gets how many movies and new episodes the left-out entries stand for.</summary>
+    public int HiddenItems { get; init; }
 
     /// <summary>Gets the inline poster attachments (never null).</summary>
     public IReadOnlyList<EmailAttachment> Posters => InlinePosters ?? [];
@@ -54,9 +63,42 @@ public sealed record NewsletterDigest(
                 Seasons = [.. s.EpisodeList.Where(e => e.Season is > 0).Select(e => e.Season!.Value).Distinct().Order()]
             })
             .ToList();
+        return new NewsletterDigest(movies, series, PostersFor(movies, series));
+    }
+
+    /// <summary>
+    /// Keeps the first <paramref name="maxMovies"/> movies and <paramref name="maxSeries"/> series (both
+    /// newest first) and counts the rest, so a mass import still yields a mail of bounded size. Applied
+    /// after <see cref="For"/>, so a recipient's cap is filled with items they may see.
+    /// </summary>
+    /// <param name="maxMovies">The movie cap (at least 1).</param>
+    /// <param name="maxSeries">The series cap (at least 1).</param>
+    /// <returns>The capped digest.</returns>
+    public NewsletterDigest Capped(int maxMovies, int maxSeries)
+    {
+        maxMovies = Math.Max(1, maxMovies);
+        maxSeries = Math.Max(1, maxSeries);
+        if (Movies.Count <= maxMovies && Series.Count <= maxSeries)
+        {
+            return this;
+        }
+
+        var movies = Movies.Take(maxMovies).ToList();
+        var series = Series.Take(maxSeries).ToList();
+        var hiddenSeries = Series.Skip(maxSeries).ToList();
+        return new NewsletterDigest(movies, series, PostersFor(movies, series))
+        {
+            Keys = Keys,
+            MoreMovies = Movies.Count - movies.Count,
+            MoreSeries = hiddenSeries.Count,
+            HiddenItems = Movies.Count - movies.Count + hiddenSeries.Sum(s => s.NewEpisodeCount)
+        };
+    }
+
+    private List<EmailAttachment> PostersFor(IEnumerable<DigestMovie> movies, IEnumerable<DigestSeries> series)
+    {
         var referenced = movies.Select(m => m.PosterUrl).Concat(series.Select(s => s.PosterUrl)).ToHashSet();
-        var posters = Posters.Where(p => referenced.Contains($"cid:{p.ContentId}")).ToList();
-        return new NewsletterDigest(movies, series, posters);
+        return Posters.Where(p => referenced.Contains($"cid:{p.ContentId}")).ToList();
     }
 }
 

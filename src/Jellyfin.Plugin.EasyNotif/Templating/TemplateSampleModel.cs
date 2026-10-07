@@ -19,6 +19,12 @@ public static class TemplateSampleModel
         ["isEmpty"] = false,
         ["hasMovies"] = true,
         ["hasSeries"] = true,
+        ["moreMovies"] = 12,
+        ["moreMoviesLabel"] = "and 12 more movies",
+        ["moreSeries"] = 0,
+        ["moreSeriesLabel"] = null,
+        ["libraryUrl"] = "https://media.example.org/web/",
+        ["noLibraryLink"] = false,
         ["unsubscribeUrl"] = "https://media.example.org/EasyNotif/u/sample-token?lang=en",
         ["movies"] = new List<Dictionary<string, object?>>
         {

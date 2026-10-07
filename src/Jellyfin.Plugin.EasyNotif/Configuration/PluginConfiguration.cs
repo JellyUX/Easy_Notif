@@ -68,4 +68,20 @@ public class PluginConfiguration : BasePluginConfiguration
     /// "Europe/Paris".
     /// </summary>
     public string SchedulerTimeZone { get; set; } = "Europe/Paris";
+
+    /// <summary>
+    /// Gets or sets how many movies a newsletter lists before "and N more" (1 to 200, default 30).
+    /// </summary>
+    public int NewsletterMaxMovies { get; set; } = DefaultNewsletterCap;
+
+    /// <summary>
+    /// Gets or sets how many series a newsletter lists before "and N more" (1 to 200, default 30).
+    /// </summary>
+    public int NewsletterMaxSeries { get; set; } = DefaultNewsletterCap;
+
+    /// <summary>The default newsletter cap, per section.</summary>
+    public const int DefaultNewsletterCap = 30;
+
+    /// <summary>The highest accepted newsletter cap, per section.</summary>
+    public const int MaxNewsletterCap = 200;
 }

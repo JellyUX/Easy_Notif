@@ -99,7 +99,8 @@ public sealed class TemplateStore : ITemplateStore
     {
         "heading", "summary", "isEmpty", "hasMovies", "hasSeries", "movies", "series",
         "title", "year", "genres", "overview", "posterUrl", "detailUrl", "noLink",
-        "episodesLabel", "seasonsLabel", "unsubscribeUrl"
+        "episodesLabel", "seasonsLabel", "unsubscribeUrl",
+        "moreMovies", "moreMoviesLabel", "moreSeries", "moreSeriesLabel", "libraryUrl", "noLibraryLink"
     };
 
     private static readonly IReadOnlySet<string> RecapKeys = new HashSet<string>(StringComparer.Ordinal)

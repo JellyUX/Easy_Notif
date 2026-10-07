@@ -25,8 +25,9 @@ public sealed class NewsletterComposer
     /// <param name="serverName">The server's friendly name, for the heading.</param>
     /// <param name="templateId">The template id to render with (base or custom).</param>
     /// <param name="unsubscribeUrl">The recipient's one-click unsubscribe URL, or null.</param>
+    /// <param name="libraryUrl">The web client URL the "and N more" lines link to, or null.</param>
     /// <returns>The composed content.</returns>
-    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName, string templateId, string? unsubscribeUrl = null)
+    public EmailContent Compose(Campaign campaign, NewsletterDigest digest, string serverName, string templateId, string? unsubscribeUrl = null, string? libraryUrl = null)
     {
         ArgumentNullException.ThrowIfNull(campaign);
         ArgumentNullException.ThrowIfNull(digest);
@@ -68,12 +69,50 @@ public sealed class NewsletterComposer
                 ["detailUrl"] = s.DetailUrl,
                 ["noLink"] = s.DetailUrl is null
             }).ToList(),
+            ["moreMovies"] = digest.MoreMovies,
+            ["moreMoviesLabel"] = MoreMoviesLabel(digest.MoreMovies, fr),
+            ["moreSeries"] = digest.MoreSeries,
+            ["moreSeriesLabel"] = MoreSeriesLabel(digest.MoreSeries, fr),
+            ["libraryUrl"] = libraryUrl,
+            ["noLibraryLink"] = libraryUrl is null,
             ["unsubscribeUrl"] = unsubscribeUrl
         };
 
         var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), model);
         var attachments = digest.Posters.Count > 0 ? digest.Posters : null;
-        return new EmailContent(subject, html, BuildText(digest, heading, fr, unsubscribeUrl), attachments);
+        return new EmailContent(subject, html, BuildText(digest, heading, fr, unsubscribeUrl, libraryUrl), attachments);
+    }
+
+    private static string? MoreMoviesLabel(int count, bool fr)
+        => count switch
+        {
+            0 => null,
+            1 => fr ? "et 1 autre film" : "and 1 more movie",
+            _ => fr ? $"et {count} autres films" : $"and {count} more movies"
+        };
+
+    private static string? MoreSeriesLabel(int count, bool fr)
+        => count switch
+        {
+            0 => null,
+            1 => fr ? "et 1 autre série" : "and 1 more series",
+            _ => fr ? $"et {count} autres séries" : $"and {count} more series"
+        };
+
+    private static void AppendMore(StringBuilder sb, string? label, string? libraryUrl)
+    {
+        if (label is null)
+        {
+            return;
+        }
+
+        sb.Append("- ").Append(label);
+        if (libraryUrl is not null)
+        {
+            sb.Append("  ").Append(libraryUrl);
+        }
+
+        sb.AppendLine();
     }
 
     private static string EpisodesLabel(int count, bool fr)
@@ -93,7 +132,7 @@ public sealed class NewsletterComposer
         return $"{word} {joined}";
     }
 
-    private static string BuildText(NewsletterDigest digest, string heading, bool fr, string? unsubscribeUrl)
+    private static string BuildText(NewsletterDigest digest, string heading, bool fr, string? unsubscribeUrl, string? libraryUrl)
     {
         var sb = new StringBuilder();
         sb.AppendLine(heading).AppendLine();
@@ -124,6 +163,7 @@ public sealed class NewsletterComposer
                 sb.AppendLine();
             }
 
+            AppendMore(sb, MoreMoviesLabel(digest.MoreMovies, fr), libraryUrl);
             sb.AppendLine();
         }
 
@@ -140,6 +180,8 @@ public sealed class NewsletterComposer
 
                 sb.AppendLine();
             }
+
+            AppendMore(sb, MoreSeriesLabel(digest.MoreSeries, fr), libraryUrl);
         }
 
         AppendUnsubscribe(sb, fr, unsubscribeUrl);

@@ -61,6 +61,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<WeeklyRecapComposer>();
         serviceCollection.AddSingleton<IEmailComposer, EmailComposer>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
+        serviceCollection.AddSingleton<ISeriesNotifier, SeriesNotifier>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserPurgeConsumer>();
         serviceCollection.AddHostedService<StartupService>();

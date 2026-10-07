@@ -20,6 +20,11 @@ public interface IRetryQueueStore
     /// <returns>The due entries.</returns>
     IReadOnlyList<RetryEntry> Due(DateTime nowUtc);
 
+    /// <summary>Returns a detached copy of the entry with this key prefix, or null.</summary>
+    /// <param name="keyPrefix">The entry's <see cref="RetryEntry.KeyPrefix"/>.</param>
+    /// <returns>The entry, or null.</returns>
+    RetryEntry? Get(string keyPrefix);
+
     /// <summary>Adds the entry, or replaces the one with the same <see cref="RetryEntry.KeyPrefix"/>.</summary>
     /// <param name="entry">The entry.</param>
     void Upsert(RetryEntry entry);
@@ -96,6 +101,10 @@ public sealed class RetryQueueStore : JsonFileStore<RetryQueueFile>, IRetryQueue
     /// <inheritdoc/>
     public IReadOnlyList<RetryEntry> Due(DateTime nowUtc)
         => Read(file => (IReadOnlyList<RetryEntry>)[.. file.Entries.Where(e => e.NextAttemptUtc <= nowUtc).Select(e => e.Clone())]);
+
+    /// <inheritdoc/>
+    public RetryEntry? Get(string keyPrefix)
+        => Read(file => file.Entries.FirstOrDefault(e => e.KeyPrefix == keyPrefix)?.Clone());
 
     /// <inheritdoc/>
     public void Upsert(RetryEntry entry)

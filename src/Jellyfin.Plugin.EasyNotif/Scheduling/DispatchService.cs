@@ -71,11 +71,12 @@ public sealed class DispatchService : IDispatchService
     private const int MaxLastErrorLength = 300;
 
     // Retry of transiently failed recipients (DEC-23): the delay after the n-th failed attempt, at
-    // most five attempts in all, and never more than 24 hours after the original failure.
-    private static readonly TimeSpan[] RetryBackoff =
+    // most five attempts in all, and never more than 24 hours after the original failure. Shared
+    // with the series notifications (DEC-35).
+    internal static readonly TimeSpan[] RetryBackoff =
         [TimeSpan.FromMinutes(15), TimeSpan.FromHours(1), TimeSpan.FromHours(4), TimeSpan.FromHours(12)];
 
-    private static readonly TimeSpan RetryWindow = TimeSpan.FromHours(24);
+    internal static readonly TimeSpan RetryWindow = TimeSpan.FromHours(24);
 
     private readonly ICampaignStore _campaigns;
     private readonly IRetryQueueStore _retries;
@@ -526,7 +527,8 @@ public sealed class DispatchService : IDispatchService
 
     private async Task RunRetriesAsync(DateTime now, PluginConfiguration cfg, CancellationToken cancellationToken)
     {
-        foreach (var entry in _retries.Due(now))
+        // Series notification entries are only a backoff gate, handled by the series notifier.
+        foreach (var entry in _retries.Due(now).Where(e => !e.KeyPrefix.StartsWith(SeriesNotifier.RetryPrefix, StringComparison.Ordinal)))
         {
             try
             {

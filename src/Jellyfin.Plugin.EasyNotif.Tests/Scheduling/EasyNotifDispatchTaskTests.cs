@@ -18,7 +18,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void GetDefaultTriggers_IsStartupPlusFifteenMinuteInterval()
     {
-        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
+        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore(), Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
 
         Assert.Equal(2, triggers.Count);
         Assert.Contains(triggers, t => t.Type == TaskTriggerInfoType.StartupTrigger);
@@ -34,7 +34,7 @@ public sealed class EasyNotifDispatchTaskTests
         var progress = new Mock<IProgress<double>>();
         var history = new FakePlaybackHistoryStore();
 
-        await new EasyNotifDispatchTask(dispatch.Object, history, NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
+        await new EasyNotifDispatchTask(dispatch.Object, history, Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
 
         Assert.Equal(1, history.CompactCount);
         dispatch.Verify(d => d.RunDueAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -48,16 +48,33 @@ public sealed class EasyNotifDispatchTaskTests
         var history = new Mock<IPlaybackHistoryStore>();
         history.Setup(h => h.Compact()).Throws(new IOException("disk"));
 
-        await new EasyNotifDispatchTask(dispatch.Object, history.Object, NullLogger<EasyNotifDispatchTask>.Instance)
+        await new EasyNotifDispatchTask(dispatch.Object, history.Object, Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance)
             .ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
 
         dispatch.Verify(d => d.RunDueAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
+    public async Task ExecuteAsync_FlushesSeriesAfterDispatch_AndAFlushFailureDoesNotEscape()
+    {
+        var calls = new List<string>();
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.RunDueAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("dispatch")).Returns(Task.CompletedTask);
+        var series = new Mock<ISeriesNotifier>();
+        series.Setup(s => s.FlushAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("series")).ThrowsAsync(new IOException("disk"));
+        var progress = new Mock<IProgress<double>>();
+
+        await new EasyNotifDispatchTask(dispatch.Object, new FakePlaybackHistoryStore(), series.Object, NullLogger<EasyNotifDispatchTask>.Instance)
+            .ExecuteAsync(progress.Object, CancellationToken.None);
+
+        Assert.Equal(["dispatch", "series"], calls);
+        progress.Verify(p => p.Report(100), Times.Once);
+    }
+
+    [Fact]
     public void Identity_IsStable()
     {
-        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore(), NullLogger<EasyNotifDispatchTask>.Instance);
+        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), new FakePlaybackHistoryStore(), Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance);
 
         Assert.Equal("EasyNotifDispatch", task.Key);
         Assert.False(string.IsNullOrWhiteSpace(task.Name));

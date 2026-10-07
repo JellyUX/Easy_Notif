@@ -16,6 +16,9 @@ public sealed class FakeRetryQueueStore : IRetryQueueStore
         => [.. Entries.Where(e => e.NextAttemptUtc <= nowUtc).Select(e => e.Clone())];
 
     /// <inheritdoc/>
+    public RetryEntry? Get(string keyPrefix) => Entries.FirstOrDefault(e => e.KeyPrefix == keyPrefix)?.Clone();
+
+    /// <inheritdoc/>
     public void Upsert(RetryEntry entry)
     {
         Entries.RemoveAll(e => e.KeyPrefix == entry.KeyPrefix);

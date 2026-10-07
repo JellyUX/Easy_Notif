@@ -3,6 +3,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -347,6 +348,19 @@ public sealed class DispatchServiceTests
         await harness.Service.RunDueAsync(CancellationToken.None);
 
         Assert.Empty(harness.Retries.Entries);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_LeavesSeriesRetryEntriesToTheSeriesNotifier()
+    {
+        var harness = new Harness();
+        var key = SeriesNotifier.RetryPrefix + Guid.NewGuid().ToString("N");
+        harness.Retries.Upsert(new RetryEntry { CampaignId = key, KeyPrefix = key, Attempts = 1, FirstFailureUtc = Now, NextAttemptUtc = Now });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Single(harness.Retries.Entries);
+        Assert.DoesNotContain(harness.Log.Entries, e => e.EventType == "dispatch.retry-abandoned");
     }
 
     [Fact]

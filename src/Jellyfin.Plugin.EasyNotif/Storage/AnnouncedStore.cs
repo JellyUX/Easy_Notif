@@ -47,6 +47,9 @@ public sealed class AnnouncedStore : JsonFileStore<AnnouncedFile>, IAnnouncedSto
     /// <summary>The newsletter channel.</summary>
     public const string NewsletterChannel = "newsletter";
 
+    /// <summary>The series notification channel (DEC-32): separate, so a per-user notification never hides an episode from the newsletter.</summary>
+    public const string SeriesChannel = "series";
+
     /// <summary>How long an announced key is remembered.</summary>
     public static readonly TimeSpan Retention = TimeSpan.FromDays(180);
 

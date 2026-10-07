@@ -116,8 +116,11 @@ public sealed class SeriesNotificationScenarioTests : IDisposable
         await _h.RunTicksAsync(TimeSpan.FromHours(1));
         Assert.Single(_h.Sent);
 
-        // The episode is still within the 24 hour catch-up window after a second restart.
+        // The episode is still within the 24 hour catch-up window after a second restart: already
+        // announced, it is not queued again (which would restart the quiet period of a later batch).
         _h.Restart();
+        await _h.Notifier.FlushAsync(CancellationToken.None);
+        Assert.False(_h.Store.HasPending);
         await _h.RunTicksAsync(TimeSpan.FromHours(3));
         Assert.Single(_h.Attempts);
     }

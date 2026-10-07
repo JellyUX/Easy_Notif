@@ -29,15 +29,18 @@ public sealed class SeriesNotifierTests : IDisposable
     [Fact]
     public async Task CatchUp_QueuesRecentEpisodesOfFollowedSeries_AtTheFirstFlush()
     {
+        _h.Items.Add(new Episode { Id = Guid.NewGuid(), SeriesId = Series, SeriesName = "Severance", ParentIndexNumber = 1, IndexNumber = 2, DateCreated = _h.Now.AddHours(-1) });
         _h.Follow(Series);
+        _h.Now = _h.Now.AddHours(5);
         _h.Items.Add(new Episode { Id = Guid.NewGuid(), SeriesId = Series, SeriesName = "Severance", ParentIndexNumber = 2, IndexNumber = 1, DateCreated = _h.Now.AddHours(-3) });
         _h.Items.Add(new Episode { Id = Guid.NewGuid(), SeriesId = Series, SeriesName = "Severance", ParentIndexNumber = 1, IndexNumber = 1, DateCreated = _h.Now.AddDays(-2) });
 
         await _h.RunTicksAsync(TimeSpan.FromMinutes(45));
 
+        // S01E02 predates the subscription, S01E01 the 24 hour window.
         var mail = Assert.Single(_h.Sent);
         Assert.Contains("S02E01", mail.Text, StringComparison.Ordinal);
-        Assert.DoesNotContain("S01E01", mail.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("S01E0", mail.Text, StringComparison.Ordinal);
     }
 
     [Fact]

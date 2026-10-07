@@ -199,13 +199,29 @@ public sealed class SeriesNotifier : ISeriesNotifier
             DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
         });
 
-        var episodes = recent
+        // Only what arrived after the series was followed, and not what was already announced: a
+        // re-queued episode would restart the user's quiet period on every restart.
+        var followedSince = _store.Subscriptions()
+            .GroupBy(s => s.SeriesId)
+            .ToDictionary(g => g.Key, g => g.Min(s => s.Since));
+        var candidates = recent
             .OfType<Episode>()
-            .Where(e => !e.IsVirtualItem && e.DateCreated >= since && e.SeriesId != Guid.Empty)
+            .Where(e => !e.IsVirtualItem
+                && followedSince.TryGetValue(e.SeriesId, out var followed)
+                && e.DateCreated >= (followed > since ? followed : since))
+            .ToList();
+        var announced = _announced.AnnouncedOnOrBefore(AnnouncedStore.SeriesChannel, candidates.Select(MediaKey.For), now);
+        var episodes = candidates
+            .Where(e => !announced.Contains(MediaKey.For(e)))
             .Select(e => (e.Id, e.SeriesId))
             .ToList();
         var queued = _store.Enqueue(episodes, now);
-        _log.Info("series.catch-up", new Dictionary<string, object?> { ["recent"] = episodes.Count, ["queued"] = queued });
+        _log.Info("series.catch-up", new Dictionary<string, object?>
+        {
+            ["recent"] = candidates.Count,
+            ["alreadyAnnounced"] = candidates.Count - episodes.Count,
+            ["queued"] = queued
+        });
     }
 
     private async Task FlushPendingAsync(DateTime now, CancellationToken cancellationToken)

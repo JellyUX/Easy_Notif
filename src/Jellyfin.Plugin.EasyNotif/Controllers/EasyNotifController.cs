@@ -30,7 +30,7 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 /// Public contract, covered by SemVer from 1.0.0: the <c>/EasyNotif</c> routes, their verbs and
 /// their status codes, plus the <c>Schema</c> integer on the persisted documents
 /// (<c>preferences.json</c>, <c>campaigns.json</c>, <c>quota.json</c>, <c>added-items.json</c>,
-/// <c>playback-history.json</c>, <c>sent-keys.json</c>). A breaking change to either needs a major version bump.
+/// <c>playback-history.json</c>, <c>sent-keys.json</c>, <c>retry-queue.json</c>). A breaking change to either needs a major version bump.
 /// <c>send-log.jsonl</c> is an append-only, self-healing diagnostic log and is not part of that
 /// guarantee. Authenticated actions can also return <c>401</c> / <c>403</c> from Jellyfin's auth
 /// middleware; those are declared once at the class level.

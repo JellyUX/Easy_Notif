@@ -45,6 +45,13 @@ public sealed class DispatchServiceTests
 
         public List<EmailMessage> Sent { get; } = [];
 
+        public FakeRetryQueueStore Retries { get; } = new();
+
+        public DateTime Clock { get; set; } = Now;
+
+        /// <summary>Gets or sets a per-message response; overrides <c>sendSucceeds</c> when set.</summary>
+        public Func<EmailMessage, SendResult>? Respond { get; set; }
+
         public DispatchService Service { get; }
 
         public Harness(
@@ -80,6 +87,11 @@ public sealed class DispatchServiceTests
                         await onSend(m).ConfigureAwait(false);
                     }
 
+                    if (Respond is not null)
+                    {
+                        return Respond(m);
+                    }
+
                     return sendSucceeds
                         ? new SendResult(true, "re_" + Sent.Count, 200, null)
                         : new SendResult(false, null, 422, "rejected");
@@ -91,6 +103,7 @@ public sealed class DispatchServiceTests
 
             Service = new DispatchService(
                 Campaigns,
+                Retries,
                 Preferences.Object,
                 Composer.Object,
                 Sender.Object,
@@ -100,7 +113,7 @@ public sealed class DispatchServiceTests
                 Secrets,
                 Log,
                 NullLogger<DispatchService>.Instance,
-                () => Now);
+                () => Clock);
         }
 
         public void Recipients(params Guid[] userIds)
@@ -291,6 +304,117 @@ public sealed class DispatchServiceTests
 
         var message = Assert.Single(harness.Sent);
         Assert.False(string.IsNullOrEmpty(message.IdempotencyKey));
+    }
+
+    private static bool IsFor(EmailMessage m, Guid userId) => m.To == $"user-{userId:N}@example.org";
+
+    private static SendResult Ok() => new(true, "re_ok", 200, null);
+
+    private static SendResult Unavailable() => new(false, null, 503, "unavailable");
+
+    [Fact]
+    public async Task RunDueAsync_OneRecipientOfThreeFailsTransiently_OnlyThatOneIsRetried_WithTheSameKey()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob, Carol);
+        harness.Respond = m => IsFor(m, Bob) ? Unavailable() : Ok();
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Equal(3, harness.Sent.Count);
+        Assert.True(harness.Campaigns.Get("newsletter")!.NextRunUtc > Now); // advanced despite the failure
+        var entry = Assert.Single(harness.Retries.Entries);
+        Assert.Equal([Bob], entry.UserIds);
+        Assert.Equal(Now.AddMinutes(15), entry.NextAttemptUtc);
+        var bobKey = harness.Sent.Single(m => IsFor(m, Bob)).IdempotencyKey;
+
+        harness.Respond = _ => Ok();
+        harness.Clock = Now.AddMinutes(15);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var retried = Assert.Single(harness.Sent.Skip(3));
+        Assert.True(IsFor(retried, Bob));
+        Assert.Equal(bobKey, retried.IdempotencyKey);
+        Assert.Empty(harness.Retries.Entries);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_PermanentFailure_IsNotRetried()
+    {
+        var harness = new Harness(sendSucceeds: false); // 422
+        harness.Recipients(Alice);
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Retries.Entries);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_RetryRebuildsTheOriginalWindow()
+    {
+        var since = Now.AddDays(-7);
+        var campaign = DueNewsletter();
+        campaign.LastSentUtc = since;
+        var harness = new Harness([campaign]);
+        harness.Recipients(Alice);
+        harness.Respond = _ => Unavailable();
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var calls = new List<(DateTime? Since, DateTime NowUtc)>();
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .Callback<Campaign, DateTime, CancellationToken, bool>((c, n, _, _) => calls.Add((c.LastSentUtc, n)))
+            .ReturnsAsync(new PreparedCampaign { ShouldSend = true, Render = _ => new EmailContent("S", "<p>B</p>", "B") });
+        harness.Clock = Now.AddMinutes(15);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Equal((since, Now), Assert.Single(calls));
+        Assert.Equal(Now, harness.Campaigns.Get("newsletter")!.LastSentUtc); // the store copy is untouched
+    }
+
+    [Fact]
+    public async Task RunDueAsync_RetryKeepsFailing_IsAbandonedAfterFiveAttempts_WithAWarning()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice);
+        harness.Respond = _ => Unavailable();
+
+        foreach (var at in new[] { 0.0, 0.25, 1.25, 5.25, 17.25 })
+        {
+            harness.Clock = Now.AddHours(at);
+            await harness.Service.RunDueAsync(CancellationToken.None);
+        }
+
+        Assert.Equal(5, harness.Sent.Count);
+        Assert.Empty(harness.Retries.Entries);
+        Assert.Contains(harness.Log.Entries, e => e.EventType == "dispatch.retry-abandoned" && e.Level == "Warn");
+    }
+
+    [Fact]
+    public async Task RunDueAsync_RetryOlderThan24Hours_IsAbandonedWithoutSending()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice);
+        harness.Respond = _ => Unavailable();
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        harness.Clock = Now.AddHours(25);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Single(harness.Sent);
+        Assert.Empty(harness.Retries.Entries);
+        Assert.Contains(harness.Log.Entries, e => e.EventType == "dispatch.retry-abandoned");
+    }
+
+    [Fact]
+    public async Task RunCampaignNowAsync_TransientFailure_IsNotQueued()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice);
+        harness.Respond = _ => Unavailable();
+
+        await harness.Service.RunCampaignNowAsync("newsletter", CancellationToken.None);
+
+        Assert.Empty(harness.Retries.Entries);
     }
 
     [Fact]

@@ -15,8 +15,9 @@ namespace Jellyfin.Plugin.EasyNotif.Scheduling;
 public interface IDispatchService
 {
     /// <summary>
-    /// Runs every campaign whose <see cref="Campaign.NextRunUtc"/> is due. Returns immediately, with
-    /// no I/O beyond the in-memory campaign list, when nothing is due (R13).
+    /// Runs every campaign whose <see cref="Campaign.NextRunUtc"/> is due, then the due retries of
+    /// transiently failed recipients. Returns immediately, with no I/O beyond the in-memory campaign
+    /// list and retry queue, when nothing is due (R13).
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task that completes when the due campaigns have run.</returns>
@@ -69,7 +70,15 @@ public sealed class DispatchService : IDispatchService
 {
     private const int MaxLastErrorLength = 300;
 
+    // Retry of transiently failed recipients (DEC-23): the delay after the n-th failed attempt, at
+    // most five attempts in all, and never more than 24 hours after the original failure.
+    private static readonly TimeSpan[] RetryBackoff =
+        [TimeSpan.FromMinutes(15), TimeSpan.FromHours(1), TimeSpan.FromHours(4), TimeSpan.FromHours(12)];
+
+    private static readonly TimeSpan RetryWindow = TimeSpan.FromHours(24);
+
     private readonly ICampaignStore _campaigns;
+    private readonly IRetryQueueStore _retries;
     private readonly IPreferenceService _preferences;
     private readonly IEmailComposer _composer;
     private readonly IEmailSender _sender;
@@ -84,6 +93,7 @@ public sealed class DispatchService : IDispatchService
 
     /// <summary>Initializes a new instance of the <see cref="DispatchService"/> class.</summary>
     /// <param name="campaigns">The campaign store.</param>
+    /// <param name="retries">The queue of recipients to send again.</param>
     /// <param name="preferences">The preference service (recipient resolution).</param>
     /// <param name="composer">The campaign email composer.</param>
     /// <param name="sender">The email transport.</param>
@@ -95,6 +105,7 @@ public sealed class DispatchService : IDispatchService
     /// <param name="logger">Logger.</param>
     public DispatchService(
         ICampaignStore campaigns,
+        IRetryQueueStore retries,
         IPreferenceService preferences,
         IEmailComposer composer,
         IEmailSender sender,
@@ -104,12 +115,13 @@ public sealed class DispatchService : IDispatchService
         ISecretStore secrets,
         IEasyNotifLog easyNotifLog,
         ILogger<DispatchService> logger)
-        : this(campaigns, preferences, composer, sender, quota, sendLog, config, secrets, easyNotifLog, logger, () => DateTime.UtcNow)
+        : this(campaigns, retries, preferences, composer, sender, quota, sendLog, config, secrets, easyNotifLog, logger, () => DateTime.UtcNow)
     {
     }
 
     internal DispatchService(
         ICampaignStore campaigns,
+        IRetryQueueStore retries,
         IPreferenceService preferences,
         IEmailComposer composer,
         IEmailSender sender,
@@ -122,6 +134,7 @@ public sealed class DispatchService : IDispatchService
         Func<DateTime> now)
     {
         _campaigns = campaigns;
+        _retries = retries;
         _preferences = preferences;
         _composer = composer;
         _sender = sender;
@@ -149,7 +162,8 @@ public sealed class DispatchService : IDispatchService
             var due = _campaigns.All()
                 .Where(c => c.Enabled && c.NextRunUtc is { } next && next <= now)
                 .ToList();
-            if (due.Count == 0)
+            var retriesDue = _retries.HasDue(now);
+            if (due.Count == 0 && !retriesDue)
             {
                 return;
             }
@@ -168,6 +182,11 @@ public sealed class DispatchService : IDispatchService
                     // so the next tick retries the same slot (same idempotency keys, no duplicates).
                     RecordFailure(campaign, now, ex);
                 }
+            }
+
+            if (retriesDue)
+            {
+                await RunRetriesAsync(now, cfg, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -320,6 +339,7 @@ public sealed class DispatchService : IDispatchService
         // the same slot (the slot barely moves for a daily cadence).
         var runSlot = (campaign.NextRunUtc ?? now).ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
         var keyPrefix = manualRun ? $"run:{campaign.Id}:{Guid.NewGuid():N}" : $"{campaign.Id}:{runSlot}";
+        var windowStart = campaign.LastSentUtc;
 
         var secrets = _secrets.Get();
         if (string.IsNullOrWhiteSpace(secrets.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
@@ -390,6 +410,7 @@ public sealed class DispatchService : IDispatchService
         var deduplicated = 0;
         var noVisibleItems = 0;
         var quotaStoppedMidRun = false;
+        var toRetry = new List<Guid>();
 
         foreach (var recipient in recipients)
         {
@@ -405,73 +426,37 @@ public sealed class DispatchService : IDispatchService
                 break;
             }
 
-            var content = prepared.Render(recipient);
-            if (content is null)
+            switch (await SendToRecipientAsync(campaign, prepared, recipient, keyPrefix, cfg, secrets, now, cancellationToken).ConfigureAwait(false))
             {
-                noVisibleItems++;
-                continue;
-            }
-
-            var category = campaign.Category.ToString().ToLowerInvariant();
-            var message = new EmailMessage
-            {
-                To = recipient.Email,
-                Subject = content.Subject,
-                Html = content.Html,
-                Text = content.Text,
-                ReplyTo = cfg.ReplyTo,
-                Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, secrets.UnsubscribeSecret, recipient.UserId, category),
-                Tags =
-                [
-                    new EmailTag("context", campaign.Id),
-                    new EmailTag("campaignId", campaign.Id),
-                    new EmailTag("category", campaign.Category.ToString())
-                ],
-                Attachments = content.Attachments,
-                IdempotencyKey = $"{keyPrefix}:{recipient.UserId:N}"
-            };
-
-            var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);
-            string status;
-            if (result.Success)
-            {
-                _quota.RecordSend();
-                sent++;
-                status = "sent";
-            }
-            else if (result.Deduplicated)
-            {
-                deduplicated++;
-                status = "deduplicated";
-            }
-            else
-            {
-                failed++;
-                status = "failed";
-            }
-
-            try
-            {
-                _sendLog.Append(new SendLogEntry
-                {
-                    Ts = now,
-                    Context = campaign.Id,
-                    Category = campaign.Category.ToString(),
-                    ToMasked = EmailMasker.Mask(recipient.Email),
-                    Subject = content.Subject,
-                    ResendId = result.ResendId,
-                    Status = status
-                });
-            }
-            catch (Exception ex) when (ex is IOException or InvalidOperationException)
-            {
-                _logger.LogWarning(ex, "[EasyNotif] Could not record a campaign send in the send log.");
+                case SendOutcome.Sent:
+                    sent++;
+                    break;
+                case SendOutcome.Deduplicated:
+                    deduplicated++;
+                    break;
+                case SendOutcome.NoContent:
+                    noVisibleItems++;
+                    break;
+                case SendOutcome.Transient:
+                    failed++;
+                    toRetry.Add(recipient.UserId);
+                    break;
+                default:
+                    failed++;
+                    break;
             }
         }
 
         DateTime? next = campaign.NextRunUtc;
         if (!quotaStoppedMidRun)
         {
+            // A quota stop leaves the slot due, so the whole slot runs again; otherwise the
+            // transiently failed recipients are retried on their own while the campaign advances.
+            if (!manualRun && toRetry.Count > 0)
+            {
+                QueueRetry(campaign.Id, keyPrefix, now, windowStart, toRetry);
+            }
+
             var advanced = campaign.Schedule.NextRunUtc(now, tz);
             _campaigns.Update(campaign.Id, c =>
             {
@@ -490,9 +475,236 @@ public sealed class DispatchService : IDispatchService
             ["failed"] = failed,
             ["deduplicated"] = deduplicated,
             ["noVisibleItems"] = noVisibleItems,
+            ["retryQueued"] = manualRun || quotaStoppedMidRun ? 0 : toRetry.Count,
             ["nextRunUtc"] = next
         });
 
         return new CampaignRunResult(campaign.Id, sent, failed, withoutEmail, next) { Found = true };
+    }
+
+    private void QueueRetry(string campaignId, string keyPrefix, DateTime now, DateTime? windowStart, List<Guid> userIds)
+    {
+        try
+        {
+            _retries.Upsert(new RetryEntry
+            {
+                CampaignId = campaignId,
+                KeyPrefix = keyPrefix,
+                RunUtc = now,
+                SinceUtc = windowStart,
+                UserIds = userIds,
+                Attempts = 1,
+                FirstFailureUtc = now,
+                NextAttemptUtc = now + RetryBackoff[0]
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "[EasyNotif] Could not queue {Count} failed recipient(s) of campaign {CampaignId} for a retry.", userIds.Count, campaignId);
+        }
+    }
+
+    private async Task RunRetriesAsync(DateTime now, PluginConfiguration cfg, CancellationToken cancellationToken)
+    {
+        foreach (var entry in _retries.Due(now))
+        {
+            try
+            {
+                await RetryAsync(entry, now, cfg, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // The entry is left as is: the next tick tries again, until the 24 hour bound drops it.
+                _easyNotifLog.Error("dispatch.error", new Dictionary<string, object?>
+                {
+                    ["campaignId"] = entry.CampaignId,
+                    ["retry"] = entry.KeyPrefix
+                }, ex);
+            }
+        }
+    }
+
+    private async Task RetryAsync(RetryEntry entry, DateTime now, PluginConfiguration cfg, CancellationToken cancellationToken)
+    {
+        var campaign = _campaigns.Get(entry.CampaignId)?.Clone();
+        if (campaign is null)
+        {
+            AbandonRetry(entry, "campaign-removed");
+            return;
+        }
+
+        if (now - entry.FirstFailureUtc >= RetryWindow)
+        {
+            AbandonRetry(entry, "expired");
+            return;
+        }
+
+        var secrets = _secrets.Get();
+        if (string.IsNullOrWhiteSpace(secrets.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail) || _quota.Snapshot().Over)
+        {
+            // Not an attempt: the entry waits for the transport or the quota, within its 24 hours.
+            return;
+        }
+
+        // Rebuild the content of the original run: same window, same instant.
+        campaign.LastSentUtc = entry.SinceUtc;
+        var prepared = await _composer.PrepareAsync(campaign, entry.RunUtc, cancellationToken).ConfigureAwait(false);
+        if (!prepared.ShouldSend)
+        {
+            _retries.Remove(entry.KeyPrefix);
+            return;
+        }
+
+        // A user who opted out or lost the address since the run is no longer a recipient.
+        var pending = entry.UserIds.ToHashSet();
+        var recipients = _preferences.GetRecipients(campaign.Category).Where(r => pending.Contains(r.UserId)).ToList();
+
+        var sent = 0;
+        var stillFailing = new List<Guid>();
+        foreach (var recipient in recipients)
+        {
+            if (_quota.Snapshot().Over)
+            {
+                stillFailing.Add(recipient.UserId);
+                continue;
+            }
+
+            switch (await SendToRecipientAsync(campaign, prepared, recipient, entry.KeyPrefix, cfg, secrets, now, cancellationToken).ConfigureAwait(false))
+            {
+                case SendOutcome.Sent:
+                    sent++;
+                    break;
+                case SendOutcome.Transient:
+                    stillFailing.Add(recipient.UserId);
+                    break;
+            }
+        }
+
+        entry.Attempts++;
+        entry.UserIds = stillFailing;
+        _easyNotifLog.Info("dispatch.retry", new Dictionary<string, object?>
+        {
+            ["campaignId"] = entry.CampaignId,
+            ["attempt"] = entry.Attempts,
+            ["sent"] = sent,
+            ["remaining"] = stillFailing.Count
+        });
+
+        if (stillFailing.Count == 0)
+        {
+            _retries.Remove(entry.KeyPrefix);
+        }
+        else if (entry.Attempts > RetryBackoff.Length)
+        {
+            AbandonRetry(entry, "max-attempts");
+        }
+        else
+        {
+            entry.NextAttemptUtc = now + RetryBackoff[entry.Attempts - 1];
+            _retries.Upsert(entry);
+        }
+    }
+
+    private void AbandonRetry(RetryEntry entry, string reason)
+    {
+        _easyNotifLog.Warn("dispatch.retry-abandoned", new Dictionary<string, object?>
+        {
+            ["campaignId"] = entry.CampaignId,
+            ["reason"] = reason,
+            ["attempts"] = entry.Attempts,
+            ["recipients"] = entry.UserIds.Count
+        });
+        _retries.Remove(entry.KeyPrefix);
+    }
+
+    private async Task<SendOutcome> SendToRecipientAsync(
+        Campaign campaign,
+        PreparedCampaign prepared,
+        Recipient recipient,
+        string keyPrefix,
+        PluginConfiguration cfg,
+        SecretsView secrets,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var content = prepared.Render(recipient);
+        if (content is null)
+        {
+            return SendOutcome.NoContent;
+        }
+
+        var category = campaign.Category.ToString().ToLowerInvariant();
+        var message = new EmailMessage
+        {
+            To = recipient.Email,
+            Subject = content.Subject,
+            Html = content.Html,
+            Text = content.Text,
+            ReplyTo = cfg.ReplyTo,
+            Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, secrets.UnsubscribeSecret, recipient.UserId, category),
+            Tags =
+            [
+                new EmailTag("context", campaign.Id),
+                new EmailTag("campaignId", campaign.Id),
+                new EmailTag("category", campaign.Category.ToString())
+            ],
+            Attachments = content.Attachments,
+            IdempotencyKey = $"{keyPrefix}:{recipient.UserId:N}"
+        };
+
+        var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        SendOutcome outcome;
+        if (result.Success)
+        {
+            _quota.RecordSend();
+            outcome = SendOutcome.Sent;
+        }
+        else if (result.Deduplicated)
+        {
+            outcome = SendOutcome.Deduplicated;
+        }
+        else
+        {
+            outcome = IsTransient(result) ? SendOutcome.Transient : SendOutcome.Failed;
+        }
+
+        try
+        {
+            _sendLog.Append(new SendLogEntry
+            {
+                Ts = now,
+                Context = campaign.Id,
+                Category = campaign.Category.ToString(),
+                ToMasked = EmailMasker.Mask(recipient.Email),
+                Subject = content.Subject,
+                ResendId = result.ResendId,
+                Status = outcome switch
+                {
+                    SendOutcome.Sent => "sent",
+                    SendOutcome.Deduplicated => "deduplicated",
+                    _ => "failed"
+                }
+            });
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "[EasyNotif] Could not record a campaign send in the send log.");
+        }
+
+        return outcome;
+    }
+
+    // Network failure or timeout (no status), rate limit, provider error: worth another attempt.
+    // A 4xx is a rejection of this message and will not pass later (DEC-23).
+    private static bool IsTransient(SendResult result)
+        => result.StatusCode is 0 or 429 or >= 500;
+
+    private enum SendOutcome
+    {
+        Sent,
+        Deduplicated,
+        Failed,
+        Transient,
+        NoContent
     }
 }

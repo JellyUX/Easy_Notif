@@ -44,6 +44,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ISendLog, SendLog>();
         serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
+        serviceCollection.AddSingleton<IRetryQueueStore, RetryQueueStore>();
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
         serviceCollection.AddSingleton<IAddedItemsStore, AddedItemsStore>();
         serviceCollection.AddSingleton<IPlaybackHistoryStore, PlaybackHistoryStore>();

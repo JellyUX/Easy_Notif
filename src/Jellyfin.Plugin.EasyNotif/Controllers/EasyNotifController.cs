@@ -52,6 +52,7 @@ public class EasyNotifController : ControllerBase
     private readonly SendCooldown _sendCooldown;
     private readonly ISendLog _sendLog;
     private readonly IManualEmailService _manualEmail;
+    private readonly IManualSendQueue _manualQueue;
     private readonly ICampaignStore _campaigns;
     private readonly IDispatchService _dispatch;
     private readonly ITemplateStore _templates;
@@ -71,6 +72,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="sendCooldown">The per-user cooldown for the self-test send.</param>
     /// <param name="sendLog">The send log.</param>
     /// <param name="manualEmail">The manual admin email service.</param>
+    /// <param name="manualQueue">The background queue of manual email lots.</param>
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="templates">The email template store.</param>
@@ -87,6 +89,7 @@ public class EasyNotifController : ControllerBase
         SendCooldown sendCooldown,
         ISendLog sendLog,
         IManualEmailService manualEmail,
+        IManualSendQueue manualQueue,
         ICampaignStore campaigns,
         IDispatchService dispatch,
         ITemplateStore templates,
@@ -103,6 +106,7 @@ public class EasyNotifController : ControllerBase
         _sendCooldown = sendCooldown;
         _sendLog = sendLog;
         _manualEmail = manualEmail;
+        _manualQueue = manualQueue;
         _campaigns = campaigns;
         _dispatch = dispatch;
         _templates = templates;
@@ -503,6 +507,8 @@ public class EasyNotifController : ControllerBase
     /// with a contact address, a chosen subset, or a single test address. Not subject to category
     /// preferences. Administrators only.
     /// </summary>
+    /// <remarks>Deprecated: the send is tied to the HTTP request, so closing the tab stops it. Use
+    /// <c>POST admin/send/batches</c>, which runs in the background. Kept for API compatibility.</remarks>
     /// <param name="body">The composed email and its audience.</param>
     /// <returns>200 with a per-recipient summary; 400 on an invalid request; 503 on a storage failure.</returns>
     [HttpPost("admin/send")]
@@ -522,31 +528,10 @@ public class EasyNotifController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "quota-exceeded" });
         }
 
-        List<EmailAttachment> attachments;
-        try
-        {
-            attachments = (body.Attachments ?? [])
-                .Select(a => new EmailAttachment
-                {
-                    FileName = string.IsNullOrWhiteSpace(a.FileName) ? "attachment" : a.FileName!,
-                    Content = Convert.FromBase64String(a.ContentBase64 ?? string.Empty),
-                    ContentType = Trimmed(a.ContentType)
-                })
-                .ToList();
-        }
-        catch (FormatException)
+        if (!TryBuildManualRequest(body, out var request))
         {
             return BadRequest(new { error = "attachment-invalid" });
         }
-
-        var request = new ManualEmailRequest(
-            body.Subject.Trim(),
-            body.Html,
-            body.Text,
-            Trimmed(body.RecipientMode) ?? "all",
-            body.RecipientUserIds,
-            Trimmed(body.TestAddress),
-            attachments.Count > 0 ? attachments : null);
 
         try
         {
@@ -568,6 +553,148 @@ public class EasyNotifController : ControllerBase
             _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
+    }
+
+    /// <summary>
+    /// Starts a one-off manual email as a background lot (same body and audience rules as
+    /// <c>POST admin/send</c>). The lot keeps running if the caller goes away; follow it with
+    /// <c>GET admin/send/batches/{id}</c>. Administrators only.
+    /// </summary>
+    /// <param name="body">The composed email and its audience.</param>
+    /// <returns>202 with the lot; 400 on an invalid request; 503 when the quota is exhausted or on a
+    /// storage failure.</returns>
+    [HttpPost("admin/send/batches")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult StartManualBatch([FromBody] ManualSendRequest? body)
+    {
+        if (body is null || string.IsNullOrWhiteSpace(body.Subject))
+        {
+            return BadRequest(new { error = "subject-required" });
+        }
+
+        if (_quota.Snapshot().Over)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "quota-exceeded" });
+        }
+
+        if (!TryBuildManualRequest(body, out var request))
+        {
+            return BadRequest(new { error = "attachment-invalid" });
+        }
+
+        try
+        {
+            var batch = _manualQueue.Start(request);
+            return Accepted($"/EasyNotif/admin/send/batches/{batch.Id}", BatchDto(batch));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] A storage or configuration operation failed.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+    }
+
+    /// <summary>Gets the state of a manual lot. Administrators only.</summary>
+    /// <param name="id">The lot id.</param>
+    /// <returns>200 with the lot; 404 when it is unknown or expired (one hour after it finished).</returns>
+    [HttpGet("admin/send/batches/{id:guid}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult GetManualBatch([FromRoute] Guid id)
+        => _manualQueue.Get(id) is { } batch ? Ok(BatchDto(batch)) : NotFound();
+
+    /// <summary>Gets the most recently started manual lot still held, so a reopened page can follow
+    /// it. Administrators only.</summary>
+    /// <returns>200 with the lot; 204 when none is held.</returns>
+    [HttpGet("admin/send/batches/latest")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult GetLatestManualBatch()
+        => _manualQueue.Latest() is { } batch ? Ok(BatchDto(batch)) : NoContent();
+
+    /// <summary>
+    /// Sends again the recipients of a finished manual lot whose send failed, with the same
+    /// idempotency keys (no recipient gets the email twice). Administrators only.
+    /// </summary>
+    /// <param name="id">The lot id.</param>
+    /// <returns>202 with the lot; 404 when it is unknown or expired; 409 while it runs or when no
+    /// send failed; 503 when the quota is exhausted.</returns>
+    [HttpPost("admin/send/batches/{id:guid}/retry")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult RetryManualBatch([FromRoute] Guid id)
+    {
+        if (_quota.Snapshot().Over)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "quota-exceeded" });
+        }
+
+        var (outcome, batch) = _manualQueue.Retry(id);
+        return outcome switch
+        {
+            ManualRetryOutcome.Started => Accepted($"/EasyNotif/admin/send/batches/{id}", BatchDto(batch!)),
+            ManualRetryOutcome.Running => Conflict(new { error = "batch-running" }),
+            ManualRetryOutcome.NothingToRetry => Conflict(new { error = "nothing-to-retry" }),
+            _ => NotFound()
+        };
+    }
+
+    private static object BatchDto(ManualBatchSnapshot batch) => new
+    {
+        id = batch.Id,
+        status = batch.Status,
+        total = batch.Total,
+        processed = batch.Details.Count,
+        sent = batch.Sent,
+        failed = batch.Failed,
+        deduplicated = batch.Deduplicated,
+        skippedNoEmail = batch.SkippedNoEmail,
+        details = batch.Details.Select(d => new { maskedTo = d.MaskedTo, status = d.Status }),
+        startedUtc = batch.StartedUtc,
+        finishedUtc = batch.FinishedUtc
+    };
+
+    private static bool TryBuildManualRequest(ManualSendRequest body, out ManualEmailRequest request)
+    {
+        List<EmailAttachment> attachments;
+        try
+        {
+            attachments = (body.Attachments ?? [])
+                .Select(a => new EmailAttachment
+                {
+                    FileName = string.IsNullOrWhiteSpace(a.FileName) ? "attachment" : a.FileName!,
+                    Content = Convert.FromBase64String(a.ContentBase64 ?? string.Empty),
+                    ContentType = Trimmed(a.ContentType)
+                })
+                .ToList();
+        }
+        catch (FormatException)
+        {
+            request = null!;
+            return false;
+        }
+
+        request = new ManualEmailRequest(
+            body.Subject!.Trim(),
+            body.Html,
+            body.Text,
+            Trimmed(body.RecipientMode) ?? "all",
+            body.RecipientUserIds,
+            Trimmed(body.TestAddress),
+            attachments.Count > 0 ? attachments : null);
+        return true;
     }
 
     // -------------------------------------------------------------------------

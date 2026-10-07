@@ -15,6 +15,7 @@ using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -47,6 +48,10 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.PutSettings))]
     [InlineData(nameof(EasyNotifController.GetStatus))]
     [InlineData(nameof(EasyNotifController.SendManualEmail))]
+    [InlineData(nameof(EasyNotifController.StartManualBatch))]
+    [InlineData(nameof(EasyNotifController.GetManualBatch))]
+    [InlineData(nameof(EasyNotifController.GetLatestManualBatch))]
+    [InlineData(nameof(EasyNotifController.RetryManualBatch))]
     [InlineData(nameof(EasyNotifController.GetLogs))]
     [InlineData(nameof(EasyNotifController.GetCampaigns))]
     [InlineData(nameof(EasyNotifController.PutCampaign))]
@@ -647,6 +652,70 @@ public sealed class EasyNotifControllerTests
     }
 
     // -------------------------------------------------------------------------
+    // admin/send/batches: background manual lots
+    // -------------------------------------------------------------------------
+
+    private static ManualBatchSnapshot Batch(Guid id, string status = "running")
+        => new(id, status, 3, 1, 0, 0, 2, [new ManualSendDetail("a***e@example.org", "sent")], DateTime.UtcNow, null);
+
+    [Fact]
+    public void StartManualBatch_Returns202_WithTheLot()
+    {
+        var id = Guid.NewGuid();
+        var queue = new Mock<IManualSendQueue>();
+        queue.Setup(q => q.Start(It.IsAny<ManualEmailRequest>())).Returns(Batch(id));
+        var controller = BuildController(manualQueue: queue);
+
+        var accepted = Assert.IsType<AcceptedResult>(controller.StartManualBatch(new ManualSendRequest { Subject = "Hi", Text = "x" }));
+        var json = JsonSerializer.Serialize(accepted.Value);
+
+        Assert.Equal($"/EasyNotif/admin/send/batches/{id}", accepted.Location);
+        Assert.Contains("\"status\":\"running\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"total\":3", json, StringComparison.Ordinal);
+        Assert.Contains("\"processed\":1", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("userId", json, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void StartManualBatch_InvalidRequest_Returns400_QuotaOver_Returns503()
+    {
+        var queue = new Mock<IManualSendQueue>();
+        queue.Setup(q => q.Start(It.IsAny<ManualEmailRequest>())).Throws(new ArgumentException("Select at least one user."));
+        Assert.IsType<BadRequestObjectResult>(BuildController(manualQueue: queue).StartManualBatch(new ManualSendRequest { Subject = "Hi", Text = "x" }));
+        Assert.IsType<BadRequestObjectResult>(BuildController(manualQueue: queue).StartManualBatch(new ManualSendRequest { Text = "x" }));
+
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(3000, 100, 3000, 100, true, true));
+        var over = BuildController(quota: quota, manualQueue: queue).StartManualBatch(new ManualSendRequest { Subject = "Hi", Text = "x" });
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<ObjectResult>(over).StatusCode);
+    }
+
+    [Fact]
+    public void GetManualBatch_UnknownId_Returns404_LatestWithNone_Returns204()
+    {
+        var controller = BuildController();
+
+        Assert.IsType<NotFoundResult>(controller.GetManualBatch(Guid.NewGuid()));
+        Assert.IsType<NoContentResult>(controller.GetLatestManualBatch());
+    }
+
+    [Theory]
+    [InlineData(ManualRetryOutcome.Started, StatusCodes.Status202Accepted)]
+    [InlineData(ManualRetryOutcome.Running, StatusCodes.Status409Conflict)]
+    [InlineData(ManualRetryOutcome.NothingToRetry, StatusCodes.Status409Conflict)]
+    [InlineData(ManualRetryOutcome.NotFound, StatusCodes.Status404NotFound)]
+    public void RetryManualBatch_MapsTheOutcome(ManualRetryOutcome outcome, int expected)
+    {
+        var id = Guid.NewGuid();
+        var queue = new Mock<IManualSendQueue>();
+        queue.Setup(q => q.Retry(id)).Returns((outcome, outcome == ManualRetryOutcome.NotFound ? null : Batch(id)));
+
+        var result = BuildController(manualQueue: queue).RetryManualBatch(id);
+
+        Assert.Equal(expected, Assert.IsAssignableFrom<IStatusCodeActionResult>(result).StatusCode);
+    }
+
+    // -------------------------------------------------------------------------
     // Wrap: storage/config failures map to 503
     // -------------------------------------------------------------------------
 
@@ -1038,7 +1107,8 @@ public sealed class EasyNotifControllerTests
         Mock<IDispatchService>? dispatch = null,
         ITemplateStore? templates = null,
         Mock<IFileTransformationDetector>? fileTransformation = null,
-        FakeEasyNotifLog? easyNotifLog = null)
+        FakeEasyNotifLog? easyNotifLog = null,
+        Mock<IManualSendQueue>? manualQueue = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1068,6 +1138,7 @@ public sealed class EasyNotifControllerTests
             sendCooldown ?? new SendCooldown(),
             (sendLog ?? new Mock<ISendLog>()).Object,
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
+            (manualQueue ?? new Mock<IManualSendQueue>()).Object,
             campaigns ?? new FakeCampaignStore(),
             (dispatch ?? new Mock<IDispatchService>()).Object,
             templates ?? TestTemplateStore.Create(),

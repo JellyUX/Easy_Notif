@@ -15,13 +15,42 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// </summary>
 public interface IManualEmailService
 {
-    /// <summary>Sends the manual email described by <paramref name="request"/>.</summary>
+    /// <summary>Validates <paramref name="request"/> and resolves its recipients, without sending.</summary>
+    /// <param name="request">The composed email and its audience.</param>
+    /// <returns>The plan to pass to <see cref="SendAsync(ManualEmailPlan, Guid, IReadOnlySet{Guid}?, Action{ManualSendDetail}?, CancellationToken)"/>.</returns>
+    /// <exception cref="ArgumentException">The request is not valid to send.</exception>
+    ManualEmailPlan Plan(ManualEmailRequest request);
+
+    /// <summary>Sends the manual email described by <paramref name="request"/>, as a lot of its own.</summary>
     /// <param name="request">The composed email and its audience.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A per-recipient summary.</returns>
     /// <exception cref="ArgumentException">The request is not valid to send.</exception>
     Task<ManualEmailResult> SendAsync(ManualEmailRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Sends a planned manual email as lot <paramref name="lotId"/>. Each recipient's idempotency key
+    /// is <c>manual:{lotId}:{userId}</c>, so sending the same lot again never delivers twice.
+    /// </summary>
+    /// <param name="plan">The plan from <see cref="Plan"/>.</param>
+    /// <param name="lotId">The lot id.</param>
+    /// <param name="onlyUserIds">When set, only these recipients are sent (a retry of the failures).</param>
+    /// <param name="onSent">Called after each attempted send, for progress.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A per-recipient summary.</returns>
+    Task<ManualEmailResult> SendAsync(
+        ManualEmailPlan plan,
+        Guid lotId,
+        IReadOnlySet<Guid>? onlyUserIds,
+        Action<ManualSendDetail>? onSent,
+        CancellationToken cancellationToken);
 }
+
+/// <summary>A validated manual email and its resolved recipients.</summary>
+/// <param name="Request">The request.</param>
+/// <param name="Recipients">The recipients, in send order.</param>
+/// <param name="SkippedNoEmail">Number of intended users with no valid contact address.</param>
+public sealed record ManualEmailPlan(ManualEmailRequest Request, IReadOnlyList<Recipient> Recipients, int SkippedNoEmail);
 
 /// <summary>A composed manual email and its audience.</summary>
 /// <param name="Subject">The subject line (required).</param>
@@ -50,7 +79,11 @@ public sealed record ManualEmailResult(int Sent, int Failed, int SkippedNoEmail,
 /// <summary>One attempted send in a manual email run.</summary>
 /// <param name="MaskedTo">The masked recipient address.</param>
 /// <param name="Status">"sent", "failed", or "deduplicated" (already sent under the same key).</param>
-public sealed record ManualSendDetail(string MaskedTo, string Status);
+public sealed record ManualSendDetail(string MaskedTo, string Status)
+{
+    /// <summary>Gets the recipient's user id (<see cref="Guid.Empty"/> for a test address). Not exposed by the API.</summary>
+    public Guid UserId { get; init; }
+}
 
 /// <inheritdoc cref="IManualEmailService"/>
 public sealed class ManualEmailService : IManualEmailService
@@ -95,7 +128,11 @@ public sealed class ManualEmailService : IManualEmailService
     }
 
     /// <inheritdoc/>
-    public async Task<ManualEmailResult> SendAsync(ManualEmailRequest request, CancellationToken cancellationToken)
+    public Task<ManualEmailResult> SendAsync(ManualEmailRequest request, CancellationToken cancellationToken)
+        => SendAsync(Plan(request), Guid.NewGuid(), null, null, cancellationToken);
+
+    /// <inheritdoc/>
+    public ManualEmailPlan Plan(ManualEmailRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -115,9 +152,27 @@ public sealed class ManualEmailService : IManualEmailService
             throw new ArgumentException("The attachments exceed the size limit.", nameof(request));
         }
 
+        var (recipients, skippedNoEmail) = ResolveRecipients(request);
+        return new ManualEmailPlan(request, recipients, skippedNoEmail);
+    }
+
+    /// <inheritdoc/>
+    public async Task<ManualEmailResult> SendAsync(
+        ManualEmailPlan plan,
+        Guid lotId,
+        IReadOnlySet<Guid>? onlyUserIds,
+        Action<ManualSendDetail>? onSent,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        var request = plan.Request;
         var isTest = string.Equals(request.Mode, "test", StringComparison.Ordinal);
         var isAll = string.Equals(request.Mode, "all", StringComparison.Ordinal);
-        var (recipients, skippedNoEmail) = ResolveRecipients(request);
+        var recipients = onlyUserIds is null
+            ? plan.Recipients
+            : [.. plan.Recipients.Where(r => onlyUserIds.Contains(r.UserId))];
+        var skippedNoEmail = plan.SkippedNoEmail;
 
         var text = string.IsNullOrWhiteSpace(request.Text) ? HtmlToText.Convert(request.Html) : request.Text;
         var cfg = _config.Get();
@@ -125,7 +180,6 @@ public sealed class ManualEmailService : IManualEmailService
         var sent = 0;
         var failed = 0;
         var details = new List<ManualSendDetail>(recipients.Count);
-        var lotId = Guid.NewGuid();
 
         foreach (var recipient in recipients)
         {
@@ -161,7 +215,9 @@ public sealed class ManualEmailService : IManualEmailService
             }
 
             var maskedTo = EmailMasker.Mask(recipient.Email);
-            details.Add(new ManualSendDetail(maskedTo, status));
+            var detail = new ManualSendDetail(maskedTo, status) { UserId = recipient.UserId };
+            details.Add(detail);
+            onSent?.Invoke(detail);
 
             try
             {

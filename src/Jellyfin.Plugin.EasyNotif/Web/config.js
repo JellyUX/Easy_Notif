@@ -246,6 +246,35 @@
         return root;
     }
 
+    // Detached DOM for a background manual lot: a progress bar while it runs, then the summary
+    // (with the already-sent count when a replay skipped some). textContent only.
+    function _manualBatchView(dict, batch) {
+        if (!batch || batch.status !== 'running') {
+            var root = _manualResult(dict, batch);
+            if (batch && batch.deduplicated > 0) {
+                var dedup = document.createElement('p');
+                dedup.textContent = _t(dict, 'manual.result.deduplicated').replace('{count}', batch.deduplicated);
+                root.insertBefore(dedup, root.children[1] || null);
+            }
+            return root;
+        }
+
+        var view = document.createElement('div');
+        var total = batch.total || 0;
+        var processed = Math.min(batch.processed || 0, total);
+        var bar = document.createElement('progress');
+        bar.className = 'enotif-progress';
+        bar.max = total || 1;
+        bar.value = processed;
+        view.appendChild(bar);
+        var line = document.createElement('p');
+        line.textContent = _t(dict, 'manual.progress')
+            .replace('{processed}', processed)
+            .replace('{total}', total);
+        view.appendChild(line);
+        return view;
+    }
+
     // Client-side level filter for the Logs tab. Lines are produced by EasyNotifLog with a fixed
     // "[DBG]"/"[INF]"/"[WRN]"/"[ERR]" marker, so no parsing beyond a substring check is needed.
     var LOG_LEVEL_MARKERS = { debug: '[DBG]', info: '[INF]', warn: '[WRN]', error: '[ERR]' };
@@ -359,6 +388,7 @@
         _previewSrcdoc: _previewSrcdoc,
         _fmtBytes: _fmtBytes,
         _manualResult: _manualResult,
+        _manualBatchView: _manualBatchView,
         _filterLogLines: _filterLogLines,
         _scheduleFieldsForKind: _scheduleFieldsForKind,
         _validateSchedule: _validateSchedule,
@@ -620,18 +650,68 @@
         }
 
         _setManualResult(_t(dict, 'manual.sending'), false);
-        window.Dashboard.showLoadingMsg();
-        _postJson('admin/send', payload).then(function (summary) {
-            var result = _el('enotifManualResult');
-            result.innerHTML = '';
-            result.classList.remove('enotif-status-error');
-            result.appendChild(_manualResult(dict, summary));
-        }).catch(function (err) {
+        _postJson('admin/send/batches', payload).then(_followManualBatch).catch(function (err) {
             console.error('[EasyNotif Config] manual send failed:', err);
             _setManualResult(_t(dict, 'manual.error.send'), true);
-        }).then(function () {
-            window.Dashboard.hideLoadingMsg();
         });
+    }
+
+    // The lot runs on the server; this only polls its state, so closing the tab stops nothing.
+    var manualPollTimer = null;
+
+    function _renderManualBatch(batch) {
+        var result = _el('enotifManualResult');
+        result.innerHTML = '';
+        result.classList.remove('enotif-status-error');
+        result.appendChild(_manualBatchView(dict, batch));
+        if (batch.status !== 'running' && batch.failed > 0) {
+            var retry = document.createElement('button');
+            retry.setAttribute('is', 'emby-button');
+            retry.type = 'button';
+            retry.className = 'raised button-alt';
+            retry.textContent = _t(dict, 'manual.retry');
+            retry.addEventListener('click', function () {
+                retry.disabled = true;
+                _postJson('admin/send/batches/' + batch.id + '/retry', {}).then(_followManualBatch).catch(function (err) {
+                    console.error('[EasyNotif Config] manual retry failed:', err);
+                    _setManualResult(_t(dict, 'manual.error.send'), true);
+                });
+            });
+            result.appendChild(retry);
+        }
+    }
+
+    function _followManualBatch(batch) {
+        if (manualPollTimer) {
+            clearTimeout(manualPollTimer);
+            manualPollTimer = null;
+        }
+        if (!batch || !batch.id) {
+            return;
+        }
+        _renderManualBatch(batch);
+        if (batch.status !== 'running') {
+            return;
+        }
+        manualPollTimer = setTimeout(function () {
+            window.ApiClient.getJSON(_url('admin/send/batches/' + batch.id))
+                .then(_followManualBatch)
+                .catch(function (err) {
+                    console.error('[EasyNotif Config] could not read the manual lot:', err);
+                    _setManualResult(_t(dict, 'manual.error.progress'), true);
+                });
+        }, 1000);
+    }
+
+    // A lot still running when the page is reopened is followed again (204 when there is none).
+    function _resumeManualBatch() {
+        window.ApiClient.ajax({ type: 'GET', url: _url('admin/send/batches/latest'), dataType: 'json' })
+            .then(function (batch) {
+                if (batch && batch.status === 'running') {
+                    _followManualBatch(batch);
+                }
+            })
+            .catch(function () { /* no lot held */ });
     }
 
     function _bindManual() {
@@ -1105,6 +1185,7 @@
                 _loadLogs();
                 _loadTemplates();
                 _loadCampaigns();
+                _resumeManualBatch();
                 _loadManualUsers().then(function () {
                     var addr = _el('enotifManualTestAddress');
                     if (!addr.value) {

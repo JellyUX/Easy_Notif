@@ -6,7 +6,7 @@ import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
 const {
     _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus,
-    _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _fmtBytes,
+    _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
     _previewResult, _tplOptions, _campaignTemplateBaseId,
@@ -221,6 +221,33 @@ describe('manual email helpers', () => {
         });
         expect(el.innerHTML).not.toContain('<img');
         expect(el.textContent).toContain('<img src=x onerror=alert(1)>');
+    });
+
+    it('_manualBatchView shows a progress bar while the lot runs', () => {
+        const el = _manualBatchView(enStrings, { id: 'x', status: 'running', total: 4, processed: 1, details: [] });
+        const bar = el.querySelector('progress.enotif-progress');
+        expect(bar).not.toBeNull();
+        expect(bar.max).toBe(4);
+        expect(bar.value).toBe(1);
+        expect(el.textContent).toContain('1 / 4');
+    });
+
+    it('_manualBatchView shows the summary, and the already-sent count, once done', () => {
+        const el = _manualBatchView(frStrings, {
+            id: 'x', status: 'done', total: 3, processed: 3, sent: 1, failed: 0, deduplicated: 2, skippedNoEmail: 0,
+            details: [{ maskedTo: 'a***e@example.org', status: 'sent' }]
+        });
+        expect(el.querySelector('progress')).toBeNull();
+        expect(el.textContent).toContain('1 envoyés');
+        expect(el.textContent).toContain('2 déjà envoyés');
+        expect(el.textContent).toContain('a***e@example.org - sent');
+    });
+
+    it('_manualBatchView renders a hostile maskedTo as text, not markup', () => {
+        const el = _manualBatchView(enStrings, {
+            status: 'done', sent: 0, failed: 1, details: [{ maskedTo: '<img src=x onerror=alert(1)>', status: 'failed' }]
+        });
+        expect(el.innerHTML).not.toContain('<img');
     });
 
     it('_fmtBytes is human readable', () => {

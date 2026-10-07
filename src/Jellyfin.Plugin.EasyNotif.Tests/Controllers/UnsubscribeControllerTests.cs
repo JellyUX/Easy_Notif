@@ -173,6 +173,23 @@ public sealed class UnsubscribeControllerTests
         prefs.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    public void Page_CarriesTheSecurityHeaders(string method)
+    {
+        var (controller, _, _) = Build();
+
+        var result = method == "GET" ? controller.Get(Token("news")) : controller.Post(Token("news"));
+
+        Assert.IsType<ContentResult>(result);
+        var headers = controller.ControllerContext.HttpContext.Response.Headers;
+        Assert.Equal(
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+            headers.ContentSecurityPolicy.ToString());
+        Assert.Equal("no-referrer", headers["Referrer-Policy"].ToString());
+    }
+
     [Fact]
     public void Get_DoesNotReadTheStoredPreference()
     {

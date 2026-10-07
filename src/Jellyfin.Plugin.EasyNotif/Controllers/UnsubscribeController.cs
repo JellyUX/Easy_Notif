@@ -23,6 +23,9 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 [Route("EasyNotif")]
 public class UnsubscribeController : ControllerBase
 {
+    /// <summary>The Content-Security-Policy sent with the confirmation page (audit SEC-08).</summary>
+    public const string ContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'";
+
     private readonly ISecretStore _secrets;
     private readonly IPreferenceService _preferences;
     private readonly IUserManager _userManager;
@@ -161,7 +164,13 @@ public class UnsubscribeController : ControllerBase
     }
 
     private ContentResult Page(string category, bool done, bool resubscribed)
-        => Content(UnsubscribePage.Build(PickLang(), category, done, resubscribed), "text/html; charset=utf-8");
+    {
+        // Inline styles only, a same-origin form, never framed (clickjacking a resubscribe), and the
+        // token-bearing URL never leaks as a referrer.
+        Response.Headers.ContentSecurityPolicy = ContentSecurityPolicy;
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+        return Content(UnsubscribePage.Build(PickLang(), category, done, resubscribed), "text/html; charset=utf-8");
+    }
 
     private static Dictionary<EmailCategory, bool> CategoryMap(string category, bool value) => category switch
     {

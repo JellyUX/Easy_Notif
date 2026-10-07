@@ -168,6 +168,30 @@ public sealed class PreferenceServiceTests
     }
 
     [Fact]
+    public void SetCategories_WritesTheAnnouncementsOptOut_AndLeavesItWhenNull()
+    {
+        _service.SetCategories(_alice, Cats(), announcementsOptOut: true);
+        Assert.True(_service.GetOrCreate(_alice).AnnouncementsOptOut);
+
+        _service.SetCategories(_alice, Cats(news: true));
+        Assert.True(_service.GetOrCreate(_alice).AnnouncementsOptOut);
+
+        _service.SetCategories(_alice, new Dictionary<EmailCategory, bool>(), announcementsOptOut: false);
+        Assert.False(_service.GetOrCreate(_alice).AnnouncementsOptOut);
+    }
+
+    [Fact]
+    public void GetContactable_ExcludesAnnouncementOptOuts_OnlyWhenAsked()
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetContactEmail(_bob, "bob@example.org");
+        _service.SetCategories(_bob, Cats(), announcementsOptOut: true);
+
+        Assert.Equal([_alice], _service.GetContactable(null, excludeAnnouncementOptOuts: true).Select(r => r.UserId));
+        Assert.Equal(2, _service.GetContactable([_alice, _bob]).Count);
+    }
+
+    [Fact]
     public void Purge_RemovesTheRow_LeavesOthers()
     {
         _service.SetContactEmail(_alice, "alice@example.org");

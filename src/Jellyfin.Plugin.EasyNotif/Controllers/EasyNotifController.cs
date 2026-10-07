@@ -130,7 +130,8 @@ public class EasyNotifController : ControllerBase
             return Ok(new
             {
                 news = pref.Categories.GetValueOrDefault(EmailCategory.News),
-                recap = pref.Categories.GetValueOrDefault(EmailCategory.Recap)
+                recap = pref.Categories.GetValueOrDefault(EmailCategory.Recap),
+                announcements = !pref.AnnouncementsOptOut
             });
         });
     }
@@ -147,7 +148,7 @@ public class EasyNotifController : ControllerBase
         var userId = await CurrentUserIdAsync().ConfigureAwait(false);
         return Wrap(() =>
         {
-            _preferences.SetCategories(userId, BuildCategoryMap(body));
+            _preferences.SetCategories(userId, BuildCategoryMap(body), body?.Announcements is { } on ? !on : null);
             return NoContent();
         });
     }
@@ -1118,6 +1119,12 @@ public class CategoryUpdate
 
     /// <summary>Gets or sets the "weekly recap" opt-in state.</summary>
     public bool? Recap { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the caller receives manual announcements. Honoured on
+    /// <c>PUT me/preferences</c> only: an admin cannot override a user's opt-out.
+    /// </summary>
+    public bool? Announcements { get; set; }
 }
 
 /// <summary>Admin change to another user's preferences.</summary>

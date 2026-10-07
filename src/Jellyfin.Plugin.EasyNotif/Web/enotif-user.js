@@ -20,6 +20,9 @@
 
     var PLUGIN_ID = '7a27339e-e774-4969-9755-8cd213dcc5e7';
 
+    // Panel checkbox -> PUT me/preferences body field.
+    var CAT_FIELDS = { news: 'News', recap: 'Recap', announcements: 'Announcements' };
+
     var DICT = {
         en: {
             'panel.title': 'Email notifications',
@@ -27,6 +30,7 @@
             'panel.email.help': 'The address your notifications are sent to. Leave blank to receive none.',
             'panel.cat.news': 'New media',
             'panel.cat.recap': 'Weekly recap',
+            'panel.cat.announcements': 'Announcements',
             'panel.notice': 'Your address is stored by this plugin and sent to Resend (in the United States) to deliver the emails. It is deleted when the plugin is removed.',
             'panel.test': 'Send a test',
             'status.saved': 'Saved.',
@@ -42,6 +46,7 @@
             'panel.email.help': "L'adresse à laquelle vos notifications sont envoyées. Laissez vide pour n'en recevoir aucune.",
             'panel.cat.news': 'Nouveautés',
             'panel.cat.recap': 'Résumé de la semaine',
+            'panel.cat.announcements': 'Annonces',
             'panel.notice': "Votre adresse est stockée par ce plugin et transmise à Resend (aux États-Unis) pour l'envoi des emails. Elle est supprimée à la désinstallation du plugin.",
             'panel.test': 'Envoyer un test',
             'status.saved': 'Enregistré.',
@@ -127,7 +132,8 @@
 
         [
             { cat: 'news', on: !!(data && data.news) },
-            { cat: 'recap', on: !!(data && data.recap) }
+            { cat: 'recap', on: !!(data && data.recap) },
+            { cat: 'announcements', on: !!(data && data.announcements) }
         ].forEach(function (spec) {
             var wrap = document.createElement('div');
             wrap.className = 'checkboxContainer';
@@ -251,6 +257,8 @@
             state.data = {
                 news: !!results[0].news,
                 recap: !!results[0].recap,
+                // Announcements are opt-out: only an explicit false unticks the box.
+                announcements: results[0].announcements !== false,
                 email: results[1].email || null
             };
             state.loadPromise = null;
@@ -318,7 +326,7 @@
             box.addEventListener('change', function () {
                 var cat = box.getAttribute('data-cat');
                 var body = {};
-                body[cat === 'news' ? 'News' : 'Recap'] = box.checked;
+                body[CAT_FIELDS[cat]] = box.checked;
                 if (state.data) {
                     state.data[cat] = box.checked;
                 }

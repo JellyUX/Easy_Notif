@@ -79,6 +79,7 @@ public sealed class DowngradeCompatibilityTests : IDisposable
                     UserId = userId,
                     ContactEmail = "a@b.co",
                     Categories = { [EmailCategory.News] = true, [EmailCategory.Recap] = false },
+                    AnnouncementsOptOut = true,
                     UpdatedAt = updated
                 });
                 return true;

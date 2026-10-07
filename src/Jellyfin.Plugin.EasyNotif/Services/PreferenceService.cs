@@ -52,10 +52,10 @@ public sealed class PreferenceService : IPreferenceService
     }
 
     /// <inheritdoc/>
-    public void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories)
+    public void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null)
     {
         ArgumentNullException.ThrowIfNull(categories);
-        if (categories.Count == 0)
+        if (categories.Count == 0 && announcementsOptOut is null)
         {
             return;
         }
@@ -71,6 +71,12 @@ public sealed class PreferenceService : IPreferenceService
                     row.Categories[category] = value;
                     changed = true;
                 }
+            }
+
+            if (announcementsOptOut is { } optOut && row.AnnouncementsOptOut != optOut)
+            {
+                row.AnnouncementsOptOut = optOut;
+                changed = true;
             }
 
             if (changed)
@@ -95,12 +101,13 @@ public sealed class PreferenceService : IPreferenceService
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null)
+    public IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null, bool excludeAnnouncementOptOuts = false)
     {
         var live = LiveUserIds();
         return _store.ReadAll()
             .Where(p => live.Contains(p.UserId)
                 && (userIds is null || userIds.Contains(p.UserId))
+                && !(excludeAnnouncementOptOuts && p.AnnouncementsOptOut)
                 && MailAddress.TryCreate(p.ContactEmail, out _))
             .Select(p => new Recipient(p.UserId, p.ContactEmail!))
             .ToList();

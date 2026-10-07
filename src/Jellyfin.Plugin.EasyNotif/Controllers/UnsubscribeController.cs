@@ -90,7 +90,8 @@ public class UnsubscribeController : ControllerBase
 
         return Guarded(() =>
         {
-            _preferences.SetCategories(userId, CategoryMap(category, target));
+            // "all" also covers manual announcements, which are opt-out: unsubscribing sets the opt-out.
+            _preferences.SetCategories(userId, CategoryMap(category, target), category == "all" ? !target : null);
 
             _easyNotifLog.Info("unsubscribe.action", new Dictionary<string, object?>
             {
@@ -147,7 +148,8 @@ public class UnsubscribeController : ControllerBase
             "news" => pref.Categories.GetValueOrDefault(EmailCategory.News),
             "recap" => pref.Categories.GetValueOrDefault(EmailCategory.Recap),
             _ => pref.Categories.GetValueOrDefault(EmailCategory.News)
-                 || pref.Categories.GetValueOrDefault(EmailCategory.Recap),
+                 || pref.Categories.GetValueOrDefault(EmailCategory.Recap)
+                 || !pref.AnnouncementsOptOut,
         };
     }
 

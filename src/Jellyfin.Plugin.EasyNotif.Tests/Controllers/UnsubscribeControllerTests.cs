@@ -66,7 +66,7 @@ public sealed class UnsubscribeControllerTests
 
         Assert.Equal("text/html; charset=utf-8", result.ContentType);
         Assert.Contains("<form method=\"post\">", result.Content!, StringComparison.Ordinal);
-        prefs.Verify(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>()), Times.Never);
+        prefs.Verify(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()), Times.Never);
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class UnsubscribeControllerTests
 
         Assert.IsType<ContentResult>(result);
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m.Count == 1 && m[EmailCategory.News] == false)), Times.Once);
+            m => m.Count == 1 && m[EmailCategory.News] == false), null), Times.Once);
         var entry = Assert.Single(log.Entries, e => e.EventType == "unsubscribe.action");
         Assert.Equal("Info", entry.Level);
         Assert.Equal(false, entry.Fields!["resubscribe"]);
@@ -101,7 +101,7 @@ public sealed class UnsubscribeControllerTests
         controller.Post(Token("news"));
 
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m[EmailCategory.News])), Times.Once);
+            m => m[EmailCategory.News]), null), Times.Once);
     }
 
     [Fact]
@@ -117,7 +117,7 @@ public sealed class UnsubscribeControllerTests
     public void Post_StorageFailure_Returns503_NotAnUnhandledError()
     {
         var (controller, prefs, _) = Build();
-        prefs.Setup(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>()))
+        prefs.Setup(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()))
             .Throws(new UnauthorizedAccessException("preferences.json is locked"));
 
         var result = controller.Post(Token("news"));
@@ -126,14 +126,25 @@ public sealed class UnsubscribeControllerTests
     }
 
     [Fact]
-    public void Post_CategoryAll_TogglesBothCategories()
+    public void Post_CategoryAll_TurnsOffBothCategoriesAndAnnouncements()
     {
         var (controller, prefs, _) = Build();
 
         controller.Post(Token("all"));
 
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m.Count == 2 && !m[EmailCategory.News] && !m[EmailCategory.Recap])), Times.Once);
+            m => m.Count == 2 && !m[EmailCategory.News] && !m[EmailCategory.Recap]), true), Times.Once);
+    }
+
+    [Fact]
+    public void Post_CategoryAll_Resubscribe_TurnsAnnouncementsBackOn()
+    {
+        var (controller, prefs, _) = Build(newsOptIn: false, recapOptIn: false);
+        SetForm(controller, new() { ["resubscribe"] = "true" });
+
+        controller.Post(Token("all"));
+
+        prefs.Verify(p => p.SetCategories(User, It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), false), Times.Once);
     }
 
     [Fact]

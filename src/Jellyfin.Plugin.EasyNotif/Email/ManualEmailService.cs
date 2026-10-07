@@ -8,7 +8,9 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// <summary>
 /// Sends a one-off admin email to every user with a valid contact address (or a chosen subset, or
 /// a single test address). Manual emails are not subject to category preferences
-/// (Synthese.md section 7.1). Each send is spaced by the shared <see cref="SendRateLimiter"/>,
+/// (Synthese.md section 7.1), but a send to everyone skips users who opted out of announcements
+/// and carries a one-click unsubscribe link; a send to hand-picked users does neither, since the
+/// admin chose them explicitly. Each send is spaced by the shared <see cref="SendRateLimiter"/>,
 /// counted by <see cref="IQuotaGuard"/> and recorded (masked) in <see cref="ISendLog"/>.
 /// </summary>
 public interface IManualEmailService
@@ -114,6 +116,7 @@ public sealed class ManualEmailService : IManualEmailService
         }
 
         var isTest = string.Equals(request.Mode, "test", StringComparison.Ordinal);
+        var isAll = string.Equals(request.Mode, "all", StringComparison.Ordinal);
         var (recipients, skippedNoEmail) = ResolveRecipients(request);
 
         var text = string.IsNullOrWhiteSpace(request.Text) ? HtmlToText.Convert(request.Html) : request.Text;
@@ -132,7 +135,7 @@ public sealed class ManualEmailService : IManualEmailService
                 Html = string.IsNullOrWhiteSpace(request.Html) ? null : request.Html,
                 Text = string.IsNullOrEmpty(text) ? null : text,
                 ReplyTo = cfg.ReplyTo,
-                Headers = isTest ? null : BuildUnsubscribeHeaders(cfg, _secrets.Get().UnsubscribeSecret, recipient.UserId),
+                Headers = !isAll ? null : BuildUnsubscribeHeaders(cfg, _secrets.Get().UnsubscribeSecret, recipient.UserId),
                 Tags = [new EmailTag("context", "manual")],
                 Attachments = request.Attachments,
                 IdempotencyKey = null
@@ -203,7 +206,7 @@ public sealed class ManualEmailService : IManualEmailService
                 return (chosen, request.UserIds.Count - chosen.Count);
 
             case "all":
-                var everyone = _preferences.GetContactable(null);
+                var everyone = _preferences.GetContactable(null, excludeAnnouncementOptOuts: true);
                 var withoutEmail = _preferences.GetAllForAdmin().Count(r => !r.HasEmail);
                 return (everyone, withoutEmail);
 

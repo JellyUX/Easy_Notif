@@ -3,8 +3,8 @@ using System.Text.Json.Serialization;
 namespace Jellyfin.Plugin.EasyNotif.Models;
 
 /// <summary>
-/// A kind of email a user can opt in to or out of. Manual admin emails are not a category:
-/// every user with a valid contact address receives those (see Synthese.md section 7).
+/// A kind of email a user can opt in to or out of. Manual admin announcements are not a category:
+/// they are opt-out, tracked by <see cref="UserPreference.AnnouncementsOptOut"/>.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum EmailCategory

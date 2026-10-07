@@ -21,6 +21,14 @@ public sealed class UserPreference
     /// </summary>
     public Dictionary<EmailCategory, bool> Categories { get; init; } = [];
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the user opted out of manual admin announcements
+    /// sent to everyone. Unlike <see cref="Categories"/> the default is opted in, and it is stored
+    /// outside that dictionary so a file written by this version stays readable by 1.0.2 (an
+    /// unknown enum key would fail its parse; an unknown property is ignored).
+    /// </summary>
+    public bool AnnouncementsOptOut { get; set; }
+
     /// <summary>Gets or sets the UTC time this record was last changed.</summary>
     public DateTime UpdatedAt { get; set; }
 
@@ -31,6 +39,7 @@ public sealed class UserPreference
         UserId = UserId,
         ContactEmail = ContactEmail,
         Categories = new Dictionary<EmailCategory, bool>(Categories),
+        AnnouncementsOptOut = AnnouncementsOptOut,
         UpdatedAt = UpdatedAt
     };
 }

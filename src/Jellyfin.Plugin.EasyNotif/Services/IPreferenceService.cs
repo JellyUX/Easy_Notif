@@ -47,12 +47,13 @@ public interface IPreferenceService
     void SetContactEmail(Guid userId, string? email);
 
     /// <summary>
-    /// Sets the opt-in state for one or more categories. Categories not present in the dictionary
-    /// are left unchanged.
+    /// Sets the opt-in state for one or more categories, and optionally the announcements opt-out,
+    /// in a single write. Categories not present in the dictionary are left unchanged.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="categories">The categories to change and their new state.</param>
-    void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories);
+    /// <param name="announcementsOptOut">The new announcements opt-out, or null to leave it unchanged.</param>
+    void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null);
 
     /// <summary>
     /// Returns every user who has opted in to a category and has a valid contact address.
@@ -66,8 +67,9 @@ public interface IPreferenceService
     /// manual admin emails, which are not subject to opt-in (Synthese.md section 7.1).
     /// </summary>
     /// <param name="userIds">When given, restricts the result to these users; null means all.</param>
+    /// <param name="excludeAnnouncementOptOuts">When true, leaves out users who opted out of announcements.</param>
     /// <returns>The contactable recipients.</returns>
-    IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null);
+    IReadOnlyList<Recipient> GetContactable(IReadOnlyCollection<Guid>? userIds = null, bool excludeAnnouncementOptOuts = false);
 
     /// <summary>
     /// Returns one row per Jellyfin user for the admin table, including users who have never set a

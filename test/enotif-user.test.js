@@ -78,6 +78,16 @@ describe('_buildPanel', () => {
         expect(panel.textContent).toContain('Resend');
     });
 
+    it('renders the announcements checkbox with its FR and EN labels', () => {
+        const on = _buildPanel('fr', { announcements: true });
+        const off = _buildPanel('en', { announcements: false });
+
+        expect(on.querySelector('.enotif-cat[data-cat="announcements"]').checked).toBe(true);
+        expect(on.textContent).toContain('Annonces');
+        expect(off.querySelector('.enotif-cat[data-cat="announcements"]').checked).toBe(false);
+        expect(off.textContent).toContain('Announcements');
+    });
+
     it('handles null data (no email, opted out)', () => {
         const panel = _buildPanel('fr', null);
 

@@ -139,6 +139,44 @@ public sealed class EasyNotifControllerTests
         service.Verify(s => s.GetOrCreate(knownUserId), Times.Once);
     }
 
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task GetMyPreferences_ReportsAnnouncementsAsTheInverseOfTheOptOut(bool optOut, bool expected)
+    {
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetOrCreate(It.IsAny<Guid>())).Returns(new UserPreference { AnnouncementsOptOut = optOut });
+        var controller = BuildController(service, auth: AuthReturning(Guid.NewGuid()));
+
+        var ok = Assert.IsType<OkObjectResult>(await controller.GetMyPreferences());
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.Equal(expected, json.RootElement.GetProperty("announcements").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PutMyPreferences_Announcements_WritesTheOptOut()
+    {
+        var userId = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service, auth: AuthReturning(userId));
+
+        await controller.PutMyPreferences(new CategoryUpdate { Announcements = false });
+
+        service.Verify(s => s.SetCategories(userId, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(m => m.Count == 0), true), Times.Once);
+    }
+
+    [Fact]
+    public void PutUserPreferences_IgnoresAnnouncements_AnAdminCannotOverrideAnOptOut()
+    {
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service);
+
+        controller.PutUserPreferences(Guid.NewGuid(), new AdminPreferenceUpdate { Announcements = true });
+
+        service.Verify(s => s.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()), Times.Never);
+    }
+
     // -------------------------------------------------------------------------
     // Payload validation
     // -------------------------------------------------------------------------

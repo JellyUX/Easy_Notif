@@ -61,7 +61,7 @@ public class ManualEmailServiceTests
                 });
 
             SendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(LogEntries.Add);
-            Preferences.Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>())).Returns([]);
+            Preferences.Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<bool>())).Returns([]);
             Preferences.Setup(p => p.GetAllForAdmin()).Returns([]);
 
             Service = new ManualEmailService(
@@ -74,11 +74,17 @@ public class ManualEmailServiceTests
                 NullLogger<ManualEmailService>.Instance);
         }
 
+        public List<bool> ExcludeOptOutFlags { get; } = [];
+
         public void Contactable(params Recipient[] recipients)
-            => Preferences.Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>()))
-                .Returns<IReadOnlyCollection<Guid>?>(ids => ids is null
-                    ? recipients
-                    : recipients.Where(r => ids.Contains(r.UserId)).ToList());
+            => Preferences.Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<bool>()))
+                .Returns<IReadOnlyCollection<Guid>?, bool>((ids, excludeOptOuts) =>
+                {
+                    ExcludeOptOutFlags.Add(excludeOptOuts);
+                    return ids is null
+                        ? recipients
+                        : recipients.Where(r => ids.Contains(r.UserId)).ToList();
+                });
 
         public void AdminRows(int withoutEmail)
             => Preferences.Setup(p => p.GetAllForAdmin()).Returns(
@@ -125,6 +131,31 @@ public class ManualEmailServiceTests
         Assert.Equal(1, result.Sent);
         Assert.Equal(1, result.SkippedNoEmail);
         Assert.Equal("alice@example.org", Assert.Single(h.Sent).To);
+    }
+
+    [Fact]
+    public async Task All_SkipsAnnouncementOptOuts_AndCarriesAnUnsubscribeLink()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+        h.AdminRows(0);
+
+        await h.Service.SendAsync(Request(), CancellationToken.None);
+
+        Assert.Equal([true], h.ExcludeOptOutFlags);
+        Assert.NotNull(Assert.Single(h.Sent).Headers);
+    }
+
+    [Fact]
+    public async Task Selected_IgnoresAnnouncementOptOuts_AndCarriesNoUnsubscribeLink()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+
+        await h.Service.SendAsync(Request(mode: "selected", userIds: [Alice]), CancellationToken.None);
+
+        Assert.Equal([false], h.ExcludeOptOutFlags);
+        Assert.Null(Assert.Single(h.Sent).Headers);
     }
 
     [Fact]

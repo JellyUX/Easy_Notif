@@ -110,7 +110,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             .GroupBy(MediaKey.For, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         var alreadyAnnounced = _announced.AnnouncedOnOrBefore(AnnouncedStore.NewsletterChannel, byKey.Keys, since);
-        var inLibrary = KeysPresentOutside(byKey, candidates.Select(i => i.Id).ToHashSet());
+        var inLibrary = LibraryKeyLookup.PresentOutside(_libraryManager, byKey, candidates.Select(i => i.Id).ToHashSet());
         var kept = byKey
             .Where(kv => !alreadyAnnounced.Contains(kv.Key) && !inLibrary.Contains(kv.Key))
             .ToList();
@@ -205,57 +205,6 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <inheritdoc/>
     public void MarkAnnounced(IEnumerable<string> keys, DateTime runUtc)
         => _announced.Record(AnnouncedStore.NewsletterChannel, keys, runUtc);
-
-    // The keys that already exist in the library under an id outside the window: one query per series
-    // touched (its real episodes) and one per movie with a provider id. Virtual items (the missing
-    // episodes Jellyfin lists ahead of the file) never count as present.
-    private HashSet<string> KeysPresentOutside(IReadOnlyDictionary<string, BaseItem> byKey, IReadOnlySet<Guid> windowIds)
-    {
-        var present = new HashSet<string>(StringComparer.Ordinal);
-
-        var seriesIds = byKey
-            .Where(kv => kv.Value is Episode && kv.Key.StartsWith("ep:", StringComparison.Ordinal))
-            .Select(kv => ((Episode)kv.Value).SeriesId)
-            .Distinct();
-        foreach (var seriesId in seriesIds)
-        {
-            AddPresent(new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Episode],
-                AncestorIds = [seriesId],
-                Recursive = true,
-                IsVirtualItem = false,
-                DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
-            });
-        }
-
-        foreach (var (key, item) in byKey.Where(kv => kv.Key.StartsWith("movie:", StringComparison.Ordinal)))
-        {
-            var provider = key.StartsWith("movie:tmdb:", StringComparison.Ordinal) ? MetadataProvider.Tmdb : MetadataProvider.Imdb;
-            AddPresent(new InternalItemsQuery
-            {
-                IncludeItemTypes = [BaseItemKind.Movie],
-                HasAnyProviderId = new Dictionary<string, string> { [provider.ToString()] = item.GetProviderId(provider)! },
-                Recursive = true,
-                IsVirtualItem = false,
-                DtoOptions = new MediaBrowser.Controller.Dto.DtoOptions { Fields = [] }
-            });
-        }
-
-        return present;
-
-        void AddPresent(InternalItemsQuery query)
-        {
-            foreach (var other in _libraryManager.GetItemList(query).Where(i => !i.IsVirtualItem && !windowIds.Contains(i.Id)))
-            {
-                var key = MediaKey.For(other);
-                if (byKey.ContainsKey(key))
-                {
-                    present.Add(key);
-                }
-            }
-        }
-    }
 
     private static string? Trimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -14,9 +14,10 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 
 /// <summary>
 /// The public one-click unsubscribe endpoint <c>GET|POST /EasyNotif/u/{token}</c> (Synthese.md
-/// section 7.2). Anonymous but token-gated: an invalid token gets 404. <c>GET</c> renders a small
-/// confirmation page and never changes anything; <c>POST</c> toggles the preference (RFC 8058
-/// one-click, or the page's form).
+/// section 7.2). Anonymous but token-gated: an invalid or expired token gets 404, and each client
+/// address is rate-limited (429). <c>GET</c> renders a neutral confirmation page that neither
+/// changes nor reveals the current preference; <c>POST</c> applies it (RFC 8058 one-click, or the
+/// page's form).
 /// </summary>
 [ApiController]
 [Route("EasyNotif")]
@@ -25,6 +26,8 @@ public class UnsubscribeController : ControllerBase
     private readonly ISecretStore _secrets;
     private readonly IPreferenceService _preferences;
     private readonly IUserManager _userManager;
+    private readonly UnsubscribeRateLimiter _rateLimiter;
+    private readonly TimeProvider _time;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<UnsubscribeController> _logger;
 
@@ -32,51 +35,68 @@ public class UnsubscribeController : ControllerBase
     /// <param name="secrets">The transport secret store (for the unsubscribe secret).</param>
     /// <param name="preferences">The preference service.</param>
     /// <param name="userManager">Jellyfin user manager, to reject tokens of deleted accounts.</param>
+    /// <param name="rateLimiter">The per-address request limiter.</param>
+    /// <param name="time">The clock, for token expiry.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public UnsubscribeController(
         ISecretStore secrets,
         IPreferenceService preferences,
         IUserManager userManager,
+        UnsubscribeRateLimiter rateLimiter,
+        TimeProvider time,
         IEasyNotifLog easyNotifLog,
         ILogger<UnsubscribeController> logger)
     {
         _secrets = secrets;
         _preferences = preferences;
         _userManager = userManager;
+        _rateLimiter = rateLimiter;
+        _time = time;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
 
-    /// <summary>Renders the confirmation page for a token. Does not change anything.</summary>
+    /// <summary>Renders the confirmation page for a token. Does not change or show anything stored.</summary>
     /// <param name="token">The signed unsubscribe token.</param>
-    /// <returns>The HTML page, 404 for an invalid token, or 503 when storage is unavailable.</returns>
+    /// <returns>The HTML page, 404 for an invalid token, or 429 over the rate limit.</returns>
     [HttpGet("u/{token}")]
     [AllowAnonymous]
     [Produces("text/html")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public IActionResult Get([FromRoute] string token)
     {
-        if (!Resolve(token, out var userId, out var category))
+        if (!_rateLimiter.TryAcquire(HttpContext.Connection.RemoteIpAddress))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        if (!Resolve(token, out _, out var category))
         {
             return NotFound();
         }
 
-        return Guarded(() => Page(userId, category, done: false));
+        return Page(category, done: false, resubscribed: false);
     }
 
-    /// <summary>Toggles the preference the token targets. One-click bodies get a bare 200.</summary>
+    /// <summary>Applies the preference the token targets. One-click bodies get a bare 200.</summary>
     /// <param name="token">The signed unsubscribe token.</param>
-    /// <returns>200 (bare for one-click, otherwise the page), or 404 for an invalid token.</returns>
+    /// <returns>200 (bare for one-click, otherwise the page), 404 for an invalid token, or 429 over the rate limit.</returns>
     [HttpPost("u/{token}")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public IActionResult Post([FromRoute] string token)
     {
+        if (!_rateLimiter.TryAcquire(HttpContext.Connection.RemoteIpAddress))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
         if (!Resolve(token, out var userId, out var category))
         {
             return NotFound();
@@ -106,7 +126,7 @@ public class UnsubscribeController : ControllerBase
                 ["oneClick"] = oneClick
             });
 
-            return oneClick ? Ok() : Page(userId, category, done: true);
+            return oneClick ? Ok() : Page(category, done: true, resubscribed: resubscribe);
         });
     }
 
@@ -130,7 +150,7 @@ public class UnsubscribeController : ControllerBase
         category = string.Empty;
 
         var secret = _secrets.Get().UnsubscribeSecret;
-        if (!UnsubscribeToken.TryVerify(secret ?? string.Empty, token, out userId, out category))
+        if (!UnsubscribeToken.TryVerify(secret ?? string.Empty, token, _time.GetUtcNow(), out userId, out category))
         {
             return false;
         }
@@ -140,25 +160,8 @@ public class UnsubscribeController : ControllerBase
             && _userManager.GetUserById(userId) is not null;
     }
 
-    private ContentResult Page(Guid userId, string category, bool done)
-    {
-        var subscribed = IsSubscribed(userId, category);
-        var lang = PickLang();
-        return Content(UnsubscribePage.Build(lang, category, subscribed, done), "text/html; charset=utf-8");
-    }
-
-    private bool IsSubscribed(Guid userId, string category)
-    {
-        var pref = _preferences.GetOrCreate(userId);
-        return category switch
-        {
-            "news" => pref.Categories.GetValueOrDefault(EmailCategory.News),
-            "recap" => pref.Categories.GetValueOrDefault(EmailCategory.Recap),
-            _ => pref.Categories.GetValueOrDefault(EmailCategory.News)
-                 || pref.Categories.GetValueOrDefault(EmailCategory.Recap)
-                 || !pref.AnnouncementsOptOut,
-        };
-    }
+    private ContentResult Page(string category, bool done, bool resubscribed)
+        => Content(UnsubscribePage.Build(PickLang(), category, done, resubscribed), "text/html; charset=utf-8");
 
     private static Dictionary<EmailCategory, bool> CategoryMap(string category, bool value) => category switch
     {

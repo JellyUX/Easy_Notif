@@ -12,17 +12,21 @@ public static class UnsubscribePage
     /// <summary>Builds the page.</summary>
     /// <param name="lang">The language, <c>fr</c> or <c>en</c>.</param>
     /// <param name="category">The category the token targets: <c>news</c>, <c>recap</c> or <c>all</c>.</param>
-    /// <param name="subscribed">Whether the user is currently subscribed to that category.</param>
-    /// <param name="done">True after a POST, to show a confirmation line.</param>
+    /// <param name="done">True after a POST, to confirm the action just applied.</param>
+    /// <param name="resubscribed">After a POST, true when the action was a resubscribe.</param>
     /// <returns>A complete HTML document.</returns>
-    public static string Build(string lang, string category, bool subscribed, bool done)
+    /// <remarks>
+    /// The page never shows the stored preference (audit SEC-04): before an action it offers to
+    /// unsubscribe, after one it states what was just done and offers the opposite.
+    /// </remarks>
+    public static string Build(string lang, string category, bool done, bool resubscribed)
     {
         var fr = lang == "fr";
         var label = CategoryLabel(category, fr);
 
         var title = fr ? "Préférences d'email Easy Notif" : "Easy Notif email preferences";
 
-        string state = (done, subscribed) switch
+        string state = (done, resubscribed) switch
         {
             (true, false) => fr
                 ? $"Vous ne recevrez plus les emails : {label}."
@@ -30,19 +34,17 @@ public static class UnsubscribePage
             (true, true) => fr
                 ? $"Vous recevrez de nouveau les emails : {label}."
                 : $"You will receive these emails again: {label}.",
-            (false, true) => fr
-                ? $"Vous êtes actuellement abonné(e) aux emails : {label}."
-                : $"You are currently subscribed to these emails: {label}.",
-            (false, false) => fr
-                ? $"Vous n'êtes pas abonné(e) aux emails : {label}."
-                : $"You are not subscribed to these emails: {label}.",
+            _ => fr
+                ? $"Ne plus recevoir les emails : {label} ?"
+                : $"Stop receiving these emails: {label}?",
         };
 
-        // The form flips the current state: subscribed users unsubscribe, unsubscribed users opt back in.
-        var resubscribe = subscribed ? "false" : "true";
-        var buttonLabel = subscribed
-            ? (fr ? "Me désabonner" : "Unsubscribe")
-            : (fr ? "Me réabonner" : "Resubscribe");
+        // Unsubscribe first; once unsubscribed, the same page offers to opt back in.
+        var offerResubscribe = done && !resubscribed;
+        var resubscribe = offerResubscribe ? "true" : "false";
+        var buttonLabel = offerResubscribe
+            ? (fr ? "Me réabonner" : "Resubscribe")
+            : (fr ? "Me désabonner" : "Unsubscribe");
 
         var note = fr
             ? "Vous pouvez aussi tout gérer depuis vos paramètres de notification Jellyfin."

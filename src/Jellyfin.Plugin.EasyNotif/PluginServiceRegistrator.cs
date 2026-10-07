@@ -9,11 +9,13 @@ using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
+using Jellyfin.Plugin.EasyNotif.Unsubscribe;
 using Jellyfin.Data.Events.Users;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Jellyfin.Plugin.EasyNotif;
 
@@ -34,6 +36,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHttpClient(ResendEmailSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(30));
         serviceCollection.AddSingleton<SendRateLimiter>();
         serviceCollection.AddSingleton<SendCooldown>();
+        serviceCollection.AddSingleton<UnsubscribeRateLimiter>();
+        serviceCollection.TryAddSingleton(TimeProvider.System); // unsubscribe token expiry
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();

@@ -6,6 +6,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
+using Jellyfin.Plugin.EasyNotif.Unsubscribe;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -17,18 +18,20 @@ using Xunit;
 namespace Jellyfin.Plugin.EasyNotif.Tests.Controllers;
 
 /// <summary>
-/// Covers <see cref="UnsubscribeController"/>: an invalid token is 404, GET renders the page without
-/// changing anything, POST toggles the preference and logs a masked action, a one-click body returns
-/// a bare 200 while a browser form returns the confirmation page, and <c>all</c> toggles both
-/// categories.
+/// Covers <see cref="UnsubscribeController"/>: an invalid, expired or deleted-user token is 404, the
+/// rate limit answers 429 per address, GET renders the page without reading or changing anything,
+/// POST toggles the preference and logs a masked action, a one-click body returns a bare 200 while a
+/// browser form returns the confirmation page, and <c>all</c> also turns announcements off.
 /// </summary>
 public sealed class UnsubscribeControllerTests
 {
     private const string Secret = "unsub-secret-0123456789";
     private static readonly Guid User = Guid.NewGuid();
 
+    private static readonly DateTimeOffset Now = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
+
     private static (UnsubscribeController Controller, Mock<IPreferenceService> Prefs, FakeEasyNotifLog Log) Build(
-        bool newsOptIn = true, bool recapOptIn = true)
+        bool newsOptIn = true, bool recapOptIn = true, DateTimeOffset? now = null, UnsubscribeRateLimiter? limiter = null)
     {
         var prefs = new Mock<IPreferenceService>();
         prefs.Setup(p => p.GetOrCreate(User)).Returns(new UserPreference
@@ -43,6 +46,8 @@ public sealed class UnsubscribeControllerTests
             new FakeSecretStore(unsubscribeSecret: Secret),
             prefs.Object,
             users.Object,
+            limiter ?? new UnsubscribeRateLimiter(),
+            new FixedTime(now ?? Now),
             log,
             NullLogger<UnsubscribeController>.Instance)
         {
@@ -51,7 +56,12 @@ public sealed class UnsubscribeControllerTests
         return (controller, prefs, log);
     }
 
-    private static string Token(string category) => UnsubscribeToken.Create(Secret, User, category);
+    private static string Token(string category) => UnsubscribeToken.Create(Secret, User, category, Now);
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     private static void SetForm(UnsubscribeController controller, Dictionary<string, string> fields)
     {
@@ -161,6 +171,46 @@ public sealed class UnsubscribeControllerTests
         Assert.IsType<NotFoundResult>(controller.Post(deleted));
         Assert.IsType<NotFoundResult>(controller.Get(deleted));
         prefs.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void Get_DoesNotReadTheStoredPreference()
+    {
+        var (controller, prefs, _) = Build();
+
+        controller.Get(Token("all"));
+
+        prefs.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void ExpiredToken_Returns404_OnGetAndPost()
+    {
+        var (controller, prefs, _) = Build(now: Now.AddDays(181));
+
+        Assert.IsType<NotFoundResult>(controller.Get(Token("news")));
+        Assert.IsType<NotFoundResult>(controller.Post(Token("news")));
+        prefs.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void OverTheRateLimit_Returns429_PerAddress()
+    {
+        using var limiter = new UnsubscribeRateLimiter();
+        var (controller, _, _) = Build(limiter: limiter);
+        var connection = controller.ControllerContext.HttpContext.Connection;
+        connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.7");
+
+        for (var i = 0; i < UnsubscribeRateLimiter.PermitsPerWindow; i++)
+        {
+            Assert.IsType<ContentResult>(controller.Get(Token("news")));
+        }
+
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsType<StatusCodeResult>(controller.Get(Token("news"))).StatusCode);
+        Assert.Equal(StatusCodes.Status429TooManyRequests, Assert.IsType<StatusCodeResult>(controller.Post(Token("news"))).StatusCode);
+
+        connection.RemoteIpAddress = System.Net.IPAddress.Parse("203.0.113.8");
+        Assert.IsType<ContentResult>(controller.Get(Token("news")));
     }
 
     [Fact]

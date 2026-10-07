@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Xunit;
 
@@ -73,5 +75,60 @@ public class UnsubscribeTokenTests
         var token = UnsubscribeToken.Create(Secret, UserId, "all");
 
         Assert.DoesNotContain(Secret, token, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void V2_StartsWithTheVersionByte()
+        => Assert.Equal(0x02, FromBase64Url(UnsubscribeToken.Create(Secret, UserId, "news"))[0]);
+
+    [Fact]
+    public void V2_ValidUpTo180Days_RejectedAt181()
+    {
+        var token = UnsubscribeToken.Create(Secret, UserId, "news", Issued);
+
+        Assert.True(UnsubscribeToken.TryVerify(Secret, token, Issued.AddDays(180), out _, out _));
+        Assert.False(UnsubscribeToken.TryVerify(Secret, token, Issued.AddDays(181), out var userId, out var category));
+        Assert.Equal(Guid.Empty, userId);
+        Assert.Equal(string.Empty, category);
+    }
+
+    [Fact]
+    public void V2_ForgedIssueDate_FailsTheSignature()
+    {
+        var blob = FromBase64Url(UnsubscribeToken.Create(Secret, UserId, "news", Issued));
+        blob[8] ^= 0x01; // last byte of the issue timestamp
+
+        Assert.False(UnsubscribeToken.TryVerify(Secret, ToBase64Url(blob), Issued, out _, out _));
+    }
+
+    [Fact]
+    public void V1Legacy_AcceptedUntilTheCutoff_RejectedAfter()
+    {
+        var legacy = LegacyToken(UserId, "all");
+
+        Assert.True(UnsubscribeToken.TryVerify(Secret, legacy, UnsubscribeToken.LegacyAcceptedUntil, out var userId, out var category));
+        Assert.Equal(UserId, userId);
+        Assert.Equal("all", category);
+        Assert.False(UnsubscribeToken.TryVerify(Secret, legacy, UnsubscribeToken.LegacyAcceptedUntil.AddSeconds(1), out _, out _));
+    }
+
+    private static readonly DateTimeOffset Issued = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
+
+    // The 1.0.x format: base64url("{userId:N}:{category}" ++ HMAC-SHA256(secret, that)).
+    private static string LegacyToken(Guid userId, string category)
+    {
+        var payload = Encoding.UTF8.GetBytes($"{userId:N}:{category}");
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(Secret));
+        return ToBase64Url([.. payload, .. hmac.ComputeHash(payload)]);
+    }
+
+    private static string ToBase64Url(byte[] bytes)
+        => Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+
+    private static byte[] FromBase64Url(string value)
+    {
+        var padded = value.Replace('-', '+').Replace('_', '/');
+        padded += (padded.Length % 4) switch { 2 => "==", 3 => "=", _ => string.Empty };
+        return Convert.FromBase64String(padded);
     }
 }

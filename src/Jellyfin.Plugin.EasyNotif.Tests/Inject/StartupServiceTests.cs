@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Serialization;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Inject;
+using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Playback;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
@@ -31,7 +32,9 @@ public sealed class StartupServiceTests
         FakeCampaignStore? campaigns = null,
         Mock<ISessionManager>? sessionManager = null,
         FakePlaybackHistoryStore? history = null,
-        FakeSecretStore? secrets = null)
+        FakeSecretStore? secrets = null,
+        ILibraryManager? libraryManager = null,
+        ISeriesEpisodeQueue? seriesQueue = null)
         => new(
             NullLogger<StartupService>.Instance,
             detector.Object,
@@ -39,10 +42,11 @@ public sealed class StartupServiceTests
             secrets ?? new FakeSecretStore(unsubscribeSecret: "set"),
             easyNotifLog ?? new FakeEasyNotifLog(),
             campaigns ?? new FakeCampaignStore(),
-            Mock.Of<ILibraryManager>(),
+            libraryManager ?? Mock.Of<ILibraryManager>(),
             new FakeAddedItemsStore(),
             (sessionManager ?? new Mock<ISessionManager>()).Object,
-            history ?? new FakePlaybackHistoryStore());
+            history ?? new FakePlaybackHistoryStore(),
+            seriesQueue ?? Mock.Of<ISeriesEpisodeQueue>());
 
     private static Mock<IFileTransformationDetector> Detector(bool available)
     {
@@ -68,7 +72,8 @@ public sealed class StartupServiceTests
             Mock.Of<ILibraryManager>(),
             new FakeAddedItemsStore(),
             Mock.Of<ISessionManager>(),
-            new FakePlaybackHistoryStore());
+            new FakePlaybackHistoryStore(),
+            Mock.Of<ISeriesEpisodeQueue>());
 
         await service.StartAsync(CancellationToken.None);
 
@@ -327,6 +332,30 @@ public sealed class StartupServiceTests
             });
 
         Assert.Empty(history.Recorded);
+    }
+
+    [Fact]
+    public async Task LibraryEvents_AreForwardedToTheSeriesQueue_UntilStop()
+    {
+        var library = new Mock<ILibraryManager>();
+        var queue = new Mock<ISeriesEpisodeQueue>();
+        var service = Build(
+            Detector(available: true),
+            new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }),
+            libraryManager: library.Object,
+            seriesQueue: queue.Object);
+        var episode = new MediaBrowser.Controller.Entities.TV.Episode { Id = Guid.NewGuid() };
+
+        await service.StartAsync(CancellationToken.None);
+        library.Raise(l => l.ItemAdded += null, library.Object, new ItemChangeEventArgs { Item = episode });
+        library.Raise(l => l.ItemRemoved += null, library.Object, new ItemChangeEventArgs { Item = episode });
+        await service.StopAsync(CancellationToken.None);
+
+        queue.Verify(q => q.Start(), Times.Once);
+        queue.Verify(q => q.OnAdded(episode), Times.Once);
+        queue.Verify(q => q.OnRemoved(episode), Times.Once);
+        queue.Verify(q => q.StopAsync(), Times.Once);
+        library.VerifyRemove(l => l.ItemRemoved -= It.IsAny<EventHandler<ItemChangeEventArgs>>(), Times.Once());
     }
 
     [Fact]

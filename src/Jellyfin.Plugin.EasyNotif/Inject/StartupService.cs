@@ -34,6 +34,7 @@ public sealed class StartupService : IHostedService
     private readonly IAddedItemsStore _addedItems;
     private readonly ISessionManager _sessionManager;
     private readonly IPlaybackHistoryStore _history;
+    private readonly ISeriesEpisodeQueue _seriesQueue;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="StartupService"/> class.
@@ -48,6 +49,7 @@ public sealed class StartupService : IHostedService
     /// <param name="addedItems">The server-time added-items store.</param>
     /// <param name="sessionManager">The Jellyfin session manager (for the PlaybackStopped event).</param>
     /// <param name="history">The plugin's own playback history store.</param>
+    /// <param name="seriesQueue">The queue of new episodes of followed series.</param>
     public StartupService(
         ILogger<StartupService> logger,
         IFileTransformationDetector detector,
@@ -58,7 +60,8 @@ public sealed class StartupService : IHostedService
         ILibraryManager libraryManager,
         IAddedItemsStore addedItems,
         ISessionManager sessionManager,
-        IPlaybackHistoryStore history)
+        IPlaybackHistoryStore history,
+        ISeriesEpisodeQueue seriesQueue)
     {
         _logger = logger;
         _detector = detector;
@@ -70,6 +73,7 @@ public sealed class StartupService : IHostedService
         _addedItems = addedItems;
         _sessionManager = sessionManager;
         _history = history;
+        _seriesQueue = seriesQueue;
     }
 
     /// <inheritdoc/>
@@ -110,6 +114,12 @@ public sealed class StartupService : IHostedService
             _libraryManager.ItemAdded += OnItemAdded;
         });
 
+        RunStep("series-queue", () =>
+        {
+            _seriesQueue.Start();
+            _libraryManager.ItemRemoved += OnItemRemoved;
+        });
+
         RunStep("playback-history", () =>
         {
             _history.Start();
@@ -125,6 +135,8 @@ public sealed class StartupService : IHostedService
     {
         _libraryManager.ItemAdded -= OnItemAdded;
         await _addedItems.StopAsync().ConfigureAwait(false);
+        _libraryManager.ItemRemoved -= OnItemRemoved;
+        await _seriesQueue.StopAsync().ConfigureAwait(false);
         _sessionManager.PlaybackStopped -= OnPlaybackStopped;
         await _history.StopAsync().ConfigureAwait(false);
         _easyNotifLog.Info("plugin.shutdown");
@@ -141,7 +153,14 @@ public sealed class StartupService : IHostedService
         {
             _addedItems.RecordAdded(e.Item.Id);
         }
+
+        _seriesQueue.OnAdded(e.Item);
     }
+
+    /// <summary>
+    /// Drops a removed episode of a followed series from the notification queue. Non-blocking (R13).
+    /// </summary>
+    private void OnItemRemoved(object? sender, ItemChangeEventArgs e) => _seriesQueue.OnRemoved(e.Item);
 
     /// <summary>
     /// Records a significant playback stop (movie or episode, watched past three minutes) in the

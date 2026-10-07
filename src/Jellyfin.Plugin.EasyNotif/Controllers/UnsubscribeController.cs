@@ -4,6 +4,7 @@ using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Unsubscribe;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -23,22 +24,26 @@ public class UnsubscribeController : ControllerBase
 {
     private readonly ISecretStore _secrets;
     private readonly IPreferenceService _preferences;
+    private readonly IUserManager _userManager;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<UnsubscribeController> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="UnsubscribeController"/> class.</summary>
     /// <param name="secrets">The transport secret store (for the unsubscribe secret).</param>
     /// <param name="preferences">The preference service.</param>
+    /// <param name="userManager">Jellyfin user manager, to reject tokens of deleted accounts.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public UnsubscribeController(
         ISecretStore secrets,
         IPreferenceService preferences,
+        IUserManager userManager,
         IEasyNotifLog easyNotifLog,
         ILogger<UnsubscribeController> logger)
     {
         _secrets = secrets;
         _preferences = preferences;
+        _userManager = userManager;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -130,7 +135,9 @@ public class UnsubscribeController : ControllerBase
             return false;
         }
 
-        return category is "news" or "recap" or "all";
+        // A deleted account's token must not recreate a preferences row after the purge.
+        return category is "news" or "recap" or "all"
+            && _userManager.GetUserById(userId) is not null;
     }
 
     private ContentResult Page(Guid userId, string category, bool done)

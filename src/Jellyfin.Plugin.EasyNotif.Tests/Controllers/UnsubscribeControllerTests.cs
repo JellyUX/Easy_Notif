@@ -1,10 +1,12 @@
 using System.Reflection;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
+using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -35,9 +37,12 @@ public sealed class UnsubscribeControllerTests
             Categories = { [EmailCategory.News] = newsOptIn, [EmailCategory.Recap] = recapOptIn }
         });
         var log = new FakeEasyNotifLog();
+        var users = new Mock<IUserManager>();
+        users.Setup(u => u.GetUserById(User)).Returns(new User("alice", "Default", "Default") { Id = User });
         var controller = new UnsubscribeController(
             new FakeSecretStore(unsubscribeSecret: Secret),
             prefs.Object,
+            users.Object,
             log,
             NullLogger<UnsubscribeController>.Instance)
         {
@@ -145,6 +150,17 @@ public sealed class UnsubscribeControllerTests
         controller.Post(Token("all"));
 
         prefs.Verify(p => p.SetCategories(User, It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), false), Times.Once);
+    }
+
+    [Fact]
+    public void Post_TokenOfADeletedUser_Returns404_AndTouchesNoPreference()
+    {
+        var (controller, prefs, _) = Build();
+        var deleted = UnsubscribeToken.Create(Secret, Guid.NewGuid(), "all");
+
+        Assert.IsType<NotFoundResult>(controller.Post(deleted));
+        Assert.IsType<NotFoundResult>(controller.Get(deleted));
+        prefs.VerifyNoOtherCalls();
     }
 
     [Fact]

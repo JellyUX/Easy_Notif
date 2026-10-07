@@ -2,15 +2,21 @@ using System.Net;
 using System.Text.Json;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
+using MediaBrowser.Common.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
 
 /// <summary>
 /// Covers <see cref="ResendEmailSender"/> against a stub HTTP handler: success parsing, the
-/// configuration guard (no request when unconfigured), the single retry on 429/5xx, no retry on a
-/// client error, the Idempotency-Key header, generated text, network-failure handling, and R15
+/// configuration guard (no request when unconfigured), the single retry on 429/5xx for a keyed
+/// message only, no retry on a client error, the Idempotency-Key header, the sent-keys registry
+/// (consulted before, recorded after, across a restart), generated text, network-failure handling, and R15
 /// (the API key never reaches a log line, the recipient is masked).
 /// </summary>
 public class ResendEmailSenderTests
@@ -26,7 +32,8 @@ public class ResendEmailSenderTests
     };
 
     private static (ResendEmailSender Sender, StubHttpMessageHandler Http, CapturingLogger<ResendEmailSender> Logger, FakeEasyNotifLog EasyNotifLog) Build(
-        PluginConfiguration? config = null)
+        PluginConfiguration? config = null,
+        ISentKeysStore? sentKeys = null)
     {
         var http = new StubHttpMessageHandler();
         var logger = new CapturingLogger<ResendEmailSender>();
@@ -38,6 +45,7 @@ public class ResendEmailSenderTests
             new FakeConfigAccessor(effective),
             new FakeSecretStore(resendApiKey: effective.ResendApiKey),
             limiter,
+            sentKeys ?? new FakeSentKeysStore(),
             logger,
             easyNotifLog,
             (_, _) => Task.CompletedTask);
@@ -155,7 +163,7 @@ public class ResendEmailSenderTests
         http.EnqueueJson(HttpStatusCode.TooManyRequests, "{\"message\":\"rate limited\"}", retryAfterSeconds: 1);
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"after-retry\"}");
 
-        var result = await sender.SendAsync(Message(), CancellationToken.None);
+        var result = await sender.SendAsync(Message("k:429"), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal("after-retry", result.ResendId);
@@ -169,10 +177,100 @@ public class ResendEmailSenderTests
         http.EnqueueJson(HttpStatusCode.InternalServerError, "{}");
         http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"ok\"}");
 
-        var result = await sender.SendAsync(Message(), CancellationToken.None);
+        var result = await sender.SendAsync(Message("k:500"), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(2, http.Requests.Count);
+    }
+
+    [Fact]
+    public async Task SendAsync_On500_ManualKey_RetriesWithTheSameKey()
+    {
+        var (sender, http, _, _) = Build();
+        http.EnqueueJson(HttpStatusCode.BadGateway, "{}");
+        http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"ok\"}");
+
+        var result = await sender.SendAsync(Message("manual:lot1:user1"), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, http.Requests.Count);
+        Assert.All(http.Requests, r => Assert.Equal("manual:lot1:user1", r.IdempotencyKey));
+    }
+
+    [Fact]
+    public async Task SendAsync_On500_WithoutKey_DoesNotRetry()
+    {
+        var (sender, http, _, _) = Build();
+        http.EnqueueJson(HttpStatusCode.InternalServerError, "{}");
+
+        var result = await sender.SendAsync(Message(), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(500, result.StatusCode);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task SendAsync_KeyAlreadyRecorded_IsDeduplicatedWithoutARequest()
+    {
+        var keys = new FakeSentKeysStore();
+        keys.Record("k:done");
+        var (sender, http, _, easyNotifLog) = Build(sentKeys: keys);
+
+        var result = await sender.SendAsync(Message("k:done"), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.True(result.Deduplicated);
+        Assert.Empty(http.Requests);
+        Assert.Contains(easyNotifLog.Entries, e => e.EventType == "email.deduplicated");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, true)]
+    [InlineData(HttpStatusCode.Conflict, true)]
+    [InlineData(HttpStatusCode.UnprocessableEntity, false)]
+    public async Task SendAsync_RecordsTheKey_OnlyWhenTheProviderHoldsTheMessage(HttpStatusCode status, bool recorded)
+    {
+        var keys = new FakeSentKeysStore();
+        var (sender, http, _, _) = Build(sentKeys: keys);
+        http.EnqueueJson(status, "{\"id\":\"x\"}");
+
+        await sender.SendAsync(Message("k:1"), CancellationToken.None);
+
+        Assert.Equal(recorded, keys.Contains("k:1"));
+    }
+
+    [Fact]
+    public async Task SendAsync_SameKeyAfterARestart25HoursLater_IsNotSentAgain()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "enotif-sentkeys-restart-" + Guid.NewGuid());
+        var paths = new Mock<IApplicationPaths>();
+        paths.Setup(p => p.DataPath).Returns(tempDir);
+        var t0 = new DateTime(2026, 6, 15, 9, 0, 0, DateTimeKind.Utc);
+        try
+        {
+            using (var before = new SentKeysStore(paths.Object, new FileSystem(), NullLogger<SentKeysStore>.Instance, () => t0))
+            {
+                var (first, http1, _, _) = Build(sentKeys: before);
+                http1.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"1\"}");
+                Assert.True((await first.SendAsync(Message("newsletter:202606150900:u1"), CancellationToken.None)).Success);
+            }
+
+            using var after = new SentKeysStore(paths.Object, new FileSystem(), NullLogger<SentKeysStore>.Instance, () => t0.AddHours(25));
+            var (second, http2, _, _) = Build(sentKeys: after);
+
+            var result = await second.SendAsync(Message("newsletter:202606150900:u1"), CancellationToken.None);
+
+            Assert.True(result.Deduplicated);
+            Assert.Empty(http2.Requests);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
     }
 
     [Fact]
@@ -353,6 +451,7 @@ public class ResendEmailSenderTests
                 new FakeConfigAccessor(Config()),
                 new FakeSecretStore(resendApiKey: ApiKey),
                 limiter,
+                new FakeSentKeysStore(),
                 new CapturingLogger<ResendEmailSender>(),
                 realLog,
                 (_, _) => Task.CompletedTask);

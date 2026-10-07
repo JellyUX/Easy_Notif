@@ -49,7 +49,7 @@ public sealed record ManualEmailResult(int Sent, int Failed, int SkippedNoEmail,
 
 /// <summary>One attempted send in a manual email run.</summary>
 /// <param name="MaskedTo">The masked recipient address.</param>
-/// <param name="Status">"sent" or "failed".</param>
+/// <param name="Status">"sent", "failed", or "deduplicated" (already sent under the same key).</param>
 public sealed record ManualSendDetail(string MaskedTo, string Status);
 
 /// <inheritdoc cref="IManualEmailService"/>
@@ -125,6 +125,7 @@ public sealed class ManualEmailService : IManualEmailService
         var sent = 0;
         var failed = 0;
         var details = new List<ManualSendDetail>(recipients.Count);
+        var lotId = Guid.NewGuid();
 
         foreach (var recipient in recipients)
         {
@@ -138,22 +139,29 @@ public sealed class ManualEmailService : IManualEmailService
                 Headers = !isAll ? null : BuildUnsubscribeHeaders(cfg, _secrets.Get().UnsubscribeSecret, recipient.UserId),
                 Tags = [new EmailTag("context", "manual")],
                 Attachments = request.Attachments,
-                IdempotencyKey = null
+                IdempotencyKey = ManualKey(lotId, recipient)
             };
 
             var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);
+            string status;
             if (result.Success)
             {
                 _quota.RecordSend();
                 sent++;
+                status = "sent";
+            }
+            else if (result.Deduplicated)
+            {
+                status = "deduplicated";
             }
             else
             {
                 failed++;
+                status = "failed";
             }
 
             var maskedTo = EmailMasker.Mask(recipient.Email);
-            details.Add(new ManualSendDetail(maskedTo, result.Success ? "sent" : "failed"));
+            details.Add(new ManualSendDetail(maskedTo, status));
 
             try
             {
@@ -164,7 +172,7 @@ public sealed class ManualEmailService : IManualEmailService
                     ToMasked = maskedTo,
                     Subject = request.Subject,
                     ResendId = result.ResendId,
-                    Status = result.Success ? "sent" : "failed"
+                    Status = status
                 });
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException)
@@ -214,6 +222,13 @@ public sealed class ManualEmailService : IManualEmailService
                 throw new ArgumentException("Unknown recipient mode.", nameof(request));
         }
     }
+
+    // One key per lot and recipient: a replay of the same lot never delivers twice. A test lot has a
+    // single address and no user id; the address itself is kept out of the key (and of sent-keys.json).
+    private static string ManualKey(Guid lotId, Recipient recipient)
+        => recipient.UserId == Guid.Empty
+            ? $"manual:{lotId:N}:test"
+            : $"manual:{lotId:N}:{recipient.UserId:N}";
 
     private static IReadOnlyDictionary<string, string>? BuildUnsubscribeHeaders(PluginConfiguration cfg, string? unsubscribeSecret, Guid userId)
         => UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, unsubscribeSecret, userId, UnsubscribeCategory);

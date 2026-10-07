@@ -33,9 +33,11 @@ public sealed class EmailMessage
     public IReadOnlyList<EmailAttachment>? Attachments { get; init; }
 
     /// <summary>
-    /// Gets an optional idempotency key. When set, a retry of the same logical send is de-duplicated
-    /// by the provider for 24 hours. Left null for messages that may legitimately be re-sent (a
-    /// user-triggered test).
+    /// Gets the idempotency key of this logical send. When set, a replay is de-duplicated by the
+    /// provider for 24 hours and by the local sent-keys registry for 7 days, and a transient failure
+    /// is retried once. Every send path sets one; an explicit action that may legitimately repeat
+    /// (a test, a preview, a "run now") uses a fresh key per action. A message without a key is never
+    /// retried.
     /// </summary>
     public string? IdempotencyKey { get; init; }
 }

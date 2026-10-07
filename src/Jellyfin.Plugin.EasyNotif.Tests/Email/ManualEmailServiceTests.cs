@@ -119,6 +119,37 @@ public class ManualEmailServiceTests
     }
 
     [Fact]
+    public async Task EverySend_IsKeyedPerLotAndRecipient()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"), new Recipient(Bob, "bob@example.org"));
+
+        await h.Service.SendAsync(Request(), CancellationToken.None);
+
+        Assert.StartsWith("manual:", h.Sent[0].IdempotencyKey);
+        Assert.EndsWith($":{Alice:N}", h.Sent[0].IdempotencyKey);
+        Assert.EndsWith($":{Bob:N}", h.Sent[1].IdempotencyKey);
+        var lot = h.Sent[0].IdempotencyKey!.Split(':')[1];
+        Assert.Equal(lot, h.Sent[1].IdempotencyKey!.Split(':')[1]);
+    }
+
+    [Fact]
+    public async Task DeduplicatedSend_IsNeitherSentNorFailed()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+        h.Sender.Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SendResult(false, null, 0, "Already sent.") { Deduplicated = true });
+
+        var result = await h.Service.SendAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(0, result.Sent);
+        Assert.Equal(0, result.Failed);
+        Assert.Equal("deduplicated", Assert.Single(result.Details).Status);
+        Assert.Equal("deduplicated", Assert.Single(h.LogEntries).Status);
+    }
+
+    [Fact]
     public async Task Selected_SendsOnlyToChosenUsersWithAnAddress()
     {
         var h = new Harness();

@@ -294,7 +294,7 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
-    public async Task RunCampaignNowAsync_DoesNotKeySends_SoARepeatClickResends()
+    public async Task RunCampaignNowAsync_KeysSendsPerClick_SoARepeatClickResends()
     {
         var harness = new Harness([new Campaign
         {
@@ -311,7 +311,8 @@ public sealed class DispatchServiceTests
         await harness.Service.RunCampaignNowAsync("weekly-recap", CancellationToken.None);
 
         Assert.Equal(2, harness.Sent.Count);
-        Assert.All(harness.Sent, m => Assert.Null(m.IdempotencyKey));
+        Assert.All(harness.Sent, m => Assert.StartsWith("run:weekly-recap:", m.IdempotencyKey));
+        Assert.NotEqual(harness.Sent[0].IdempotencyKey, harness.Sent[1].IdempotencyKey);
     }
 
     [Fact]
@@ -536,6 +537,7 @@ public sealed class DispatchServiceTests
         var msg = Assert.Single(harness.Sent);
         Assert.Equal("admin@example.org", msg.To);
         Assert.StartsWith("[Preview]", msg.Subject);
+        Assert.StartsWith("preview:newsletter:", msg.IdempotencyKey);
         Assert.Equal(0, harness.Campaigns.UpdateCount);
         Assert.Equal(before, harness.Campaigns.Get("newsletter")!.NextRunUtc);
         Assert.Equal("preview", logged!.Context);

@@ -38,6 +38,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SendCooldown>();
         serviceCollection.AddSingleton<UnsubscribeRateLimiter>();
         serviceCollection.TryAddSingleton(TimeProvider.System); // unsubscribe token expiry
+        serviceCollection.AddSingleton<ISentKeysStore, SentKeysStore>();
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();

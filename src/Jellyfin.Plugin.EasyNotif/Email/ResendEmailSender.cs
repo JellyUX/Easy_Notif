@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Util;
 using Microsoft.Extensions.Logging;
 
@@ -12,8 +13,10 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// <summary>
 /// Sends email through the Resend REST API (Synthese.md section 3). Uses a named
 /// <see cref="IHttpClientFactory"/> client, the shared <see cref="SendRateLimiter"/>, an optional
-/// <c>Idempotency-Key</c> and one retry on a transient failure. A provider or network failure is
-/// returned as a <see cref="SendResult"/>, never thrown (R10). The API key is never logged (R15).
+/// <c>Idempotency-Key</c> and one retry on a transient failure, only for a keyed message (without a
+/// key a retry could deliver twice). A keyed message already recorded in <see cref="ISentKeysStore"/>
+/// is not sent again. A provider or network failure is returned as a <see cref="SendResult"/>, never
+/// thrown (R10). The API key is never logged (R15).
 /// </summary>
 public sealed class ResendEmailSender : IEmailSender
 {
@@ -30,6 +33,7 @@ public sealed class ResendEmailSender : IEmailSender
     private readonly IConfigAccessor _config;
     private readonly ISecretStore _secrets;
     private readonly SendRateLimiter _rateLimiter;
+    private readonly ISentKeysStore _sentKeys;
     private readonly ILogger<ResendEmailSender> _logger;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly Func<TimeSpan, CancellationToken, Task> _retryDelay;
@@ -39,6 +43,7 @@ public sealed class ResendEmailSender : IEmailSender
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="rateLimiter">The shared send rate limiter.</param>
+    /// <param name="sentKeys">The registry of idempotency keys already sent.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     public ResendEmailSender(
@@ -46,9 +51,10 @@ public sealed class ResendEmailSender : IEmailSender
         IConfigAccessor config,
         ISecretStore secrets,
         SendRateLimiter rateLimiter,
+        ISentKeysStore sentKeys,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog)
-        : this(httpClientFactory, config, secrets, rateLimiter, logger, easyNotifLog, Task.Delay)
+        : this(httpClientFactory, config, secrets, rateLimiter, sentKeys, logger, easyNotifLog, Task.Delay)
     {
     }
 
@@ -57,6 +63,7 @@ public sealed class ResendEmailSender : IEmailSender
         IConfigAccessor config,
         ISecretStore secrets,
         SendRateLimiter rateLimiter,
+        ISentKeysStore sentKeys,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog,
         Func<TimeSpan, CancellationToken, Task> retryDelay)
@@ -65,6 +72,7 @@ public sealed class ResendEmailSender : IEmailSender
         _config = config;
         _secrets = secrets;
         _rateLimiter = rateLimiter;
+        _sentKeys = sentKeys;
         _logger = logger;
         _easyNotifLog = easyNotifLog;
         _retryDelay = retryDelay;
@@ -90,11 +98,28 @@ public sealed class ResendEmailSender : IEmailSender
             return NotConfigured;
         }
 
+        var key = string.IsNullOrWhiteSpace(message.IdempotencyKey) ? null : message.IdempotencyKey;
+        if (key is not null && AlreadySent(key))
+        {
+            _easyNotifLog.Info("email.deduplicated", new Dictionary<string, object?>
+            {
+                ["subject"] = message.Subject,
+                ["to"] = message.To,
+                ["source"] = "local"
+            });
+            return new SendResult(false, null, 0, "Already sent.") { Deduplicated = true };
+        }
+
         var payload = BuildPayload(message, cfg);
         var stopwatch = Stopwatch.StartNew();
-        var result = await PostWithRetryAsync(EmailsEndpoint, payload, message.IdempotencyKey, apiKey!, ExtractId, cancellationToken)
+        var result = await PostWithRetryAsync(EmailsEndpoint, payload, key, apiKey!, ExtractId, cancellationToken)
             .ConfigureAwait(false);
         stopwatch.Stop();
+
+        if (key is not null && (result.Success || result.Deduplicated))
+        {
+            RecordSent(key);
+        }
 
         if (result.Success)
         {
@@ -275,8 +300,9 @@ public sealed class ResendEmailSender : IEmailSender
                 return new SendResult(false, null, 0, ex.Message);
             }
 
+            // Without a key a 5xx may hide an accepted message, so a retry could deliver it twice.
             var transient = status == 429 || status >= 500;
-            if (transient && attempt == 0)
+            if (transient && attempt == 0 && !string.IsNullOrWhiteSpace(idempotencyKey))
             {
                 await _retryDelay(RetryDelay(retryAfter), cancellationToken).ConfigureAwait(false);
                 continue;
@@ -290,6 +316,32 @@ public sealed class ResendEmailSender : IEmailSender
             }
 
             return new SendResult(false, null, status, ExtractError(body));
+        }
+    }
+
+    private bool AlreadySent(string key)
+    {
+        try
+        {
+            return _sentKeys.Contains(key);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            // The provider's own idempotency window still guards a recent duplicate.
+            _logger.LogWarning(ex, "[EasyNotif] Could not read the sent-keys registry; sending anyway.");
+            return false;
+        }
+    }
+
+    private void RecordSent(string key)
+    {
+        try
+        {
+            _sentKeys.Record(key);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(ex, "[EasyNotif] Could not record a sent key; a replay after 24 hours could repeat this send.");
         }
     }
 

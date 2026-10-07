@@ -25,8 +25,9 @@ public interface IDispatchService
     /// <summary>
     /// Runs one campaign now, whether or not it is enabled or due, advancing its
     /// <see cref="Campaign.LastSentUtc"/> and <see cref="Campaign.NextRunUtc"/>. This is an explicit
-    /// admin action, so it is not idempotency-keyed: every click sends, even within the same due
-    /// slot (unlike the scheduled path, which keys each occurrence to survive a crash-retry).
+    /// admin action, so its idempotency keys are fresh per click: every click sends, even within the
+    /// same due slot (unlike the scheduled path, which keys each occurrence to survive a crash-retry),
+    /// while a transient failure within one click is retried without a duplicate.
     /// </summary>
     /// <param name="campaignId">The campaign id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -235,7 +236,7 @@ public sealed class DispatchService : IDispatchService
                     ReplyTo = cfg.ReplyTo,
                     Tags = [new EmailTag("context", "preview"), new EmailTag("campaignId", campaign.Id)],
                     Attachments = content.Attachments,
-                    IdempotencyKey = null
+                    IdempotencyKey = $"preview:{campaign.Id}:{Guid.NewGuid():N}"
                 },
                 cancellationToken).ConfigureAwait(false);
 
@@ -315,9 +316,10 @@ public sealed class DispatchService : IDispatchService
     {
         // For a scheduled run the idempotency key identifies this occurrence (the due slot, before it
         // is advanced), so a crash-retry does not re-send but a later occurrence does. A manual "run
-        // now" is an explicit admin action with no key: it always sends, even a second time within
+        // now" is an explicit admin action keyed per click: it always sends, even a second time within
         // the same slot (the slot barely moves for a daily cadence).
         var runSlot = (campaign.NextRunUtc ?? now).ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture);
+        var keyPrefix = manualRun ? $"run:{campaign.Id}:{Guid.NewGuid():N}" : $"{campaign.Id}:{runSlot}";
 
         var secrets = _secrets.Get();
         if (string.IsNullOrWhiteSpace(secrets.ResendApiKey) || string.IsNullOrWhiteSpace(cfg.FromEmail))
@@ -426,7 +428,7 @@ public sealed class DispatchService : IDispatchService
                     new EmailTag("category", campaign.Category.ToString())
                 ],
                 Attachments = content.Attachments,
-                IdempotencyKey = manualRun ? null : $"{campaign.Id}:{runSlot}:{recipient.UserId:N}"
+                IdempotencyKey = $"{keyPrefix}:{recipient.UserId:N}"
             };
 
             var result = await _sender.SendAsync(message, cancellationToken).ConfigureAwait(false);

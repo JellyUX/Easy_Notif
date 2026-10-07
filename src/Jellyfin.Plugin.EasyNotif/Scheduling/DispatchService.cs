@@ -223,7 +223,7 @@ public sealed class DispatchService : IDispatchService
             var now = _now();
             var cfg = _config.Get();
             var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken, freshWindow: true).ConfigureAwait(false);
-            var content = prepared.Render(new Recipient(Guid.Empty, toEmail));
+            var content = prepared.Render(new Recipient(Guid.Empty, toEmail))!;
 
             var result = await _sender.SendAsync(
                 new EmailMessage
@@ -386,6 +386,7 @@ public sealed class DispatchService : IDispatchService
         var sent = 0;
         var failed = 0;
         var deduplicated = 0;
+        var noVisibleItems = 0;
         var quotaStoppedMidRun = false;
 
         foreach (var recipient in recipients)
@@ -403,6 +404,12 @@ public sealed class DispatchService : IDispatchService
             }
 
             var content = prepared.Render(recipient);
+            if (content is null)
+            {
+                noVisibleItems++;
+                continue;
+            }
+
             var category = campaign.Category.ToString().ToLowerInvariant();
             var message = new EmailMessage
             {
@@ -480,6 +487,7 @@ public sealed class DispatchService : IDispatchService
             ["sent"] = sent,
             ["failed"] = failed,
             ["deduplicated"] = deduplicated,
+            ["noVisibleItems"] = noVisibleItems,
             ["nextRunUtc"] = next
         });
 

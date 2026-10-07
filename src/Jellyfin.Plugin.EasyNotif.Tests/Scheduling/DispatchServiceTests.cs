@@ -570,4 +570,27 @@ public sealed class DispatchServiceTests
         Assert.Equal(0, log.Fields!["failed"]);
         Assert.Equal(2, log.Fields!["deduplicated"]);
     }
+
+    [Fact]
+    public async Task RunDueAsync_RecipientSeeingNothing_IsNotSent_AndIsCounted()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob);
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = r => r.UserId == Bob ? null : new EmailContent("Newsletter", "<p>b</p>", "b")
+            });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var msg = Assert.Single(harness.Sent);
+        Assert.Equal($"user-{Alice:N}@example.org", msg.To);
+        harness.SendLog.Verify(l => l.Append(It.IsAny<SendLogEntry>()), Times.Once);
+        Assert.True(harness.Campaigns.Get("newsletter")!.NextRunUtc > Now);
+        var log = Assert.Single(harness.Log.Entries, e => e.EventType == "dispatch.campaign");
+        Assert.Equal(1, log.Fields!["sent"]);
+        Assert.Equal(1, log.Fields!["noVisibleItems"]);
+    }
 }

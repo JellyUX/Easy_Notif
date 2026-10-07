@@ -13,6 +13,7 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 public sealed class EmailComposer : IEmailComposer
 {
     private readonly INewsletterDigestService _digest;
+    private readonly IAccessFilter _access;
     private readonly NewsletterComposer _newsletter;
     private readonly IWeeklyRecapService _recap;
     private readonly WeeklyRecapComposer _recapComposer;
@@ -23,6 +24,7 @@ public sealed class EmailComposer : IEmailComposer
 
     /// <summary>Initializes a new instance of the <see cref="EmailComposer"/> class.</summary>
     /// <param name="digest">The new-media digest service.</param>
+    /// <param name="access">The per-user access filter applied to the newsletter.</param>
     /// <param name="newsletter">The newsletter composer.</param>
     /// <param name="recap">The per-user weekly recap service.</param>
     /// <param name="recapComposer">The weekly recap composer.</param>
@@ -32,6 +34,7 @@ public sealed class EmailComposer : IEmailComposer
     /// <param name="log">The plugin's dedicated log.</param>
     public EmailComposer(
         INewsletterDigestService digest,
+        IAccessFilter access,
         NewsletterComposer newsletter,
         IWeeklyRecapService recap,
         WeeklyRecapComposer recapComposer,
@@ -41,6 +44,7 @@ public sealed class EmailComposer : IEmailComposer
         IEasyNotifLog log)
     {
         _digest = digest;
+        _access = access;
         _newsletter = newsletter;
         _recap = recap;
         _recapComposer = recapComposer;
@@ -96,7 +100,17 @@ public sealed class EmailComposer : IEmailComposer
             {
                 ShouldSend = !digest.IsEmpty,
                 SkipReason = digest.IsEmpty ? "empty-digest" : null,
-                Render = recipient => _newsletter.Compose(campaign, digest, _links.ServerName, templateId, UnsubscribeUrl(recipient)),
+                Render = recipient =>
+                {
+                    // The admin preview (no account) sees the whole digest; an empty digest has
+                    // nothing to leak. Anyone else gets only what Jellyfin lets them see.
+                    var scoped = recipient.UserId == Guid.Empty || digest.IsEmpty
+                        ? digest
+                        : digest.For(_access.VisibleTo(recipient.UserId, digest.ItemIds));
+                    return scoped.IsEmpty && !digest.IsEmpty
+                        ? null
+                        : _newsletter.Compose(campaign, scoped, _links.ServerName, templateId, UnsubscribeUrl(recipient));
+                },
                 MovieCount = digest.Movies.Count,
                 SeriesCount = digest.Series.Count
             };

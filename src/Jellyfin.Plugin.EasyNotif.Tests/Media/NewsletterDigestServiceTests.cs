@@ -118,6 +118,10 @@ public sealed class NewsletterDigestServiceTests
         Assert.Equal(SeriesBId, digest.Series[0].Id);
         Assert.Equal(6, digest.TotalItems); // 2 movies + 3 (Series A) + 1 (Series B) new episodes
         Assert.False(digest.IsEmpty);
+        // Each episode is kept so the digest can be narrowed per recipient; access covers all six items.
+        Assert.Equal([1, 2, 2], a.EpisodeList.Select(e => e.Season!.Value).Order());
+        Assert.Equal(6, digest.ItemIds.Count);
+        Assert.Equal(h.MainItems.Select(i => i.Id).Order(), digest.ItemIds.Order());
     }
 
     [Fact]

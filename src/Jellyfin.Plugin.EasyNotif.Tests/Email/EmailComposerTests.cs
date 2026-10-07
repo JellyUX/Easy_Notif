@@ -27,6 +27,9 @@ public sealed class EmailComposerTests
 
         public Mock<IWeeklyRecapService> Recap { get; } = new();
 
+        /// <summary>The access filter; lets everything through unless a test narrows it.</summary>
+        public Mock<IAccessFilter> Access { get; } = new();
+
         public FakeEasyNotifLog Log { get; } = new();
 
         public FakeConfigAccessor Config { get; }
@@ -43,8 +46,11 @@ public sealed class EmailComposerTests
                 .ReturnsAsync(new NewsletterDigest([], []));
             Recap.Setup(r => r.BuildFor(It.IsAny<Guid>(), It.IsAny<DateTime>()))
                 .Returns((Guid id, DateTime _) => new RecapModel([], 0, 0, null, id.ToString("N")[..4]));
+            Access.Setup(a => a.VisibleTo(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()))
+                .Returns((Guid _, IReadOnlyCollection<Guid> ids) => ids.ToHashSet());
             Composer = new EmailComposer(
                 Digest.Object,
+                Access.Object,
                 new NewsletterComposer(TestTemplateStore.Create()),
                 Recap.Object,
                 new WeeklyRecapComposer(TestTemplateStore.Create()),
@@ -78,7 +84,7 @@ public sealed class EmailComposerTests
 
         Assert.True(prepared.ShouldSend);
         Assert.Equal(1, prepared.MovieCount);
-        var content = prepared.Render(Anyone);
+        var content = prepared.Render(Anyone)!;
         Assert.Contains("Dune", content.Html!, StringComparison.Ordinal);
         Assert.Contains(h.Log.Entries, e => e.EventType == "newsletter.digest");
     }
@@ -90,7 +96,7 @@ public sealed class EmailComposerTests
 
         Assert.False(prepared.ShouldSend);
         Assert.Equal("empty-digest", prepared.SkipReason);
-        var content = prepared.Render(Anyone);
+        var content = prepared.Render(Anyone)!;
         Assert.Contains("Rien de neuf", content.Html!, StringComparison.Ordinal);
     }
 
@@ -151,8 +157,8 @@ public sealed class EmailComposerTests
 
         var a = new Recipient(Guid.NewGuid(), "a@example.org");
         var b = new Recipient(Guid.NewGuid(), "b@example.org");
-        var contentA = prepared.Render(a);
-        var contentB = prepared.Render(b);
+        var contentA = prepared.Render(a)!;
+        var contentB = prepared.Render(b)!;
 
         Assert.Equal(new[] { a.UserId, b.UserId }, seen);
         Assert.NotEqual(contentA.Html, contentB.Html);
@@ -183,12 +189,79 @@ public sealed class EmailComposerTests
             new NewsletterDigest([new DigestMovie(Guid.NewGuid(), "Dune", 2021, null, [], null, null, null)], []));
 
         var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
-        var a = prepared.Render(new Recipient(Guid.NewGuid(), "a@example.org"));
-        var b = prepared.Render(new Recipient(Guid.NewGuid(), "b@example.org"));
+        var a = prepared.Render(new Recipient(Guid.NewGuid(), "a@example.org"))!;
+        var b = prepared.Render(new Recipient(Guid.NewGuid(), "b@example.org"))!;
 
         Assert.Contains("/EasyNotif/u/", a.Html!, StringComparison.Ordinal);
         Assert.Contains("?lang=fr", a.Html!, StringComparison.Ordinal);
         Assert.NotEqual(a.Html, b.Html); // different tokens
+    }
+
+    private static NewsletterDigest RestrictedDigest(Guid allowedMovie, Guid forbiddenMovie, Guid allowedEpisode, Guid forbiddenEpisode)
+        => new(
+            [
+                new DigestMovie(allowedMovie, "Dune", 2021, null, [], null, null, null),
+                new DigestMovie(forbiddenMovie, "Forbidden Film", 2024, null, [], "R", null, null)
+            ],
+            [
+                new DigestSeries(Guid.NewGuid(), "Mixed Show", 2, [1, 2], null, null, null,
+                    [new DigestEpisode(allowedEpisode, 1), new DigestEpisode(forbiddenEpisode, 2)]),
+                new DigestSeries(Guid.NewGuid(), "Severance", 1, [1], null, null, null,
+                    [new DigestEpisode(Guid.NewGuid(), 1)])
+            ]);
+
+    [Fact]
+    public async Task Newsletter_RestrictedRecipient_GetsOnlyVisibleItems()
+    {
+        var h = new Harness();
+        var (allowedMovie, forbiddenMovie, allowedEpisode, forbiddenEpisode) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(RestrictedDigest(allowedMovie, forbiddenMovie, allowedEpisode, forbiddenEpisode));
+        var kid = new Recipient(Guid.NewGuid(), "kid@example.org");
+        h.Access.Setup(a => a.VisibleTo(kid.UserId, It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(new HashSet<Guid> { allowedMovie, allowedEpisode });
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+        var content = prepared.Render(kid)!;
+
+        Assert.Contains("Dune", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("Mixed Show", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Forbidden Film", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Severance", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Forbidden Film", content.Text!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Severance", content.Text!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Newsletter_RecipientSeeingNothing_RendersNull()
+    {
+        var h = new Harness();
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(RestrictedDigest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()));
+        h.Access.Setup(a => a.VisibleTo(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(new HashSet<Guid>());
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+
+        Assert.True(prepared.ShouldSend);
+        Assert.Null(prepared.Render(Anyone));
+    }
+
+    [Fact]
+    public async Task Newsletter_AdminPreview_IsNotFiltered()
+    {
+        var h = new Harness();
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(RestrictedDigest(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()));
+        h.Access.Setup(a => a.VisibleTo(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()))
+            .Returns(new HashSet<Guid>());
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None, freshWindow: true);
+        var content = prepared.Render(new Recipient(Guid.Empty, "admin@example.org"))!;
+
+        Assert.Contains("Forbidden Film", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("Severance", content.Html!, StringComparison.Ordinal);
+        h.Access.Verify(a => a.VisibleTo(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()), Times.Never);
     }
 
     [Fact]
@@ -198,7 +271,7 @@ public sealed class EmailComposerTests
 
         var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None, freshWindow: true);
 
-        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.Empty, "admin@example.org")).Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.Empty, "admin@example.org"))!.Html!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -208,6 +281,6 @@ public sealed class EmailComposerTests
 
         var prepared = await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None);
 
-        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.NewGuid(), "x@example.org")).Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.NewGuid(), "x@example.org"))!.Html!, StringComparison.Ordinal);
     }
 }

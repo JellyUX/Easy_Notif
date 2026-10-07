@@ -24,8 +24,12 @@ public sealed class PreparedCampaign
     /// <summary>Gets why the campaign was not sent, when <see cref="ShouldSend"/> is false.</summary>
     public string? SkipReason { get; init; }
 
-    /// <summary>Gets the render delegate producing the email for a recipient.</summary>
-    public required Func<Recipient, EmailContent> Render { get; init; }
+    /// <summary>
+    /// Gets the render delegate producing the email for a recipient, or null when nothing in it is
+    /// visible to that recipient (newsletter access filtering); such a recipient is not sent anything.
+    /// A <see cref="Guid.Empty"/> recipient (the admin preview) is never filtered and never null.
+    /// </summary>
+    public required Func<Recipient, EmailContent?> Render { get; init; }
 
     /// <summary>Gets the movie count of the prepared digest (newsletter only; 0 otherwise).</summary>
     public int MovieCount { get; init; }

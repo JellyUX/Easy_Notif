@@ -165,7 +165,8 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                         seasons,
                         Trimmed(seriesItem?.Overview),
                         seriesItem is null ? null : PosterUrl(baseUrl, hasPublicUrl, inlinePosters, seriesItem),
-                        DetailUrl(baseUrl, hasPublicUrl, g.Key))
+                        DetailUrl(baseUrl, hasPublicUrl, g.Key),
+                        [.. g.Select(e => new DigestEpisode(e.Id, e.ParentIndexNumber))])
                 };
             })
             .OrderByDescending(x => x.Newest)

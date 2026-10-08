@@ -1,14 +1,11 @@
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.EasyNotif.Configuration;
-using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Storage;
-using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 
 namespace Jellyfin.Plugin.EasyNotif.Media;
@@ -73,9 +70,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <inheritdoc/>
     public async Task<NewsletterDigest> GetNewSinceAsync(DateTime sinceUtc, CancellationToken cancellationToken, int limit = 1000)
     {
-        var configuredUrl = _config.Get().PublicServerUrl;
-        var hasPublicUrl = PublicUrl.IsValid(configuredUrl);
-        var baseUrl = hasPublicUrl ? configuredUrl!.TrimEnd('/') : null;
+        var baseUrl = MediaLinks.BaseUrl(_config.Get().PublicServerUrl);
         var since = DateTime.SpecifyKind(sinceUtc, DateTimeKind.Utc);
 
         // Primary source: items the ItemAdded event recorded as added since the window start, in
@@ -144,18 +139,8 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                 .ToDictionary(g => g.Key, g => g.First());
 
         // When there is no public URL, posters cannot be linked - attach a downsized copy inline.
-        var inlinePosters = new Dictionary<Guid, EmailAttachment>();
-        if (!hasPublicUrl)
-        {
-            foreach (var item in movieItems.Concat<BaseItem>(seriesItems.Values))
-            {
-                var attachment = await _posterCache.GetInlineAsync(item, cancellationToken).ConfigureAwait(false);
-                if (attachment is not null)
-                {
-                    inlinePosters[item.Id] = attachment;
-                }
-            }
-        }
+        var inlinePosters = await MediaLinks.InlinePostersAsync(
+            baseUrl, _posterCache, movieItems.Concat<BaseItem>(seriesItems.Values), cancellationToken).ConfigureAwait(false);
 
         var movies = movieItems
             .Select(m => new DigestMovie(
@@ -165,8 +150,8 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                 Trimmed(m.Overview),
                 m.Genres ?? [],
                 Trimmed(m.OfficialRating),
-                PosterUrl(baseUrl, hasPublicUrl, inlinePosters, m),
-                DetailUrl(baseUrl, hasPublicUrl, m.Id)))
+                MediaLinks.PosterUrl(baseUrl, inlinePosters, m),
+                MediaLinks.DetailUrl(baseUrl, _links.SystemId, m.Id)))
             .ToList();
 
         var series = groups
@@ -190,8 +175,8 @@ public sealed class NewsletterDigestService : INewsletterDigestService
                         g.Count(),
                         seasons,
                         Trimmed(seriesItem?.Overview),
-                        seriesItem is null ? null : PosterUrl(baseUrl, hasPublicUrl, inlinePosters, seriesItem),
-                        DetailUrl(baseUrl, hasPublicUrl, g.Key),
+                        seriesItem is null ? null : MediaLinks.PosterUrl(baseUrl, inlinePosters, seriesItem),
+                        MediaLinks.DetailUrl(baseUrl, _links.SystemId, g.Key),
                         [.. g.Select(e => new DigestEpisode(e.Id, e.ParentIndexNumber))])
                 };
             })
@@ -208,21 +193,4 @@ public sealed class NewsletterDigestService : INewsletterDigestService
 
     private static string? Trimmed(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-
-    private static string? PosterUrl(string? baseUrl, bool hasPublicUrl, IReadOnlyDictionary<Guid, EmailAttachment> inlinePosters, BaseItem item)
-    {
-        if (hasPublicUrl)
-        {
-            return item.HasImage(ImageType.Primary)
-                ? $"{baseUrl}/Items/{item.Id:N}/Images/Primary?maxWidth=300&quality=85"
-                : null;
-        }
-
-        return inlinePosters.TryGetValue(item.Id, out var attachment) ? $"cid:{attachment.ContentId}" : null;
-    }
-
-    private string? DetailUrl(string? baseUrl, bool hasPublicUrl, Guid id)
-        => hasPublicUrl
-            ? $"{baseUrl}/web/#/details?id={id:N}&serverId={_links.SystemId}"
-            : null;
 }

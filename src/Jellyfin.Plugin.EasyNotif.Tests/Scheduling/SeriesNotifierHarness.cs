@@ -124,6 +124,10 @@ internal sealed class SeriesNotifierHarness : IDisposable
 
     public FakeCampaignStore Campaigns { get; } = new();
 
+    public Mock<IPosterCache> PosterCache { get; } = new();
+
+    public TemplateStore Templates { get; } = TestTemplateStore.Create();
+
     public SeriesNotifyStore Store { get; private set; } = null!;
 
     public SeriesNotifier Notifier { get; private set; } = null!;
@@ -150,6 +154,9 @@ internal sealed class SeriesNotifierHarness : IDisposable
             SendLog.Object,
             Config,
             Secrets,
+            Templates,
+            PosterCache.Object,
+            new ServerLinkContext("test-system", "Test server"),
             Log,
             NullLogger<SeriesNotifier>.Instance,
             () => Now);

@@ -1,3 +1,5 @@
+using Jellyfin.Plugin.EasyNotif.Email;
+
 namespace Jellyfin.Plugin.EasyNotif.Templating;
 
 /// <summary>
@@ -7,10 +9,38 @@ namespace Jellyfin.Plugin.EasyNotif.Templating;
 public static class TemplateSampleModel
 {
     /// <summary>Returns the sample model for a base template id.</summary>
-    /// <param name="baseId">The base id (<c>newsletter</c> or <c>weekly-recap</c>).</param>
+    /// <param name="baseId">The base id (<c>newsletter</c>, <c>weekly-recap</c> or <c>series-episodes</c>).</param>
     /// <returns>The model.</returns>
     public static IReadOnlyDictionary<string, object?> For(string baseId)
-        => baseId == "weekly-recap" ? WeeklyRecap() : Newsletter();
+        => baseId switch
+        {
+            "weekly-recap" => WeeklyRecap(),
+            SeriesEpisodesRenderer.TemplateId => SeriesEpisodes(),
+            _ => Newsletter()
+        };
+
+    private static IReadOnlyDictionary<string, object?> SeriesEpisodes()
+        => SeriesEpisodesRenderer.Model(
+            new SeriesEpisodesDigest(
+            [
+                new SeriesEpisodesGroup(
+                    Guid.Empty,
+                    "Severance",
+                    [new SeriesEpisodeLine(2, 5, null, null), new SeriesEpisodeLine(2, 6, null, null)],
+                    "https://media.example.org/EasyNotif/u/sample-series-token?lang=en",
+                    "https://media.example.org/sample-poster.jpg",
+                    "https://media.example.org/web/#/details?id=sample"),
+                new SeriesEpisodesGroup(
+                    Guid.Empty,
+                    "The Bear",
+                    [.. Enumerable.Range(1, 8).Select(n => new SeriesEpisodeLine(3, n, null, null))],
+                    "https://media.example.org/EasyNotif/u/sample-series-token-2?lang=en",
+                    "https://media.example.org/sample-poster-2.jpg",
+                    "https://media.example.org/web/#/details?id=sample-2")
+            ],
+                "https://media.example.org/EasyNotif/u/sample-token?lang=en"),
+            french: false,
+            "Lili serveur");
 
     private static Dictionary<string, object?> Newsletter() => new()
     {

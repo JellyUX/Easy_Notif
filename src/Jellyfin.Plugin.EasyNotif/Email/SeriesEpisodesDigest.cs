@@ -1,6 +1,6 @@
 using System.Globalization;
-using System.Net;
 using System.Text;
+using Jellyfin.Plugin.EasyNotif.Templating;
 
 namespace Jellyfin.Plugin.EasyNotif.Email;
 
@@ -16,68 +16,83 @@ public sealed record SeriesEpisodeLine(int? Season, int? Number, int? NumberEnd,
 /// <param name="SeriesName">The series name.</param>
 /// <param name="Episodes">The episodes, in season and episode order.</param>
 /// <param name="UnsubscribeUrl">The link that stops this series only, or null without a public URL or secret.</param>
-public sealed record SeriesEpisodesGroup(Guid SeriesId, string SeriesName, IReadOnlyList<SeriesEpisodeLine> Episodes, string? UnsubscribeUrl = null);
+/// <param name="PosterUrl">The poster: an image URL, a <c>cid:</c> reference, or null.</param>
+/// <param name="DetailUrl">The series page in the web client, or null without a public URL.</param>
+public sealed record SeriesEpisodesGroup(
+    Guid SeriesId,
+    string SeriesName,
+    IReadOnlyList<SeriesEpisodeLine> Episodes,
+    string? UnsubscribeUrl = null,
+    string? PosterUrl = null,
+    string? DetailUrl = null);
 
 /// <summary>The content of one series notification email: the new episodes of each followed series.</summary>
 /// <param name="Series">The series, in name order.</param>
 /// <param name="UnsubscribeAllUrl">The link that stops every new-episode email, or null without a public URL or secret.</param>
-public sealed record SeriesEpisodesDigest(IReadOnlyList<SeriesEpisodesGroup> Series, string? UnsubscribeAllUrl = null);
+/// <param name="Posters">The inline posters the <c>cid:</c> references point to, or null.</param>
+public sealed record SeriesEpisodesDigest(
+    IReadOnlyList<SeriesEpisodesGroup> Series,
+    string? UnsubscribeAllUrl = null,
+    IReadOnlyList<EmailAttachment>? Posters = null);
 
 /// <summary>
-/// Provisional rendering of a <see cref="SeriesEpisodesDigest"/> (DEC-33): plain HTML and text built
-/// in code, French or English. The embedded <c>series-episodes</c> template replaces it in phase 13.
+/// Renders a <see cref="SeriesEpisodesDigest"/>: the HTML body through the embedded
+/// <c>series-episodes</c> template, the subject and the text body in code, French or English.
 /// </summary>
 public static class SeriesEpisodesRenderer
 {
+    /// <summary>The base template id of the series notification email.</summary>
+    public const string TemplateId = "series-episodes";
+
     /// <summary>Above this many episodes, a series is summarised in one line.</summary>
     public const int SummaryThreshold = 5;
 
     /// <summary>Renders the digest.</summary>
     /// <param name="digest">The digest.</param>
     /// <param name="french">True for French, false for English.</param>
+    /// <param name="template">The <c>series-episodes</c> template text in the same language.</param>
+    /// <param name="serverName">The server name, for the heading.</param>
     /// <returns>The subject, HTML body and text body.</returns>
-    public static (string Subject, string Html, string Text) Render(SeriesEpisodesDigest digest, bool french)
+    public static (string Subject, string Html, string Text) Render(SeriesEpisodesDigest digest, bool french, string template, string serverName)
     {
         ArgumentNullException.ThrowIfNull(digest);
+        ArgumentNullException.ThrowIfNull(template);
         var subject = digest.Series.Count == 1
             ? (french ? "Nouveaux épisodes : " : "New episodes: ") + digest.Series[0].SeriesName
             : french
                 ? string.Create(CultureInfo.InvariantCulture, $"Nouveaux épisodes de {digest.Series.Count} séries")
                 : string.Create(CultureInfo.InvariantCulture, $"New episodes of {digest.Series.Count} series");
+        var html = TemplateEngine.Render(template, Model(digest, french, serverName));
+        return (subject, html, Text(digest, french));
+    }
 
-        var html = new StringBuilder();
-        var text = new StringBuilder();
-        foreach (var group in digest.Series)
+    /// <summary>Returns the template model of a digest.</summary>
+    /// <param name="digest">The digest.</param>
+    /// <param name="french">True for French, false for English.</param>
+    /// <param name="serverName">The server name, for the heading.</param>
+    /// <returns>The model.</returns>
+    public static IReadOnlyDictionary<string, object?> Model(SeriesEpisodesDigest digest, bool french, string serverName)
+    {
+        ArgumentNullException.ThrowIfNull(digest);
+        var total = digest.Series.Sum(s => s.Episodes.Count);
+        var count = total.ToString(CultureInfo.InvariantCulture);
+        return new Dictionary<string, object?>
         {
-            html.Append("<h2>").Append(WebUtility.HtmlEncode(group.SeriesName)).Append("</h2><ul>");
-            text.Append(group.SeriesName).Append('\n');
-            foreach (var line in Lines(group, french))
+            ["heading"] = french ? $"Nouveaux épisodes sur {serverName}" : $"New episodes on {serverName}",
+            ["summary"] = total == 1
+                ? (french ? "1 nouvel épisode" : "1 new episode")
+                : french ? $"{count} nouveaux épisodes" : $"{count} new episodes",
+            ["series"] = digest.Series.Select(s => new Dictionary<string, object?>
             {
-                html.Append("<li>").Append(WebUtility.HtmlEncode(line)).Append("</li>");
-                text.Append("- ").Append(line).Append('\n');
-            }
-
-            html.Append("</ul>");
-            if (group.UnsubscribeUrl is { } seriesUrl)
-            {
-                var stop = french ? "Ne plus suivre cette série" : "Stop following this series";
-                html.Append("<p><a href=\"").Append(WebUtility.HtmlEncode(seriesUrl)).Append("\">")
-                    .Append(WebUtility.HtmlEncode(stop)).Append("</a></p>");
-                text.Append(stop).Append(": ").Append(seriesUrl).Append('\n');
-            }
-
-            text.Append('\n');
-        }
-
-        if (digest.UnsubscribeAllUrl is { } allUrl)
-        {
-            var stopAll = french ? "Ne plus recevoir les mails de nouveaux épisodes" : "Stop all new-episode emails";
-            html.Append("<hr><p><a href=\"").Append(WebUtility.HtmlEncode(allUrl)).Append("\">")
-                .Append(WebUtility.HtmlEncode(stopAll)).Append("</a></p>");
-            text.Append(stopAll).Append(": ").Append(allUrl).Append('\n');
-        }
-
-        return (subject, html.ToString(), text.ToString().TrimEnd() + "\n");
+                ["title"] = s.SeriesName,
+                ["posterUrl"] = s.PosterUrl,
+                ["detailUrl"] = s.DetailUrl,
+                ["noLink"] = s.DetailUrl is null,
+                ["episodes"] = Lines(s, french).ToList(),
+                ["stopUrl"] = s.UnsubscribeUrl
+            }).ToList(),
+            ["unsubscribeUrl"] = digest.UnsubscribeAllUrl
+        };
     }
 
     /// <summary>Returns the label of one episode.</summary>
@@ -108,6 +123,38 @@ public static class SeriesEpisodesRenderer
         }
 
         return french ? "Nouvel épisode" : "New episode";
+    }
+
+    private static string Text(SeriesEpisodesDigest digest, bool french)
+    {
+        var text = new StringBuilder();
+        foreach (var group in digest.Series)
+        {
+            text.Append(group.SeriesName).Append('\n');
+            foreach (var line in Lines(group, french))
+            {
+                text.Append("- ").Append(line).Append('\n');
+            }
+
+            if (group.DetailUrl is { } detailUrl)
+            {
+                text.Append(french ? "Voir la série" : "Open the series").Append(": ").Append(detailUrl).Append('\n');
+            }
+
+            if (group.UnsubscribeUrl is { } seriesUrl)
+            {
+                text.Append(french ? "Ne plus suivre cette série" : "Stop following this series").Append(": ").Append(seriesUrl).Append('\n');
+            }
+
+            text.Append('\n');
+        }
+
+        if (digest.UnsubscribeAllUrl is { } allUrl)
+        {
+            text.Append(french ? "Ne plus recevoir les mails de nouveaux épisodes" : "Stop all new-episode emails").Append(": ").Append(allUrl).Append('\n');
+        }
+
+        return text.ToString().TrimEnd() + "\n";
     }
 
     private static IEnumerable<string> Lines(SeriesEpisodesGroup group, bool french)

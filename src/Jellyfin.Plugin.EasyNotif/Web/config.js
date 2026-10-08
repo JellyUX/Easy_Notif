@@ -1106,7 +1106,10 @@
         _el('enotifTplBody').readOnly = !editable;
         _el('enotifTplSaveBtn').hidden = !editable;
         _el('enotifTplDeleteBtn').hidden = !editable;
-        _el('enotifTplResult').textContent = editable ? '' : _t(dict, 'templates.base.readonly');
+        _el('enotifTplCloneBtn').hidden = !info.cloneable;
+        _el('enotifTplResult').textContent = editable
+            ? ''
+            : _t(dict, info.cloneable ? 'templates.base.readonly' : 'templates.base.fixed');
         return window.ApiClient.getJSON(_url('admin/templates/' + encodeURIComponent(id) + '?lang=' + lang))
             .then(function (t) {
                 _el('enotifTplBody').value = (t && t.content) || '';

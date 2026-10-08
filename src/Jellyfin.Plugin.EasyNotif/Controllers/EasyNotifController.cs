@@ -1017,7 +1017,7 @@ public class EasyNotifController : ControllerBase
     // -------------------------------------------------------------------------
 
     /// <summary>Lists the base and custom email templates. Administrators only.</summary>
-    /// <returns>The templates.</returns>
+    /// <returns>The templates; <c>cloneable</c> is false for <c>series-episodes</c> (DEC-44).</returns>
     [HttpGet("admin/templates")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -1027,7 +1027,8 @@ public class EasyNotifController : ControllerBase
         id = t.Id,
         baseId = t.BaseId,
         custom = t.Custom,
-        langs = t.Langs
+        langs = t.Langs,
+        cloneable = TemplateStore.CloneableBaseIds.Contains(t.BaseId)
     })));
 
     /// <summary>Gets one template's source for a language. Administrators only.</summary>

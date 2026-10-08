@@ -1171,6 +1171,31 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void GetTemplates_MarksTheSeriesBaseNotCloneable_AndRefusesItsClone()
+    {
+        var controller = BuildController(templates: TestTemplateStore.Create());
+
+        var listed = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetTemplates()).Value);
+
+        Assert.Contains("{\"id\":\"series-episodes\",\"baseId\":\"series-episodes\",\"custom\":false,\"langs\":[\"en\",\"fr\"],\"cloneable\":false}", listed, StringComparison.Ordinal);
+        Assert.Contains("{\"id\":\"newsletter\",\"baseId\":\"newsletter\",\"custom\":false,\"langs\":[\"en\",\"fr\"],\"cloneable\":true}", listed, StringComparison.Ordinal);
+        Assert.IsType<BadRequestObjectResult>(controller.CloneTemplate(new TemplateCloneRequest { BaseId = "series-episodes", Slug = "x" }));
+    }
+
+    [Fact]
+    public void PreviewTemplate_SeriesBase_RendersTheSampleModel()
+    {
+        var templates = TestTemplateStore.Create();
+        var controller = BuildController(templates: templates);
+
+        var result = controller.PreviewTemplate(new TemplatePreviewRequest { BaseId = "series-episodes", Content = templates.Get("series-episodes", "en") });
+
+        var html = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Contains("Severance", html, StringComparison.Ordinal);
+        Assert.Contains("8 new episodes (S03E01 to S03E08)", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetTemplate_UnknownId_Returns404()
         => Assert.IsType<NotFoundResult>(BuildController().GetTemplate("nope", "en"));
 

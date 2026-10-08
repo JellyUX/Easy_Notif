@@ -147,6 +147,7 @@
   "templates.delete": "Supprimer",
   "templates.delete.confirm": "Supprimer ce template personnalisé ?",
   "templates.base.readonly": "Template de base non modifiable. Clonez-le pour l’adapter.",
+  "templates.base.fixed": "Template des mails de nouveaux épisodes, en lecture seule et non clonable.",
   "templates.saved": "Enregistré.",
   "templates.error.script": "Une balise script n’est pas autorisée dans un template.",
   "templates.error.tooLarge": "Ce template est trop volumineux (64 Ko maximum).",

@@ -151,12 +151,34 @@ public sealed class TemplateStoreTests : IDisposable
     }
 
     [Fact]
-    public void List_ReturnsTheTwoBases_InOrder_PlusCustoms()
+    public void List_ReturnsTheThreeBases_InOrder_PlusCustoms()
     {
         var store = Build();
 
         var bases = store.List().Where(t => !t.Custom).Select(t => t.Id).ToList();
-        Assert.Equal(["newsletter", "weekly-recap"], bases);
+        Assert.Equal(["newsletter", "weekly-recap", "series-episodes"], bases);
+    }
+
+    [Fact]
+    public void SeriesEpisodes_IsAReadOnlyBase_ThatCannotBeCloned()
+    {
+        var store = Build();
+
+        Assert.True(store.Exists("series-episodes"));
+        Assert.Throws<InvalidOperationException>(() => store.Clone("series-episodes", "mine"));
+        Assert.Throws<InvalidOperationException>(() => store.Save("series-episodes", "en", "<p>x</p>"));
+        Assert.False(Directory.Exists(CustomDir) && Directory.EnumerateFiles(CustomDir).Any());
+    }
+
+    [Fact]
+    public void Validate_SeriesEpisodes_KnowsItsOwnKeysOnly()
+    {
+        var store = Build();
+
+        Assert.True(store.Validate("series-episodes", "{{#each series}}{{title}}{{#each episodes}}{{.}}{{/each}}<a href=\"{{stopUrl}}\">x</a>{{/each}}").Ok);
+        var foreign = store.Validate("series-episodes", "<p>{{moreMoviesLabel}}</p>");
+        Assert.False(foreign.Ok);
+        Assert.Equal("moreMoviesLabel", foreign.Key);
     }
 
     public void Dispose()

@@ -147,6 +147,7 @@
   "templates.delete": "Delete",
   "templates.delete.confirm": "Delete this custom template?",
   "templates.base.readonly": "This is a base template and cannot be edited. Clone it to make changes.",
+  "templates.base.fixed": "This template is used for the new-episode emails. It is read-only and cannot be cloned.",
   "templates.saved": "Saved.",
   "templates.error.script": "A script tag is not allowed in a template.",
   "templates.error.tooLarge": "This template is too large (max 64 KB).",

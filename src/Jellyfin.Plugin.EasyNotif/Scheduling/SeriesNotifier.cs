@@ -86,6 +86,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
     private readonly ISendLog _sendLog;
     private readonly IConfigAccessor _config;
     private readonly ISecretStore _secrets;
+    private readonly ITemplateStore _templates;
+    private readonly IPosterCache _posterCache;
+    private readonly ServerLinkContext _links;
     private readonly IEasyNotifLog _log;
     private readonly ILogger<SeriesNotifier> _logger;
     private readonly Func<DateTime> _now;
@@ -105,6 +108,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
     /// <param name="sendLog">The send log.</param>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="secrets">The transport secret store.</param>
+    /// <param name="templates">The email template store (<c>series-episodes</c>).</param>
+    /// <param name="posterCache">The inline poster cache (used only when no public URL is set).</param>
+    /// <param name="links">The captured server identity for deep links and the heading.</param>
     /// <param name="log">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public SeriesNotifier(
@@ -120,9 +126,12 @@ public sealed class SeriesNotifier : ISeriesNotifier
         ISendLog sendLog,
         IConfigAccessor config,
         ISecretStore secrets,
+        ITemplateStore templates,
+        IPosterCache posterCache,
+        ServerLinkContext links,
         IEasyNotifLog log,
         ILogger<SeriesNotifier> logger)
-        : this(store, libraryManager, announced, access, preferences, retries, campaigns, sender, quota, sendLog, config, secrets, log, logger, () => DateTime.UtcNow)
+        : this(store, libraryManager, announced, access, preferences, retries, campaigns, sender, quota, sendLog, config, secrets, templates, posterCache, links, log, logger, () => DateTime.UtcNow)
     {
     }
 
@@ -139,6 +148,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
         ISendLog sendLog,
         IConfigAccessor config,
         ISecretStore secrets,
+        ITemplateStore templates,
+        IPosterCache posterCache,
+        ServerLinkContext links,
         IEasyNotifLog log,
         ILogger<SeriesNotifier> logger,
         Func<DateTime> now)
@@ -155,6 +167,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
         _sendLog = sendLog;
         _config = config;
         _secrets = secrets;
+        _templates = templates;
+        _posterCache = posterCache;
+        _links = links;
         _log = log;
         _logger = logger;
         _now = now;
@@ -395,7 +410,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
         var batchKeys = batch.Select(p => keys[p.ItemId]).OrderBy(k => k, StringComparer.Ordinal).ToList();
         var lang = french ? "fr" : "en";
         string? Link(string category) => UnsubscribeToken.BuildUrl(cfg.PublicServerUrl, unsubscribeSecret, recipient.UserId, category, lang);
-        var (subject, html, text) = SeriesEpisodesRenderer.Render(BuildDigest(batch, items, Link), french);
+        var digest = await BuildDigestAsync(batch, items, Link, cfg.PublicServerUrl, cancellationToken).ConfigureAwait(false);
+        var (subject, html, text) = SeriesEpisodesRenderer.Render(
+            digest, french, _templates.Get(SeriesEpisodesRenderer.TemplateId, lang), _links.ServerName);
         var result = await _sender.SendAsync(
             new EmailMessage
             {
@@ -403,6 +420,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 Subject = subject,
                 Html = html,
                 Text = text,
+                Attachments = digest.Posters is { Count: > 0 } posters ? posters : null,
                 ReplyTo = cfg.ReplyTo,
                 Tags = [new EmailTag("context", "series"), new EmailTag("category", "Series")],
                 Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, unsubscribeSecret, recipient.UserId, EpisodesCategory),
@@ -534,29 +552,47 @@ public sealed class SeriesNotifier : ISeriesNotifier
         return excluded;
     }
 
-    private SeriesEpisodesDigest BuildDigest(List<PendingEpisode> batch, Dictionary<Guid, Episode> items, Func<string, string?> link)
+    private async Task<SeriesEpisodesDigest> BuildDigestAsync(
+        List<PendingEpisode> batch,
+        Dictionary<Guid, Episode> items,
+        Func<string, string?> link,
+        string? publicServerUrl,
+        CancellationToken cancellationToken)
     {
-        var groups = batch
-            .GroupBy(p => p.SeriesId, p => items[p.ItemId])
-            .Select(g => new SeriesEpisodesGroup(
-                g.Key,
-                SeriesName(g.Key, g.First()),
-                [.. g.OrderBy(e => e.ParentIndexNumber ?? int.MaxValue)
-                    .ThenBy(e => e.IndexNumber ?? int.MaxValue)
-                    .ThenBy(e => e.PremiereDate)
-                    .Select(e => new SeriesEpisodeLine(e.ParentIndexNumber, e.IndexNumber, e.IndexNumberEnd, e.IndexNumber is null ? e.PremiereDate : null))],
-                link(UnsubscribeToken.SeriesCategory(g.Key))))
+        var baseUrl = MediaLinks.BaseUrl(publicServerUrl);
+        var byId = batch.GroupBy(p => p.SeriesId, p => items[p.ItemId]).ToList();
+        var seriesItems = byId
+            .Select(g => _libraryManager.GetItemById(g.Key))
+            .OfType<BaseItem>()
+            .ToList();
+        var inlinePosters = await MediaLinks.InlinePostersAsync(baseUrl, _posterCache, seriesItems, cancellationToken).ConfigureAwait(false);
+
+        var groups = byId
+            .Select(g =>
+            {
+                var seriesItem = seriesItems.Find(s => s.Id == g.Key);
+                return new SeriesEpisodesGroup(
+                    g.Key,
+                    SeriesName(seriesItem, g.First()),
+                    [.. g.OrderBy(e => e.ParentIndexNumber ?? int.MaxValue)
+                        .ThenBy(e => e.IndexNumber ?? int.MaxValue)
+                        .ThenBy(e => e.PremiereDate)
+                        .Select(e => new SeriesEpisodeLine(e.ParentIndexNumber, e.IndexNumber, e.IndexNumberEnd, e.IndexNumber is null ? e.PremiereDate : null))],
+                    link(UnsubscribeToken.SeriesCategory(g.Key)),
+                    seriesItem is null ? null : MediaLinks.PosterUrl(baseUrl, inlinePosters, seriesItem),
+                    MediaLinks.DetailUrl(baseUrl, _links.SystemId, g.Key));
+            })
             .OrderBy(g => g.SeriesName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        return new SeriesEpisodesDigest(groups, link(EpisodesCategory));
+        return new SeriesEpisodesDigest(groups, link(EpisodesCategory), [.. inlinePosters.Values]);
     }
 
-    private string SeriesName(Guid seriesId, Episode sample)
+    private static string SeriesName(BaseItem? seriesItem, Episode sample)
     {
         var name = sample.SeriesName;
         if (string.IsNullOrWhiteSpace(name))
         {
-            name = _libraryManager.GetItemById(seriesId)?.Name;
+            name = seriesItem?.Name;
         }
 
         return string.IsNullOrWhiteSpace(name) ? "?" : name;

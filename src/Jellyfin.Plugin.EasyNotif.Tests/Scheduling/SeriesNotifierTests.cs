@@ -1,7 +1,9 @@
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
+using Moq;
 using Xunit;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.Scheduling;
@@ -98,6 +100,42 @@ public sealed class SeriesNotifierTests : IDisposable
         Assert.True(UnsubscribeToken.TryVerify("unsub-secret-0123456789", header[(header.LastIndexOf('/') + 1)..], out _, out var headerCategory));
         Assert.Equal("episodes", headerCategory);
         Assert.Contains("Ne plus suivre cette série", mail.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithPublicUrl_TheSeriesTitleLinksToItsPage()
+    {
+        _h.Config.Config.PublicServerUrl = "https://media.example.org/";
+        _h.Library.Setup(l => l.GetItemById(Series)).Returns(new MediaBrowser.Controller.Entities.TV.Series { Id = Series, Name = "Severance" });
+        _h.Follow(Series);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        var mail = Assert.Single(_h.Sent);
+        Assert.Contains($"href=\"https://media.example.org/web/#/details?id={Series:N}&amp;serverId=test-system\"", mail.Html, StringComparison.Ordinal);
+        Assert.Contains("Nouveaux épisodes sur Test server", mail.Html, StringComparison.Ordinal);
+        Assert.Null(mail.Attachments);
+        _h.PosterCache.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task WithoutPublicUrl_ThePosterIsAttachedInline()
+    {
+        var poster = new EmailAttachment { FileName = "poster.jpg", Content = [1, 2, 3], ContentId = "poster-1" };
+        _h.Library.Setup(l => l.GetItemById(Series)).Returns(new MediaBrowser.Controller.Entities.TV.Series { Id = Series, Name = "Severance" });
+        _h.PosterCache
+            .Setup(p => p.GetInlineAsync(It.Is<BaseItem>(i => i.Id == Series), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(poster);
+        _h.Follow(Series);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        var mail = Assert.Single(_h.Sent);
+        Assert.Contains("<img src=\"cid:poster-1\"", mail.Html, StringComparison.Ordinal);
+        Assert.Same(poster, Assert.Single(mail.Attachments!));
+        Assert.DoesNotContain("/web/#/details", mail.Html, StringComparison.Ordinal);
     }
 
     [Fact]

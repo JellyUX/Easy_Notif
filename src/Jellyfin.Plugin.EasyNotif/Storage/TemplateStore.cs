@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Templating;
@@ -10,9 +11,10 @@ using MediaBrowser.Common.Configuration;
 namespace Jellyfin.Plugin.EasyNotif.Storage;
 
 /// <summary>
-/// Provides the HTML body templates for campaign emails. The two base templates (<c>newsletter</c>,
-/// <c>weekly-recap</c>) are embedded and read-only; the admin can clone one to an on-disk copy under
-/// <c>{DataPath}/Jellyfin.Plugin.EasyNotif/templates/</c> and point a campaign at it
+/// Provides the HTML body templates of the emails. The base templates (<c>newsletter</c>,
+/// <c>weekly-recap</c>, <c>series-episodes</c>) are embedded and read-only; the admin can clone a
+/// campaign one to an on-disk copy under <c>{DataPath}/Jellyfin.Plugin.EasyNotif/templates/</c> and
+/// point a campaign at it
 /// (Synthese.md section 3.5). A custom id is <c>{baseId}__{slug}</c>.
 /// </summary>
 public interface ITemplateStore
@@ -86,7 +88,10 @@ public sealed record TemplateValidation(bool Ok, string? Reason = null, string? 
 public sealed class TemplateStore : ITemplateStore
 {
     /// <summary>The base template ids, in listing order.</summary>
-    public static readonly IReadOnlyList<string> BaseIds = ["newsletter", "weekly-recap"];
+    public static readonly IReadOnlyList<string> BaseIds = ["newsletter", "weekly-recap", SeriesEpisodesRenderer.TemplateId];
+
+    /// <summary>The base ids that can be cloned: a series email has no campaign to point at a copy (DEC-44).</summary>
+    public static readonly IReadOnlyList<string> CloneableBaseIds = ["newsletter", "weekly-recap"];
 
     private const int MaxBytes = 64 * 1024;
     private const int MaxNesting = 32;
@@ -108,6 +113,11 @@ public sealed class TemplateStore : ITemplateStore
         "greeting", "heading", "quietWeek", "hasWatched", "watched",
         "yearTotal", "yearCompleted", "partialSince",
         "title", "seriesTitle", "isSeries", "isSingle", "episodeCount", "when", "completed", "unsubscribeUrl"
+    };
+
+    private static readonly IReadOnlySet<string> SeriesKeys = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "heading", "summary", "series", "title", "posterUrl", "detailUrl", "noLink", "episodes", "stopUrl", "unsubscribeUrl"
     };
 
     private readonly ConcurrentDictionary<string, string> _embeddedCache = new(StringComparer.Ordinal);
@@ -256,9 +266,9 @@ public sealed class TemplateStore : ITemplateStore
     /// <inheritdoc/>
     public void Clone(string baseId, string slug)
     {
-        if (!BaseIds.Contains(baseId))
+        if (!CloneableBaseIds.Contains(baseId))
         {
-            throw new InvalidOperationException($"Unknown base template \"{baseId}\".");
+            throw new InvalidOperationException($"Base template \"{baseId}\" cannot be cloned.");
         }
 
         if (string.IsNullOrEmpty(slug) || !SlugPattern.IsMatch(slug))
@@ -350,7 +360,12 @@ public sealed class TemplateStore : ITemplateStore
     private static string NormalizeLang(string lang) => lang is "fr" ? "fr" : "en";
 
     private static IReadOnlySet<string> KnownKeys(string baseId)
-        => baseId == "weekly-recap" ? RecapKeys : NewsletterKeys;
+        => baseId switch
+        {
+            "weekly-recap" => RecapKeys,
+            SeriesEpisodesRenderer.TemplateId => SeriesKeys,
+            _ => NewsletterKeys
+        };
 
     private string CustomPath(string templateId, string lang)
         => Path.Combine(_customDir, $"{templateId}-{lang}.html");

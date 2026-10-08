@@ -30,6 +30,8 @@
     <EmbeddedResource Include="Templates\newsletter-fr.html" />
     <EmbeddedResource Include="Templates\weekly-recap-en.html" />
     <EmbeddedResource Include="Templates\weekly-recap-fr.html" />
+    <EmbeddedResource Include="Templates\series-episodes-en.html" />
+    <EmbeddedResource Include="Templates\series-episodes-fr.html" />
   </ItemGroup>
 
   <ItemGroup>

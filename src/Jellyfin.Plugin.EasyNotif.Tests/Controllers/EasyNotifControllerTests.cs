@@ -77,6 +77,10 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetMyContactEmail))]
     [InlineData(nameof(EasyNotifController.PutMyContactEmail))]
     [InlineData(nameof(EasyNotifController.SendMyTestEmail))]
+    [InlineData(nameof(EasyNotifController.GetMySeries))]
+    [InlineData(nameof(EasyNotifController.GetMySeriesState))]
+    [InlineData(nameof(EasyNotifController.FollowSeries))]
+    [InlineData(nameof(EasyNotifController.UnfollowSeries))]
     public void MeEndpoints_RequireAuthentication_WithoutElevation_NotAnonymous(string methodName)
     {
         var method = Method(methodName);
@@ -118,7 +122,7 @@ public sealed class EasyNotifControllerTests
                 .Any(a => a.Template?.StartsWith("me/", StringComparison.Ordinal) == true))
             .ToList();
 
-        Assert.Equal(5, meActions.Count);
+        Assert.Equal(9, meActions.Count);
         foreach (var action in meActions)
         {
             Assert.DoesNotContain(
@@ -157,6 +161,87 @@ public sealed class EasyNotifControllerTests
 
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
         Assert.Equal(expected, json.RootElement.GetProperty("announcements").GetBoolean());
+    }
+
+    // -------------------------------------------------------------------------
+    // Followed series
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task SeriesEndpoints_ActOnTheAuthenticatedUser()
+    {
+        var caller = Guid.NewGuid();
+        var series = Guid.NewGuid();
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.List(It.IsAny<Guid>())).Returns([]);
+        var controller = BuildController(auth: AuthReturning(caller), followedSeries: followed);
+
+        await controller.GetMySeries();
+        await controller.GetMySeriesState(series);
+        await controller.FollowSeries(series, null);
+        await controller.UnfollowSeries(series);
+
+        followed.Verify(f => f.List(caller), Times.Once);
+        followed.Verify(f => f.IsFollowing(caller, series), Times.Once);
+        followed.Verify(f => f.Follow(caller, series, "bell"), Times.Once);
+        followed.Verify(f => f.Unfollow(caller, series), Times.Once);
+    }
+
+    [Fact]
+    public async Task SeriesEndpoints_AnswerABareNotFound_WhenTheServiceRefuses()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.IsFollowing(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns((bool?)null);
+        var controller = BuildController(followedSeries: followed);
+        var series = Guid.NewGuid();
+
+        Assert.IsType<NotFoundResult>(await controller.GetMySeriesState(series));
+        Assert.IsType<NotFoundResult>(await controller.FollowSeries(series, "panel"));
+        Assert.IsType<NotFoundResult>(await controller.UnfollowSeries(series));
+    }
+
+    [Fact]
+    public async Task SeriesEndpoints_ReportTheStateAndNoContentOnSuccess()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.IsFollowing(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns(true);
+        followed.Setup(f => f.Follow(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>())).Returns(true);
+        followed.Setup(f => f.Unfollow(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns(true);
+        var controller = BuildController(followedSeries: followed);
+        var series = Guid.NewGuid();
+
+        var ok = Assert.IsType<OkObjectResult>(await controller.GetMySeriesState(series));
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.True(json.RootElement.GetProperty("following").GetBoolean());
+        Assert.IsType<NoContentResult>(await controller.FollowSeries(series, null));
+        Assert.IsType<NoContentResult>(await controller.UnfollowSeries(series));
+    }
+
+    [Theory]
+    [InlineData(null, "bell")]
+    [InlineData("panel", "panel")]
+    [InlineData("email", "bell")]
+    [InlineData("<script>", "bell")]
+    public async Task FollowSeries_KeepsOnlyAKnownSource(string? source, string expected)
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        var controller = BuildController(followedSeries: followed);
+
+        await controller.FollowSeries(Guid.NewGuid(), source);
+
+        followed.Verify(f => f.Follow(It.IsAny<Guid>(), It.IsAny<Guid>(), expected), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetMySeries_Returns503_WhenStorageIsUnavailable()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.List(It.IsAny<Guid>())).Throws(new IOException("disk"));
+        var controller = BuildController(followedSeries: followed);
+
+        var result = Assert.IsAssignableFrom<IStatusCodeActionResult>(await controller.GetMySeries());
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
     }
 
     [Fact]
@@ -1201,7 +1286,8 @@ public sealed class EasyNotifControllerTests
         ITemplateStore? templates = null,
         Mock<IFileTransformationDetector>? fileTransformation = null,
         FakeEasyNotifLog? easyNotifLog = null,
-        Mock<IManualSendQueue>? manualQueue = null)
+        Mock<IManualSendQueue>? manualQueue = null,
+        Mock<IFollowedSeriesService>? followedSeries = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1223,6 +1309,7 @@ public sealed class EasyNotifControllerTests
 
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
+            (followedSeries ?? new Mock<IFollowedSeriesService>()).Object,
             effectiveConfig,
             effectiveSecrets,
             (auth ?? AuthReturning(DefaultUserId)).Object,

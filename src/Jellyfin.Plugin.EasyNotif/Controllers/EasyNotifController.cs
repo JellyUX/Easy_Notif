@@ -44,6 +44,7 @@ public class EasyNotifController : ControllerBase
     private static readonly Assembly PluginAssembly = typeof(EasyNotifController).Assembly;
 
     private readonly IPreferenceService _preferences;
+    private readonly IFollowedSeriesService _followedSeries;
     private readonly IConfigAccessor _config;
     private readonly ISecretStore _secrets;
     private readonly IAuthorizationContext _authContext;
@@ -64,6 +65,7 @@ public class EasyNotifController : ControllerBase
     /// Initializes a new instance of the <see cref="EasyNotifController"/> class.
     /// </summary>
     /// <param name="preferences">The preference service.</param>
+    /// <param name="followedSeries">The followed-series service.</param>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="authContext">Jellyfin request authorization context.</param>
@@ -81,6 +83,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
         IPreferenceService preferences,
+        IFollowedSeriesService followedSeries,
         IConfigAccessor config,
         ISecretStore secrets,
         IAuthorizationContext authContext,
@@ -98,6 +101,7 @@ public class EasyNotifController : ControllerBase
         ILogger<EasyNotifController> logger)
     {
         _preferences = preferences;
+        _followedSeries = followedSeries;
         _config = config;
         _secrets = secrets;
         _authContext = authContext;
@@ -272,6 +276,71 @@ public class EasyNotifController : ControllerBase
         }
 
         return Ok(new { ok = result.Success });
+    }
+
+    // -------------------------------------------------------------------------
+    // Current user - followed series
+    // -------------------------------------------------------------------------
+
+    /// <summary>Lists the series the caller follows and can still see.</summary>
+    /// <returns>200 with <c>[{ id, name, hasImage }]</c>; 503 when storage is unavailable.</returns>
+    [HttpGet("me/series")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> GetMySeries()
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+        return Wrap(() => Ok(_followedSeries.List(userId)
+            .Select(s => new { id = s.Id, name = s.Name, hasImage = s.HasImage })));
+    }
+
+    /// <summary>Gets whether the caller follows a series.</summary>
+    /// <param name="seriesId">The series id.</param>
+    /// <returns>200 with <c>{ following }</c>; 404, the same for a missing or a forbidden series;
+    /// 503 when storage is unavailable.</returns>
+    [HttpGet("me/series/{seriesId:guid}")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> GetMySeriesState([FromRoute] Guid seriesId)
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+        return Wrap(() => _followedSeries.IsFollowing(userId, seriesId) is { } following
+            ? Ok(new { following })
+            : NotFound());
+    }
+
+    /// <summary>Follows a series.</summary>
+    /// <param name="seriesId">The series id.</param>
+    /// <param name="source">Where the request comes from: <c>bell</c> (default) or <c>panel</c>.</param>
+    /// <returns>204; 404, the same for a missing or a forbidden series; 503 when storage is unavailable.</returns>
+    [HttpPut("me/series/{seriesId:guid}")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> FollowSeries([FromRoute] Guid seriesId, [FromQuery] string? source)
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+        var origin = source == "panel" ? "panel" : "bell";
+        return Wrap(() => _followedSeries.Follow(userId, seriesId, origin) ? NoContent() : NotFound());
+    }
+
+    /// <summary>Stops following a series.</summary>
+    /// <param name="seriesId">The series id.</param>
+    /// <returns>204; 404, the same for a missing or a forbidden series the caller does not follow;
+    /// 503 when storage is unavailable.</returns>
+    [HttpDelete("me/series/{seriesId:guid}")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult> UnfollowSeries([FromRoute] Guid seriesId)
+    {
+        var userId = await CurrentUserIdAsync().ConfigureAwait(false);
+        return Wrap(() => _followedSeries.Unfollow(userId, seriesId) ? NoContent() : NotFound());
     }
 
     // -------------------------------------------------------------------------

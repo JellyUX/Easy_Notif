@@ -1,7 +1,7 @@
 /*
  * Easy Notif - user settings panel and series bell.
  * Injected into Jellyfin's Settings screen (#/mypreferencesmenu): a contact address, one checkbox
- * per email category, and a short data-handling notice. On a series detail page (#/details), a bell
+ * per email category, the followed series, and a short data-handling notice. On a series detail page (#/details), a bell
  * in the action bar follows or stops following the series' new episodes, unless the script tag
  * carries data-series-bell="false". Talks to /EasyNotif/me/*.
  *
@@ -26,7 +26,7 @@
     var SCRIPT_EL = typeof document !== 'undefined' ? document.currentScript : null;
 
     // Panel checkbox -> PUT me/preferences body field.
-    var CAT_FIELDS = { news: 'News', recap: 'Recap', announcements: 'Announcements' };
+    var CAT_FIELDS = { news: 'News', recap: 'Recap', announcements: 'Announcements', episodes: 'Episodes' };
 
     var DICT = {
         en: {
@@ -36,6 +36,10 @@
             'panel.cat.news': 'New media',
             'panel.cat.recap': 'Weekly recap',
             'panel.cat.announcements': 'Announcements',
+            'panel.cat.episodes': 'New episodes',
+            'series.title': 'Followed series',
+            'series.empty': 'You follow no series. Use the bell on a series page to get its new episodes.',
+            'series.remove': 'Remove',
             'panel.notice': 'Your address is stored by this plugin and sent to Resend (in the United States) to deliver the emails. It is deleted when the plugin is removed.',
             'panel.test': 'Send a test',
             'status.saved': 'Saved.',
@@ -56,6 +60,10 @@
             'panel.cat.news': 'Nouveautés',
             'panel.cat.recap': 'Résumé de la semaine',
             'panel.cat.announcements': 'Annonces',
+            'panel.cat.episodes': 'Nouveaux épisodes',
+            'series.title': 'Mes séries suivies',
+            'series.empty': "Vous ne suivez aucune série. Utilisez la cloche sur la page d'une série pour recevoir ses nouveaux épisodes.",
+            'series.remove': 'Retirer',
             'panel.notice': "Votre adresse est stockée par ce plugin et transmise à Resend (aux États-Unis) pour l'envoi des emails. Elle est supprimée à la désinstallation du plugin.",
             'panel.test': 'Envoyer un test',
             'status.saved': 'Enregistré.',
@@ -215,7 +223,8 @@
         [
             { cat: 'news', on: !!(data && data.news) },
             { cat: 'recap', on: !!(data && data.recap) },
-            { cat: 'announcements', on: !!(data && data.announcements) }
+            { cat: 'announcements', on: !!(data && data.announcements) },
+            { cat: 'episodes', on: !!(data && data.episodes) }
         ].forEach(function (spec) {
             var wrap = document.createElement('div');
             wrap.className = 'checkboxContainer';
@@ -237,6 +246,11 @@
             section.appendChild(wrap);
         });
 
+        // Filled once me/series answers; stays empty if it fails.
+        var seriesSlot = document.createElement('div');
+        seriesSlot.className = 'enotif-series-slot';
+        section.appendChild(seriesSlot);
+
         var testButton = document.createElement('button');
         testButton.setAttribute('is', 'emby-button');
         testButton.type = 'button';
@@ -253,6 +267,48 @@
         return section;
     }
 
+    // The followed series list (DEC-46): name and a Remove button per series, or an empty hint.
+    function _buildSeriesList(locale, series) {
+        var wrap = document.createElement('div');
+        wrap.className = 'enotif-series';
+
+        var title = document.createElement('h3');
+        title.className = 'enotif-series-title';
+        title.textContent = _t(locale, 'series.title');
+        wrap.appendChild(title);
+
+        var empty = document.createElement('p');
+        empty.className = 'fieldDescription enotif-series-empty';
+        empty.textContent = _t(locale, 'series.empty');
+        empty.hidden = !!(series && series.length);
+        wrap.appendChild(empty);
+
+        var list = document.createElement('ul');
+        list.className = 'enotif-series-list';
+        (series || []).forEach(function (s) {
+            var item = document.createElement('li');
+            item.className = 'enotif-series-item';
+            item.setAttribute('data-id', s.id);
+
+            var name = document.createElement('span');
+            name.className = 'enotif-series-name';
+            name.textContent = s.name;
+            item.appendChild(name);
+
+            var remove = document.createElement('button');
+            remove.setAttribute('is', 'emby-button');
+            remove.type = 'button';
+            remove.className = 'raised enotif-series-remove';
+            remove.textContent = _t(locale, 'series.remove');
+            item.appendChild(remove);
+
+            list.appendChild(item);
+        });
+        wrap.appendChild(list);
+
+        return wrap;
+    }
+
     var api = {
         _isPrefsMenu: _isPrefsMenu,
         _pickLocale: _pickLocale,
@@ -260,6 +316,7 @@
         _escHtml: _escHtml,
         _validEmail: _validEmail,
         _buildPanel: _buildPanel,
+        _buildSeriesList: _buildSeriesList,
         _detailsItemId: _detailsItemId,
         _bellEnabled: _bellEnabled,
         _bellView: _bellView,
@@ -437,6 +494,46 @@
         });
     }
 
+    // A removed row is hidden at once and comes back if the call fails.
+    function _bindSeriesList(list) {
+        var empty = list.querySelector('.enotif-series-empty');
+        function _refreshEmpty() {
+            empty.hidden = !!list.querySelector('.enotif-series-item:not([hidden])');
+        }
+        Array.prototype.forEach.call(list.querySelectorAll('.enotif-series-item'), function (item) {
+            var id = item.getAttribute('data-id');
+            item.querySelector('.enotif-series-remove').addEventListener('click', function () {
+                item.hidden = true;
+                _refreshEmpty();
+                _send('DELETE', 'me/series/' + id).then(function () {
+                    if (bell.byId[id]) {
+                        bell.byId[id].following = false;
+                    }
+                    item.parentNode.removeChild(item);
+                }).catch(function (err) {
+                    console.warn('[EasyNotif] could not stop following the series:', err);
+                    item.hidden = false;
+                    _refreshEmpty();
+                });
+            });
+        });
+    }
+
+    // Read each time the panel is built, so a bell clicked earlier in the session shows up.
+    function _renderSeries(panel, locale) {
+        window.ApiClient.getJSON(_url('me/series')).then(function (series) {
+            var slot = panel.querySelector('.enotif-series-slot');
+            if (!slot || !panel.isConnected) {
+                return;
+            }
+            var list = _buildSeriesList(locale, series);
+            slot.appendChild(list);
+            _bindSeriesList(list);
+        }).catch(function (err) {
+            console.warn('[EasyNotif] could not load your followed series:', err);
+        });
+    }
+
     function _render(anchor) {
         if (anchor.querySelector('.enotif-section')) {
             return;
@@ -449,6 +546,7 @@
             var panel = _buildPanel(locale, data);
             anchor.appendChild(panel);
             _bind(panel, locale);
+            _renderSeries(panel, locale);
         });
     }
 
@@ -506,6 +604,14 @@
         }
         var existing = bar.querySelector('.enotif-series-bell');
         if (existing && existing.getAttribute('data-id') === id) {
+            // Jellyfin keeps a visited detail page: refresh the tooltip when a preference changed.
+            var known = bell.byId[id];
+            if (known && !known.busy) {
+                var view = _bellView(_locale(), known.following, state.data);
+                if (existing.title !== view.title) {
+                    _applyBell(existing, view);
+                }
+            }
             return;
         }
         if (existing) {

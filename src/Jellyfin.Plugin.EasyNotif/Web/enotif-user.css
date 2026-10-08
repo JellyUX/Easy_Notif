@@ -40,3 +40,37 @@
 .enotif-series-bell-warn .detailButton-icon {
     color: var(--jf-palette-warning-main, #ffa726);
 }
+
+.enotif-series {
+    margin-top: 1.2em;
+}
+
+.enotif-series-title {
+    margin: 0 0 0.4em;
+    font-size: 1.1em;
+}
+
+.enotif-series-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.enotif-series-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1em;
+    padding: 0.3em 0;
+    border-bottom: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12));
+}
+
+.enotif-series-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.enotif-series-remove {
+    flex-shrink: 0;
+    margin: 0;
+}

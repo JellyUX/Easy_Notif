@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import enotifUser from '../src/Jellyfin.Plugin.EasyNotif/Web/enotif-user.js';
 
 const {
-    _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel,
+    _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel, _buildSeriesList,
     _detailsItemId, _bellEnabled, _bellView, _buildBell, DICT, PLUGIN_ID
 } = enotifUser;
 
@@ -91,6 +91,17 @@ describe('_buildPanel', () => {
         expect(off.textContent).toContain('Announcements');
     });
 
+    it('renders the new episodes checkbox with its FR and EN labels, and an empty series slot', () => {
+        const on = _buildPanel('fr', { episodes: true });
+        const off = _buildPanel('en', { episodes: false });
+
+        expect(on.querySelector('.enotif-cat[data-cat="episodes"]').checked).toBe(true);
+        expect(on.textContent).toContain('Nouveaux épisodes');
+        expect(off.querySelector('.enotif-cat[data-cat="episodes"]').checked).toBe(false);
+        expect(off.textContent).toContain('New episodes');
+        expect(on.querySelector('.enotif-series-slot').childNodes.length).toBe(0);
+    });
+
     it('handles null data (no email, opted out)', () => {
         const panel = _buildPanel('fr', null);
 
@@ -113,6 +124,40 @@ describe('_buildPanel', () => {
 
         expect(panel.querySelector('.enotif-user-email').value).toBe('<img src=x onerror=alert(1)>');
         expect(panel.innerHTML).not.toContain('<img');
+    });
+});
+
+describe('_buildSeriesList', () => {
+    it('lists each followed series with a remove button, in FR and EN', () => {
+        const series = [{ id: 'a1', name: 'Andor', hasImage: true }, { id: 'b2', name: 'The Bear', hasImage: false }];
+        const fr = _buildSeriesList('fr', series);
+        const en = _buildSeriesList('en', series);
+
+        const items = fr.querySelectorAll('.enotif-series-item');
+        expect(items.length).toBe(2);
+        expect(items[0].getAttribute('data-id')).toBe('a1');
+        expect(items[0].querySelector('.enotif-series-name').textContent).toBe('Andor');
+        expect(items[0].querySelector('.enotif-series-remove').textContent).toBe('Retirer');
+        expect(fr.querySelector('.enotif-series-title').textContent).toBe('Mes séries suivies');
+        expect(fr.querySelector('.enotif-series-empty').hidden).toBe(true);
+        expect(en.querySelector('.enotif-series-remove').textContent).toBe('Remove');
+        expect(fr.querySelector('img')).toBeNull();
+    });
+
+    it('shows the empty hint when nothing is followed', () => {
+        const list = _buildSeriesList('en', []);
+
+        expect(list.querySelectorAll('.enotif-series-item').length).toBe(0);
+        expect(list.querySelector('.enotif-series-empty').hidden).toBe(false);
+        expect(list.textContent).toContain('Use the bell on a series page');
+        expect(_buildSeriesList('fr', null).querySelector('.enotif-series-empty').hidden).toBe(false);
+    });
+
+    it('treats a hostile series name as text', () => {
+        const list = _buildSeriesList('en', [{ id: 'x', name: '<img src=x onerror=alert(1)>' }]);
+
+        expect(list.querySelector('.enotif-series-name').textContent).toBe('<img src=x onerror=alert(1)>');
+        expect(list.querySelector('img')).toBeNull();
     });
 });
 

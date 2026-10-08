@@ -105,6 +105,16 @@
                     <div class="fieldDescription" data-i18n="settings.cap.help">From 1 to 200. Beyond that, the newsletter ends each section with "and N more".</div>
                 </div>
                 <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifQuotaDaily" data-i18n="settings.quotaDaily">Sending limit per day</label>
+                    <input is="emby-input" type="number" id="enotifQuotaDaily" min="0" max="100000" step="1" required />
+                    <div class="fieldDescription" data-i18n="settings.quotaDaily.help">Your Resend plan's daily quota (100 on the free plan). 0 if your plan has no daily limit.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifQuotaMonthly" data-i18n="settings.quotaMonthly">Sending limit over 30 days</label>
+                    <input is="emby-input" type="number" id="enotifQuotaMonthly" min="1" max="1000000" step="1" required />
+                    <div class="fieldDescription" data-i18n="settings.quotaMonthly.help">Your Resend plan's monthly quota (3000 on the free plan).</div>
+                </div>
+                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
                     <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />
                     <div class="fieldDescription enotif-hint" id="enotifApiKeyHint"></div>

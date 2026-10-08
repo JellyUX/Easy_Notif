@@ -360,6 +360,8 @@ public class EasyNotifController : ControllerBase
             schedulerTimeZone = cfg.SchedulerTimeZone,
             newsletterMaxMovies = cfg.NewsletterMaxMovies,
             newsletterMaxSeries = cfg.NewsletterMaxSeries,
+            quotaDailyLimit = cfg.QuotaDailyLimit,
+            quotaMonthlyLimit = cfg.QuotaMonthlyLimit,
             resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
             webhookSigningSecretSet = !string.IsNullOrEmpty(secrets.WebhookSigningSecret),
             startupWarning = cfg.StartupWarning
@@ -370,8 +372,8 @@ public class EasyNotifController : ControllerBase
     /// Updates the plugin settings. A blank secret leaves the stored one untouched. Administrators only.
     /// </summary>
     /// <param name="body">The settings.</param>
-    /// <returns>204 on success; 400 on an invalid time zone, address or public server URL; 503 when
-    /// the plugin instance is unavailable.</returns>
+    /// <returns>204 on success; 400 on an invalid time zone, address, public server URL, newsletter
+    /// cap or quota limit; 503 when the plugin instance is unavailable.</returns>
     [HttpPut("admin/settings")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
@@ -411,6 +413,12 @@ public class EasyNotifController : ControllerBase
             }
         }
 
+        if (body.QuotaDailyLimit is < 0 or > PluginConfiguration.MaxQuotaDailyLimit
+            || body.QuotaMonthlyLimit is < 1 or > PluginConfiguration.MaxQuotaMonthlyLimit)
+        {
+            return BadRequest();
+        }
+
         return Wrap(() =>
         {
             var cfg = _config.Get();
@@ -420,6 +428,8 @@ public class EasyNotifController : ControllerBase
             cfg.PublicServerUrl = Trimmed(body.PublicServerUrl);
             cfg.NewsletterMaxMovies = body.NewsletterMaxMovies ?? cfg.NewsletterMaxMovies;
             cfg.NewsletterMaxSeries = body.NewsletterMaxSeries ?? cfg.NewsletterMaxSeries;
+            cfg.QuotaDailyLimit = body.QuotaDailyLimit ?? cfg.QuotaDailyLimit;
+            cfg.QuotaMonthlyLimit = body.QuotaMonthlyLimit ?? cfg.QuotaMonthlyLimit;
             if (!string.IsNullOrWhiteSpace(body.SchedulerTimeZone))
             {
                 cfg.SchedulerTimeZone = body.SchedulerTimeZone.Trim();
@@ -476,7 +486,8 @@ public class EasyNotifController : ControllerBase
                 monthlyLimit = quota.MonthlyLimit,
                 dailyLimit = quota.DailyLimit,
                 warn80 = quota.Warn80,
-                over = quota.Over
+                over = quota.Over,
+                suspendedUntilUtc = quota.SuspendedUntilUtc
             },
             lastWebhookUtc,
             lastWebhookType,
@@ -1417,6 +1428,12 @@ public sealed class SettingsUpdate
 
     /// <summary>Gets or sets the newsletter series cap (1 to 200). Null leaves it unchanged.</summary>
     public int? NewsletterMaxSeries { get; set; }
+
+    /// <summary>Gets or sets the daily send limit (0 to 100000, 0 = no daily check). Null leaves it unchanged.</summary>
+    public int? QuotaDailyLimit { get; set; }
+
+    /// <summary>Gets or sets the 30-day send limit (1 to 1000000). Null leaves it unchanged.</summary>
+    public int? QuotaMonthlyLimit { get; set; }
 
     /// <summary>Gets or sets a new Resend API key. Blank leaves the stored one untouched.</summary>
     public string? ResendApiKey { get; set; }

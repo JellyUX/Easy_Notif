@@ -154,6 +154,18 @@ describe('_buildStatus', () => {
         expect(el.querySelector('.enotif-warn')).not.toBeNull();
     });
 
+    it('shows the provider suspension and the no-daily-limit wording', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: { last30d: 40, dailyToday: 12, monthlyLimit: 3000, dailyLimit: 0, warn80: false, over: true, suspendedUntilUtc: '2026-06-16T00:00:00Z' },
+            lastWebhookUtc: null,
+            recent: []
+        });
+
+        expect(el.querySelector('.enotif-warn').textContent).toContain('2026-06-16 00:00');
+        expect(el.textContent).toContain('12 today (no daily limit)');
+    });
+
     it('says no webhook when lastWebhookUtc is null', () => {
         const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [] });
 

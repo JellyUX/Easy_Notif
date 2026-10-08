@@ -349,6 +349,55 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void PutSettings_StoresTheQuotaLimits_ZeroDailyAllowed_AndGetSettingsReturnsThem()
+    {
+        var config = new FakeConfig();
+        var controller = BuildController(config: config);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { QuotaDailyLimit = 0, QuotaMonthlyLimit = 50000 }));
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { QuotaMonthlyLimit = 40000 }));
+
+        Assert.Equal(0, config.Config.QuotaDailyLimit);
+        Assert.Equal(40000, config.Config.QuotaMonthlyLimit);
+        var json = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetSettings()).Value);
+        Assert.Contains("\"quotaDailyLimit\":0", json, StringComparison.Ordinal);
+        Assert.Contains("\"quotaMonthlyLimit\":40000", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-1, null)]
+    [InlineData(100001, null)]
+    [InlineData(null, 0)]
+    [InlineData(null, 1000001)]
+    public void PutSettings_WithAQuotaLimitOutOfRange_Returns400(int? daily, int? monthly)
+    {
+        var config = new FakeConfig();
+
+        var result = BuildController(config: config).PutSettings(new SettingsUpdate { QuotaDailyLimit = daily, QuotaMonthlyLimit = monthly });
+
+        Assert.IsType<BadRequestResult>(result);
+        Assert.Equal(PluginConfiguration.DefaultQuotaDailyLimit, config.Config.QuotaDailyLimit);
+        Assert.Equal(PluginConfiguration.DefaultQuotaMonthlyLimit, config.Config.QuotaMonthlyLimit);
+    }
+
+    [Fact]
+    public void GetStatus_ReportsAProviderSuspension()
+    {
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(40, 12, 3000, 100, false, true)
+        {
+            SuspendedUntilUtc = new DateTime(2026, 6, 16, 0, 0, 0, DateTimeKind.Utc)
+        });
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+
+        var ok = Assert.IsType<OkObjectResult>(BuildController(quota: quota, sendLog: sendLog).GetStatus());
+
+        Assert.Contains("\"suspendedUntilUtc\":\"2026-06-16T00:00:00Z\"", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PutSettings_OnSuccess_LogsAnUpdateEvent_WithoutTheKey()
     {
         var easyNotifLog = new FakeEasyNotifLog();

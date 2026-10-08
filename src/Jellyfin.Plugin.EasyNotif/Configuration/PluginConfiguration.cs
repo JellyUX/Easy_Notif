@@ -84,4 +84,27 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>The highest accepted newsletter cap, per section.</summary>
     public const int MaxNewsletterCap = 200;
+
+    /// <summary>
+    /// Gets or sets the provider's daily send limit (0 to 100000, default 100). 0 disables the daily
+    /// check and the campaign reserve, for a paid plan without a daily quota.
+    /// </summary>
+    public int QuotaDailyLimit { get; set; } = DefaultQuotaDailyLimit;
+
+    /// <summary>
+    /// Gets or sets the provider's send limit over a rolling 30 days (1 to 1000000, default 3000).
+    /// </summary>
+    public int QuotaMonthlyLimit { get; set; } = DefaultQuotaMonthlyLimit;
+
+    /// <summary>The default daily send limit (Resend free tier).</summary>
+    public const int DefaultQuotaDailyLimit = 100;
+
+    /// <summary>The highest accepted daily send limit.</summary>
+    public const int MaxQuotaDailyLimit = 100_000;
+
+    /// <summary>The default 30-day send limit (Resend free tier).</summary>
+    public const int DefaultQuotaMonthlyLimit = 3000;
+
+    /// <summary>The highest accepted 30-day send limit.</summary>
+    public const int MaxQuotaMonthlyLimit = 1_000_000;
 }

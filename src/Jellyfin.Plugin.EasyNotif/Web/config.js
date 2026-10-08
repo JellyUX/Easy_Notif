@@ -73,12 +73,20 @@
 
         var q = status.quota || {};
         var quota = document.createElement('p');
-        quota.textContent = _t(dict, 'status.quota')
+        quota.textContent = _t(dict, q.dailyLimit === 0 ? 'status.quotaNoDaily' : 'status.quota')
             .replace('{m30}', q.last30d != null ? q.last30d : 0)
             .replace('{mLimit}', q.monthlyLimit != null ? q.monthlyLimit : 0)
             .replace('{d}', q.dailyToday != null ? q.dailyToday : 0)
             .replace('{dLimit}', q.dailyLimit != null ? q.dailyLimit : 0);
         root.appendChild(quota);
+
+        if (q.suspendedUntilUtc) {
+            var suspended = document.createElement('p');
+            suspended.className = 'enotif-warn';
+            suspended.textContent = _t(dict, 'status.suspended')
+                .replace('{date}', String(q.suspendedUntilUtc).slice(0, 16).replace('T', ' '));
+            root.appendChild(suspended);
+        }
 
         if (q.warn80) {
             var warn = document.createElement('p');
@@ -448,6 +456,8 @@
             _el('enotifTimeZone').value = s.schedulerTimeZone || 'Europe/Paris';
             _el('enotifMaxMovies').value = s.newsletterMaxMovies || 30;
             _el('enotifMaxSeries').value = s.newsletterMaxSeries || 30;
+            _el('enotifQuotaDaily').value = s.quotaDailyLimit != null ? s.quotaDailyLimit : 100;
+            _el('enotifQuotaMonthly').value = s.quotaMonthlyLimit || 3000;
             _el('enotifApiKey').value = '';
             _el('enotifWebhookSecret').value = '';
             _el('enotifApiKeyHint').textContent = _secretHint(dict, s.resendApiKeySet);
@@ -478,7 +488,9 @@
             PublicServerUrl: _el('enotifPublicUrl').value,
             SchedulerTimeZone: _el('enotifTimeZone').value,
             NewsletterMaxMovies: parseInt(_el('enotifMaxMovies').value, 10),
-            NewsletterMaxSeries: parseInt(_el('enotifMaxSeries').value, 10)
+            NewsletterMaxSeries: parseInt(_el('enotifMaxSeries').value, 10),
+            QuotaDailyLimit: parseInt(_el('enotifQuotaDaily').value, 10),
+            QuotaMonthlyLimit: parseInt(_el('enotifQuotaMonthly').value, 10)
         };
         var key = _el('enotifApiKey').value.trim();
         var secret = _el('enotifWebhookSecret').value.trim();

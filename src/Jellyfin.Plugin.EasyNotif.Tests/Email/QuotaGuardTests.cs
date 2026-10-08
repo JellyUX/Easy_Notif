@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
@@ -11,12 +12,14 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Email;
 
 /// <summary>
 /// Covers <see cref="QuotaGuard"/>: the rolling 30-day window, the exact 80 percent / 100 percent
-/// thresholds, the UTC "today" count, persistence between instances and corrupt-file recovery.
+/// thresholds, the UTC "today" count, the configured limits (0 = no daily check), the provider
+/// suspension until 00:00 UTC, persistence between instances and corrupt-file recovery.
 /// </summary>
 public sealed class QuotaGuardTests : IDisposable
 {
     private readonly string _tempDir = Path.Combine(Path.GetTempPath(), "enotif-quota-tests-" + Guid.NewGuid());
     private readonly List<QuotaGuard> _guards = [];
+    private readonly PluginConfiguration _config = new();
     private DateTimeOffset _now = new(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
 
     private string DataDir => Path.Combine(_tempDir, "Jellyfin.Plugin.EasyNotif");
@@ -29,7 +32,7 @@ public sealed class QuotaGuardTests : IDisposable
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
         EasyNotifLog = new FakeEasyNotifLog();
-        var guard = new QuotaGuard(paths.Object, new FileSystem(), logger ?? NullLogger<QuotaGuard>.Instance, EasyNotifLog, () => _now);
+        var guard = new QuotaGuard(paths.Object, new FileSystem(), new FakeConfigAccessor(_config), logger ?? NullLogger<QuotaGuard>.Instance, EasyNotifLog, () => _now);
         _guards.Add(guard);
         return guard;
     }
@@ -149,6 +152,67 @@ public sealed class QuotaGuardTests : IDisposable
 
         guard.RecordSend();
         Assert.True(guard.Snapshot().Over);
+    }
+
+    [Fact]
+    public void Limits_FollowTheConfiguration()
+    {
+        _config.QuotaDailyLimit = 5;
+        _config.QuotaMonthlyLimit = 50;
+        var guard = Build();
+        for (var i = 0; i < 4; i++)
+        {
+            guard.RecordSend();
+        }
+
+        var snapshot = guard.Snapshot();
+        Assert.Equal(5, snapshot.DailyLimit);
+        Assert.Equal(50, snapshot.MonthlyLimit);
+        Assert.True(snapshot.Warn80);
+        Assert.False(snapshot.Over);
+
+        guard.RecordSend();
+        Assert.True(guard.Snapshot().Over);
+    }
+
+    [Fact]
+    public void DailyLimitZero_DisablesTheDailyCheck_KeepsTheMonthlyOne()
+    {
+        _config.QuotaDailyLimit = 0;
+        _config.QuotaMonthlyLimit = 150;
+        var guard = Build();
+        for (var i = 0; i < 149; i++)
+        {
+            guard.RecordSend();
+        }
+
+        var snapshot = guard.Snapshot();
+        Assert.Equal(0, snapshot.DailyLimit);
+        Assert.Equal(149, snapshot.DailyToday);
+        Assert.False(snapshot.Over);
+
+        guard.RecordSend();
+        Assert.True(guard.Snapshot().Over);
+    }
+
+    [Fact]
+    public void Suspend_IsOverUntilTheNextUtcMidnight_ThenLifts()
+    {
+        var guard = Build();
+        guard.Suspend("daily_quota_exceeded");
+
+        var snapshot = guard.Snapshot();
+        Assert.True(snapshot.Over);
+        Assert.Equal(new DateTime(2026, 6, 16, 0, 0, 0, DateTimeKind.Utc), snapshot.SuspendedUntilUtc);
+        var entry = Assert.Single(EasyNotifLog.Entries);
+        Assert.Equal("quota.suspended", entry.EventType);
+        Assert.Equal("Warn", entry.Level);
+        Assert.True(Build().Snapshot().Over);
+
+        _now = new DateTimeOffset(2026, 6, 16, 0, 0, 0, TimeSpan.Zero);
+        snapshot = guard.Snapshot();
+        Assert.False(snapshot.Over);
+        Assert.Null(snapshot.SuspendedUntilUtc);
     }
 
     [Fact]

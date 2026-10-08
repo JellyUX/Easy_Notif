@@ -33,7 +33,8 @@ public class ResendEmailSenderTests
 
     private static (ResendEmailSender Sender, StubHttpMessageHandler Http, CapturingLogger<ResendEmailSender> Logger, FakeEasyNotifLog EasyNotifLog) Build(
         PluginConfiguration? config = null,
-        ISentKeysStore? sentKeys = null)
+        ISentKeysStore? sentKeys = null,
+        IQuotaGuard? quota = null)
     {
         var http = new StubHttpMessageHandler();
         var logger = new CapturingLogger<ResendEmailSender>();
@@ -46,6 +47,7 @@ public class ResendEmailSenderTests
             new FakeSecretStore(resendApiKey: effective.ResendApiKey),
             limiter,
             sentKeys ?? new FakeSentKeysStore(),
+            quota ?? new Mock<IQuotaGuard>().Object,
             logger,
             easyNotifLog,
             (_, _) => Task.CompletedTask);
@@ -168,6 +170,38 @@ public class ResendEmailSenderTests
         Assert.True(result.Success);
         Assert.Equal("after-retry", result.ResendId);
         Assert.Equal(2, http.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("daily_quota_exceeded")]
+    [InlineData("monthly_quota_exceeded")]
+    public async Task SendAsync_On429Quota_SuspendsTheQuota_WithoutRetry(string name)
+    {
+        var quota = new Mock<IQuotaGuard>();
+        var (sender, http, _, _) = Build(quota: quota.Object);
+        http.EnqueueJson(HttpStatusCode.TooManyRequests, "{\"name\":\"" + name + "\",\"message\":\"quota\"}");
+
+        var result = await sender.SendAsync(Message("k:quota"), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(429, result.StatusCode);
+        Assert.Single(http.Requests);
+        quota.Verify(q => q.Suspend(name), Times.Once);
+    }
+
+    [Fact]
+    public async Task SendAsync_On429RateLimit_RetriesWithoutSuspending()
+    {
+        var quota = new Mock<IQuotaGuard>();
+        var (sender, http, _, _) = Build(quota: quota.Object);
+        http.EnqueueJson(HttpStatusCode.TooManyRequests, "{\"name\":\"rate_limit_exceeded\",\"message\":\"slow down\"}");
+        http.EnqueueJson(HttpStatusCode.OK, "{\"id\":\"ok\"}");
+
+        var result = await sender.SendAsync(Message("k:rate"), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(2, http.Requests.Count);
+        quota.Verify(q => q.Suspend(It.IsAny<string>()), Times.Never);
     }
 
     [Fact]
@@ -452,6 +486,7 @@ public class ResendEmailSenderTests
                 new FakeSecretStore(resendApiKey: ApiKey),
                 limiter,
                 new FakeSentKeysStore(),
+                new Mock<IQuotaGuard>().Object,
                 new CapturingLogger<ResendEmailSender>(),
                 realLog,
                 (_, _) => Task.CompletedTask);

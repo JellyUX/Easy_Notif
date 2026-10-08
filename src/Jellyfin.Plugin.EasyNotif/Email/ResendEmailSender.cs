@@ -15,8 +15,9 @@ namespace Jellyfin.Plugin.EasyNotif.Email;
 /// <see cref="IHttpClientFactory"/> client, the shared <see cref="SendRateLimiter"/>, an optional
 /// <c>Idempotency-Key</c> and one retry on a transient failure, only for a keyed message (without a
 /// key a retry could deliver twice). A keyed message already recorded in <see cref="ISentKeysStore"/>
-/// is not sent again. A provider or network failure is returned as a <see cref="SendResult"/>, never
-/// thrown (R10). The API key is never logged (R15).
+/// is not sent again. A 429 quota rejection (daily or monthly) is not retried: it suspends every
+/// send until 00:00 UTC through <see cref="IQuotaGuard"/>. A provider or network failure is returned
+/// as a <see cref="SendResult"/>, never thrown (R10). The API key is never logged (R15).
 /// </summary>
 public sealed class ResendEmailSender : IEmailSender
 {
@@ -34,6 +35,7 @@ public sealed class ResendEmailSender : IEmailSender
     private readonly ISecretStore _secrets;
     private readonly SendRateLimiter _rateLimiter;
     private readonly ISentKeysStore _sentKeys;
+    private readonly IQuotaGuard _quota;
     private readonly ILogger<ResendEmailSender> _logger;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly Func<TimeSpan, CancellationToken, Task> _retryDelay;
@@ -44,6 +46,7 @@ public sealed class ResendEmailSender : IEmailSender
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="rateLimiter">The shared send rate limiter.</param>
     /// <param name="sentKeys">The registry of idempotency keys already sent.</param>
+    /// <param name="quota">The send quota guard, suspended on a provider quota rejection.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     public ResendEmailSender(
@@ -52,9 +55,10 @@ public sealed class ResendEmailSender : IEmailSender
         ISecretStore secrets,
         SendRateLimiter rateLimiter,
         ISentKeysStore sentKeys,
+        IQuotaGuard quota,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog)
-        : this(httpClientFactory, config, secrets, rateLimiter, sentKeys, logger, easyNotifLog, Task.Delay)
+        : this(httpClientFactory, config, secrets, rateLimiter, sentKeys, quota, logger, easyNotifLog, Task.Delay)
     {
     }
 
@@ -64,6 +68,7 @@ public sealed class ResendEmailSender : IEmailSender
         ISecretStore secrets,
         SendRateLimiter rateLimiter,
         ISentKeysStore sentKeys,
+        IQuotaGuard quota,
         ILogger<ResendEmailSender> logger,
         IEasyNotifLog easyNotifLog,
         Func<TimeSpan, CancellationToken, Task> retryDelay)
@@ -73,6 +78,7 @@ public sealed class ResendEmailSender : IEmailSender
         _secrets = secrets;
         _rateLimiter = rateLimiter;
         _sentKeys = sentKeys;
+        _quota = quota;
         _logger = logger;
         _easyNotifLog = easyNotifLog;
         _retryDelay = retryDelay;
@@ -300,6 +306,13 @@ public sealed class ResendEmailSender : IEmailSender
                 return new SendResult(false, null, 0, ex.Message);
             }
 
+            // A spent quota does not come back within seconds: no retry, every send waits for midnight.
+            if (status == 429 && ExtractErrorName(body) is "daily_quota_exceeded" or "monthly_quota_exceeded")
+            {
+                _quota.Suspend(ExtractErrorName(body)!);
+                return new SendResult(false, null, status, ExtractError(body));
+            }
+
             // Without a key a 5xx may hide an accepted message, so a retry could deliver it twice.
             var transient = status == 429 || status >= 500;
             if (transient && attempt == 0 && !string.IsNullOrWhiteSpace(idempotencyKey))
@@ -393,12 +406,20 @@ public sealed class ResendEmailSender : IEmailSender
         }
     }
 
-    private static string? ExtractError(string body)
+    private static string? ExtractError(string body) => ExtractString(body, "message");
+
+    private static string? ExtractErrorName(string body) => ExtractString(body, "name");
+
+    private static string? ExtractString(string body, string property)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
-            return doc.RootElement.TryGetProperty("message", out var message) ? message.GetString() : null;
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty(property, out var value)
+                && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
         }
         catch (JsonException)
         {

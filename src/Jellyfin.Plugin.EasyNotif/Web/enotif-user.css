@@ -32,3 +32,11 @@
     margin-top: 1em;
     opacity: 0.8;
 }
+
+.enotif-series-bell-active .detailButton-icon {
+    color: var(--jf-palette-primary-main, #00a4dc);
+}
+
+.enotif-series-bell-warn .detailButton-icon {
+    color: var(--jf-palette-warning-main, #ffa726);
+}

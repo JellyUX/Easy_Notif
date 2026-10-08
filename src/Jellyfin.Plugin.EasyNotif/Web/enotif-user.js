@@ -1,13 +1,15 @@
 /*
- * Easy Notif - user settings panel.
+ * Easy Notif - user settings panel and series bell.
  * Injected into Jellyfin's Settings screen (#/mypreferencesmenu): a contact address, one checkbox
- * per email category, and a short data-handling notice. Talks to /EasyNotif/me/*.
+ * per email category, and a short data-handling notice. On a series detail page (#/details), a bell
+ * in the action bar follows or stops following the series' new episodes, unless the script tag
+ * carries data-series-bell="false". Talks to /EasyNotif/me/*.
  *
  * Design constraints (Synthese.md sections 4, 10):
  *  - Defensive and silent: a missing anchor -> skip. Never throw into Jellyfin Web; failures are
  *    console.warn only.
- *  - On demand only: /me/* is read once and cached for the session. One guarded, debounced
- *    MutationObserver plus a hashchange re-arm. No polling.
+ *  - On demand only: /me/* is read once and cached for the session, and me/series/{id} once per
+ *    detail page id. One guarded, debounced MutationObserver plus a hashchange re-arm. No polling.
  *  - Writes are optimistic: the checkbox / field reflects the change immediately and rolls back if
  *    the write fails.
  *
@@ -19,6 +21,9 @@
     'use strict';
 
     var PLUGIN_ID = '7a27339e-e774-4969-9755-8cd213dcc5e7';
+
+    // Captured while the script runs: document.currentScript is null once it has finished.
+    var SCRIPT_EL = typeof document !== 'undefined' ? document.currentScript : null;
 
     // Panel checkbox -> PUT me/preferences body field.
     var CAT_FIELDS = { news: 'News', recap: 'Recap', announcements: 'Announcements' };
@@ -38,7 +43,11 @@
             'status.error': 'Could not save. Try again.',
             'status.testSent': 'Test email sent.',
             'status.testFailed': 'Could not send the test email.',
-            'status.testNoEmail': 'Set a contact address first.'
+            'status.testNoEmail': 'Set a contact address first.',
+            'bell.follow': 'Follow new episodes',
+            'bell.unfollow': 'Following new episodes. Click to stop.',
+            'bell.noEmail': 'No email will be sent: set a contact address in Settings, Email notifications.',
+            'bell.optedOut': 'No email will be sent: New episodes is unticked in Settings, Email notifications.'
         },
         fr: {
             'panel.title': 'Notifications par email',
@@ -54,12 +63,85 @@
             'status.error': 'Enregistrement impossible. Réessayez.',
             'status.testSent': 'Email de test envoyé.',
             'status.testFailed': "Impossible d'envoyer l'email de test.",
-            'status.testNoEmail': "Renseignez d'abord une adresse de contact."
+            'status.testNoEmail': "Renseignez d'abord une adresse de contact.",
+            'bell.follow': 'Suivre les nouveaux épisodes',
+            'bell.unfollow': 'Nouveaux épisodes suivis. Cliquez pour arrêter.',
+            'bell.noEmail': 'Aucun mail ne sera envoyé : renseignez une adresse de contact dans Paramètres, Notifications par email.',
+            'bell.optedOut': 'Aucun mail ne sera envoyé : « Nouveaux épisodes » est décoché dans Paramètres, Notifications par email.'
         }
     };
 
     function _isPrefsMenu(hash) {
         return /^#\/mypreferencesmenu([/?]|$)/i.test(hash || '');
+    }
+
+    // The item id of a detail page route (#/details?id=...&serverId=...), or null.
+    function _detailsItemId(hash) {
+        var match = /^#\/details\?(.*)$/i.exec(hash || '');
+        if (!match) {
+            return null;
+        }
+        var id = null;
+        match[1].split('&').forEach(function (pair) {
+            var eq = pair.indexOf('=');
+            if (eq > 0 && pair.slice(0, eq) === 'id') {
+                id = decodeURIComponent(pair.slice(eq + 1));
+            }
+        });
+        return id && /^([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(id) ? id : null;
+    }
+
+    // The bell is on unless the injected script tag says data-series-bell="false" (DEC-43).
+    function _bellEnabled(scriptEl) {
+        return !(scriptEl && scriptEl.getAttribute && scriptEl.getAttribute('data-series-bell') === 'false');
+    }
+
+    // Icon and tooltip of the bell. A followed series whose emails cannot go out (no address, or
+    // the New episodes category unticked) says so in the tooltip (DEC-47).
+    function _bellView(locale, following, data) {
+        var warn = null;
+        if (following && data) {
+            if (!data.email) {
+                warn = 'bell.noEmail';
+            } else if (data.episodes === false) {
+                warn = 'bell.optedOut';
+            }
+        }
+        var title = _t(locale, following ? 'bell.unfollow' : 'bell.follow');
+        return {
+            icon: following ? 'notifications_active' : 'notifications_none',
+            title: warn ? title + ' ' + _t(locale, warn) : title,
+            active: !!following,
+            warn: !!warn
+        };
+    }
+
+    function _applyBell(button, view) {
+        button.title = view.title;
+        button.setAttribute('aria-label', view.title);
+        button.setAttribute('aria-pressed', view.active ? 'true' : 'false');
+        button.classList.toggle('enotif-series-bell-active', view.active);
+        button.classList.toggle('enotif-series-bell-warn', view.warn);
+        button.querySelector('.detailButton-icon').className = 'material-icons detailButton-icon ' + view.icon;
+    }
+
+    // Same markup as the native action bar buttons, so it inherits their look.
+    function _buildBell(itemId, view) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'button-flat detailButton emby-button enotif-series-bell';
+        button.setAttribute('data-id', itemId);
+
+        var content = document.createElement('div');
+        content.className = 'detailButton-content';
+        var icon = document.createElement('span');
+        icon.className = 'material-icons detailButton-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        content.appendChild(icon);
+        button.appendChild(content);
+
+        _applyBell(button, view);
+        return button;
     }
 
     // fr when either the <html lang> or the browser locale starts with "fr", else en (default).
@@ -178,6 +260,10 @@
         _escHtml: _escHtml,
         _validEmail: _validEmail,
         _buildPanel: _buildPanel,
+        _detailsItemId: _detailsItemId,
+        _bellEnabled: _bellEnabled,
+        _bellView: _bellView,
+        _buildBell: _buildBell,
         DICT: DICT,
         PLUGIN_ID: PLUGIN_ID
     };
@@ -196,6 +282,10 @@
     // ---------------------------------------------------------------------------
 
     var state = { data: null, loadPromise: null, errCount: 0 };
+
+    // Per detail page id: { following, busy, ready } once me/series/{id} answered 200, null when it
+    // answered 404 (not a series, or not visible) or failed: no bell for that id this session.
+    var bell = { enabled: _bellEnabled(SCRIPT_EL), byId: {} };
 
     function _retry(probe, attemptsLeft, delayMs) {
         var value = probe();
@@ -233,6 +323,10 @@
         });
     }
 
+    function _send(type, path) {
+        return window.ApiClient.ajax({ type: type, url: _url(path) });
+    }
+
     function _locale() {
         return _pickLocale(
             document.documentElement.getAttribute('lang'),
@@ -259,6 +353,8 @@
                 recap: !!results[0].recap,
                 // Announcements are opt-out: only an explicit false unticks the box.
                 announcements: results[0].announcements !== false,
+                // New episodes are opt-out too (DEC-40).
+                episodes: results[0].episodes !== false,
                 email: results[1].email || null
             };
             state.loadPromise = null;
@@ -356,12 +452,91 @@
         });
     }
 
+    function _seriesEntry(id) {
+        if (Object.prototype.hasOwnProperty.call(bell.byId, id)) {
+            return bell.byId[id];
+        }
+        var entry = { following: false, busy: false, ready: null };
+        entry.ready = window.ApiClient.getJSON(_url('me/series/' + id)).then(function (res) {
+            entry.following = !!(res && res.following);
+            return entry;
+        }).catch(function () {
+            // 404 for anything but a visible series; any other failure also means no bell.
+            bell.byId[id] = null;
+            return null;
+        });
+        bell.byId[id] = entry;
+        return entry;
+    }
+
+    function _bindBell(button, id, entry, locale) {
+        button.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (entry.busy) {
+                return;
+            }
+            entry.busy = true;
+            var next = !entry.following;
+            entry.following = next;
+            _applyBell(button, _bellView(locale, next, state.data));
+            var request = next ? _send('PUT', 'me/series/' + id + '?source=bell') : _send('DELETE', 'me/series/' + id);
+            request.catch(function (err) {
+                console.warn('[EasyNotif] could not change the series subscription:', err);
+                entry.following = !next;
+                _applyBell(button, _bellView(locale, entry.following, state.data));
+            }).then(function () {
+                entry.busy = false;
+            });
+        });
+    }
+
+    // Detail pages of anything but a visible series get no bell: me/series/{id} answers 404.
+    function _tickBell() {
+        if (!bell.enabled) {
+            return;
+        }
+        var id = _detailsItemId(location.hash);
+        if (!id || bell.byId[id] === null) {
+            return;
+        }
+        var bar = document.querySelector('.page:not(.hide) .mainDetailButtons');
+        if (!bar) {
+            return;
+        }
+        var existing = bar.querySelector('.enotif-series-bell');
+        if (existing && existing.getAttribute('data-id') === id) {
+            return;
+        }
+        if (existing) {
+            existing.parentNode.removeChild(existing);
+        }
+        var entry = _seriesEntry(id);
+        if (!entry) {
+            return;
+        }
+        Promise.all([entry.ready, _load()]).then(function (results) {
+            if (!results[0] || !bar.isConnected || bar.querySelector('.enotif-series-bell')
+                || _detailsItemId(location.hash) !== id) {
+                return;
+            }
+            var locale = _locale();
+            var button = _buildBell(id, _bellView(locale, entry.following, state.data));
+            bar.insertBefore(button, bar.querySelector('.btnMoreCommands'));
+            _bindBell(button, id, entry, locale);
+        });
+    }
+
     // Cheap and idempotent: a route check, one querySelector, and an early return when the panel is
     // already there. Safe to run on every DOM mutation (the settings menu is a React page that
     // renders Loading first, then the real menu, and may re-render and drop our node).
     function _tick() {
         try {
-            if (typeof location === 'undefined' || !_isPrefsMenu(location.hash)) {
+            if (typeof location === 'undefined') {
+                return;
+            }
+            if (!_isPrefsMenu(location.hash)) {
+                _tickBell();
                 return;
             }
             var anchor = document.querySelector('#myPreferencesMenuPage .readOnlyContent');

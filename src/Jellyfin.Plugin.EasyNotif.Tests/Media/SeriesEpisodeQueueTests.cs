@@ -12,8 +12,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Media;
 
 /// <summary>
 /// Covers <see cref="SeriesEpisodeQueue"/>: only real episodes of followed series are queued, a
-/// removal drops the pending item and records its key, events apply in arrival order, and nothing is
-/// written without a subscription.
+/// removal drops the pending item and records its key, a removed followed series is purged, events
+/// apply in arrival order, and nothing is written without a subscription.
 /// </summary>
 public sealed class SeriesEpisodeQueueTests : IDisposable
 {
@@ -69,6 +69,21 @@ public sealed class SeriesEpisodeQueueTests : IDisposable
 
         Assert.False(_store.HasPending);
         Assert.Contains($"ep:{Followed:N}:2:5", _store.RecentlyRemoved(T0));
+    }
+
+    [Fact]
+    public async Task RemovedFollowedSeries_IsPurged_UnfollowedSeriesIsIgnored()
+    {
+        _store.Subscribe(Guid.NewGuid(), Followed, "bell", T0);
+        _queue.Start();
+        _queue.OnAdded(Episode(Followed));
+        _queue.OnRemoved(new Series { Id = Guid.NewGuid() });
+        _queue.OnRemoved(new Series { Id = Followed });
+        await _queue.StopAsync();
+
+        Assert.False(_store.HasSubscriptions);
+        Assert.False(_store.HasPending);
+        Assert.Empty(_store.RecentlyRemoved(T0));
     }
 
     [Fact]

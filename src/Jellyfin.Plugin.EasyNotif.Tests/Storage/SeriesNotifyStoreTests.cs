@@ -157,6 +157,47 @@ public sealed class SeriesNotifyStoreTests : IDisposable
         Assert.Equal(0, reloaded.SentSince(UserA, DateTime.MinValue));
     }
 
+    [Fact]
+    public void PurgeUser_ErasesEveryTraceOfTheUser_AndKeepsOthers()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath, $$"""
+            { "Schema": 1, "Exclusions": [ { "UserId": "{{UserA}}", "SeriesId": "{{Series}}" }, { "UserId": "{{UserB}}", "SeriesId": "{{Series}}" } ] }
+            """);
+        var store = Build();
+        store.Subscribe(UserA, Series, "bell", T0);
+        store.Subscribe(UserB, Series, "bell", T0);
+        var item = Guid.NewGuid();
+        store.Enqueue([(item, Series)], T0);
+        store.MarkNotified(UserA, [item]);
+        store.RecordSend(UserA, T0);
+
+        store.PurgeUser(UserA);
+
+        Assert.DoesNotContain(UserA.ToString(), File.ReadAllText(FilePath), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal([UserB], store.Subscriptions().Select(s => s.UserId));
+        Assert.Contains(UserB.ToString(), File.ReadAllText(FilePath), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, store.SentSince(UserA, DateTime.MinValue));
+        Assert.Empty(Assert.Single(store.Pending()).Notified);
+    }
+
+    [Fact]
+    public void PurgeSeries_DropsItsSubscriptionsAndPendingEpisodes_Only()
+    {
+        var other = Guid.NewGuid();
+        var store = Build();
+        store.Subscribe(UserA, Series, "bell", T0);
+        store.Subscribe(UserA, other, "bell", T0);
+        store.Enqueue([(Guid.NewGuid(), Series), (Guid.NewGuid(), other)], T0);
+
+        store.PurgeSeries(Series);
+
+        Assert.False(store.IsFollowed(Series));
+        Assert.True(store.IsFollowed(other));
+        Assert.Equal(other, Assert.Single(store.Pending()).SeriesId);
+        Assert.DoesNotContain(Series.ToString(), File.ReadAllText(FilePath), StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         foreach (var store in _stores)

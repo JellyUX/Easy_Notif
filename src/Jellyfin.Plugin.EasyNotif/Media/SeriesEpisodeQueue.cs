@@ -9,8 +9,9 @@ namespace Jellyfin.Plugin.EasyNotif.Media;
 /// <summary>
 /// Feeds <see cref="ISeriesNotifyStore"/> from the library events: a new real episode of a followed
 /// series is queued, a removed one leaves the queue and blocks its key for a day (an upgrade replaces
-/// the file under a new id). The event handlers only test an in-memory index and write to a channel;
-/// a background drain applies the events in order (R13). See <see cref="SeriesEpisodeQueue"/>.
+/// the file under a new id), and a removed followed series is purged with its subscriptions. The
+/// event handlers only test an in-memory index and write to a channel; a background drain applies
+/// the events in order (R13). See <see cref="SeriesEpisodeQueue"/>.
 /// </summary>
 public interface ISeriesEpisodeQueue
 {
@@ -88,6 +89,11 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
             && _store.IsFollowed(seriesId))
         {
             _channel.Writer.TryWrite(new SeriesEvent(true, episode.Id, seriesId, KeyOf(episode)));
+        }
+        else if (item is Series series && _store.IsFollowed(series.Id))
+        {
+            // A deleted series takes its subscriptions with it (SEC-11).
+            _channel.Writer.TryWrite(new SeriesEvent(true, series.Id, series.Id, null, WholeSeries: true));
         }
     }
 
@@ -189,7 +195,14 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
                 adds.Clear();
             }
 
-            _store.RecordRemoved(evt.ItemId, evt.Key, now);
+            if (evt.WholeSeries)
+            {
+                _store.PurgeSeries(evt.SeriesId);
+            }
+            else
+            {
+                _store.RecordRemoved(evt.ItemId, evt.Key, now);
+            }
         }
 
         if (adds.Count > 0)
@@ -198,5 +211,5 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
         }
     }
 
-    private sealed record SeriesEvent(bool Removed, Guid ItemId, Guid SeriesId, string? Key);
+    private sealed record SeriesEvent(bool Removed, Guid ItemId, Guid SeriesId, string? Key, bool WholeSeries = false);
 }

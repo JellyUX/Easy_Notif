@@ -85,6 +85,17 @@ public interface ISeriesNotifyStore
     /// <returns>The number of pending entries dropped.</returns>
     int Prune(DateTime nowUtc);
 
+    /// <summary>
+    /// Erases everything stored about a deleted user: subscriptions, exclusions, send counts, and the
+    /// user id in the served lists of pending entries.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    void PurgeUser(Guid userId);
+
+    /// <summary>Forgets a deleted series: its subscriptions, exclusions and pending episodes.</summary>
+    /// <param name="seriesId">The series id.</param>
+    void PurgeSeries(Guid seriesId);
+
     /// <summary>Records one series email sent to the user, and forgets those older than a day.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="nowUtc">The current time (UTC).</param>
@@ -344,6 +355,28 @@ public sealed class SeriesNotifyStore : JsonFileStore<SeriesNotifyFile>, ISeries
         });
         return dropped;
     }
+
+    /// <inheritdoc/>
+    public void PurgeUser(Guid userId)
+        => MutateTracked(file =>
+        {
+            var changed = file.Subscriptions.RemoveAll(s => s.UserId == userId) > 0;
+            changed |= file.Exclusions.RemoveAll(e => e.UserId == userId) > 0;
+            changed |= file.Sends.RemoveAll(s => s.UserId == userId) > 0;
+            foreach (var entry in file.Pending)
+            {
+                changed |= entry.Notified.Remove(userId);
+            }
+
+            return RemoveServed(file) | changed;
+        });
+
+    /// <inheritdoc/>
+    public void PurgeSeries(Guid seriesId)
+        => MutateTracked(file =>
+            (file.Subscriptions.RemoveAll(s => s.SeriesId == seriesId)
+                + file.Exclusions.RemoveAll(e => e.SeriesId == seriesId)
+                + file.Pending.RemoveAll(p => p.SeriesId == seriesId)) > 0);
 
     /// <inheritdoc/>
     public void RecordSend(Guid userId, DateTime nowUtc)

@@ -3,6 +3,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Moq;
 using Xunit;
@@ -10,22 +11,23 @@ using Xunit;
 namespace Jellyfin.Plugin.EasyNotif.Tests.Inject;
 
 /// <summary>
-/// Covers <see cref="UserPurgeConsumer"/>: a delete event purges both stores, and a storage error
+/// Covers <see cref="UserPurgeConsumer"/>: a delete event purges the three stores, and a storage error
 /// is swallowed and logged rather than propagated back into Jellyfin's event bus.
 /// </summary>
 public sealed class UserPurgeConsumerTests
 {
     private readonly Mock<IPreferenceService> _preferences = new();
     private readonly FakePlaybackHistoryStore _history = new();
+    private readonly Mock<ISeriesNotifyStore> _series = new();
     private readonly Mock<IEasyNotifLog> _log = new();
 
-    private UserPurgeConsumer Build() => new(_preferences.Object, _history, _log.Object);
+    private UserPurgeConsumer Build() => new(_preferences.Object, _history, _series.Object, _log.Object);
 
     private static UserDeletedEventArgs Deleted(Guid id)
         => new(new User("gone", "Default", "Default") { Id = id });
 
     [Fact]
-    public async Task OnEvent_PurgesBothStores_AndLogs()
+    public async Task OnEvent_PurgesEveryStore_AndLogs()
     {
         var id = Guid.NewGuid();
 
@@ -33,6 +35,7 @@ public sealed class UserPurgeConsumerTests
 
         _preferences.Verify(p => p.Purge(id), Times.Once);
         Assert.Contains(id, _history.Purged);
+        _series.Verify(s => s.PurgeUser(id), Times.Once);
         _log.Verify(l => l.Info("user.purged", It.IsAny<IReadOnlyDictionary<string, object?>>()), Times.Once);
     }
 

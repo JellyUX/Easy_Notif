@@ -8,12 +8,13 @@
 </p>
 
 An internal **email notification service** for your Jellyfin server. It replaces ad-hoc messaging
-with three things:
+with four things:
 
 - a **new-media newsletter** on a schedule you choose (weekly on a given day, monthly, every N days,
   or daily), with cover art and links back to each title;
 - a **personalised weekly recap** for each user: what they watched this week and their running total
   for the year;
+- **new-episode notifications** for the series each user follows, with a bell on the series page;
 - **manual announcements** written from the dashboard, plain text or a full HTML template.
 
 Each user picks which categories they want and sets their own contact address. The plugin reads the
@@ -95,21 +96,45 @@ Schedules run in **Europe/Paris** by default; change it on the Campaigns tab (an
 - **Campaigns tab**: the newsletter and the weekly recap ship disabled. Set a schedule, pick a
   language and (optionally) a custom template, enable it. **Send a preview to me** mails the current
   content to your own contact address.
-- **Templates tab**: the two built-in templates are read-only. Clone one, edit the HTML, preview it
-  with sample data, and point a campaign at your copy. Placeholder reference and the template
+- **Templates tab**: the built-in templates are read-only. Clone the newsletter or the recap, edit
+  the HTML, preview it with sample data, and point a campaign at your copy. The new-episode template
+  can be previewed but not cloned. Placeholder reference and the template
   mini-language: [docs/CUSTOM_TEMPLATES.md](docs/CUSTOM_TEMPLATES.md).
 - **Manual email tab**: a one-off announcement to every user with a contact address, or a chosen
   subset. Not subject to category preferences.
 - **Per-user panel** (in each user's Jellyfin settings): contact address, category opt-in/opt-out,
-  a test-send button.
+  the followed series (with a Remove button), a test-send button.
 - **Unsubscribe**: every campaign email carries a one-click `List-Unsubscribe` header and a footer
   link to a small confirmation page. Changes take effect immediately.
+
+## New-episode notifications
+
+- **Following a series**: open a series page in Jellyfin Web and click the **bell** in the action
+  bar. Click it again to stop. The bell only appears on series the user can see. The followed
+  series are listed in the user's settings panel, where each one can be removed.
+- **What is sent**: one email per user, grouping every new episode of every followed series, with
+  the series poster and a link to its page. A series with more than 5 new episodes is summed up in
+  one line; specials are labelled as such. An episode already notified, or a file that only
+  replaces one already in the library (an upgrade or a move), is not announced again.
+- **Delay**: the email leaves once no new episode has arrived for 30 minutes, so episodes added a
+  few minutes apart end up in the same email. With the 15-minute check, expect it **30 to 45
+  minutes** after the last episode (at most 6 hours after the first one when episodes keep
+  arriving).
+- **Limits**: at most **3 new-episode emails per user per day** (UTC). They never use the share of
+  the daily Resend quota held back for a campaign due the same day; what is held back goes out
+  later.
+- **Stopping**: each series in the email has its own "Stop following this series" link, and the
+  footer has a link that stops every new-episode email (also sent as the `List-Unsubscribe`
+  header). Users can also untick **New episodes** in their settings panel. A user with no contact
+  address gets nothing; the bell's tooltip says so.
+- **Turning it off**: on the **Settings** tab, untick **Show the follow bell on series pages**
+  (takes effect after a Jellyfin restart). Existing subscriptions keep working.
 
 ## Privacy and uninstall
 
 Every piece of state the plugin keeps lives in **one directory**,
-`<jellyfin-data>/Jellyfin.Plugin.EasyNotif/` (preferences, campaigns, playback history, custom
-templates, quota, logs). The plugin never writes anywhere else. Contact addresses go to **Resend**
+`<jellyfin-data>/Jellyfin.Plugin.EasyNotif/` (preferences, followed series, campaigns, playback
+history, custom templates, quota, logs). The plugin never writes anywhere else. Contact addresses go to **Resend**
 (United States) to send the mail; nothing is sent to any other third party.
 
 To remove everything: uninstall the plugin and delete that directory. The server is then exactly as

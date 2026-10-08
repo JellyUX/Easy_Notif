@@ -7,6 +7,9 @@ Easy Notif ships two built-in HTML templates, one per campaign kind:
 | `newsletter` | the new-media newsletter | `en`, `fr` |
 | `weekly-recap` | the personalised weekly recap | `en`, `fr` |
 
+A third built-in template, `series-episodes`, renders the new-episode notifications. It is listed
+in the Templates tab for preview only: it cannot be cloned, since no campaign points at it.
+
 The built-in templates are **read-only**. To change how a campaign's email looks, you clone a base
 template into an editable copy and point the campaign at it. This guide lists every placeholder you
 can use and the rules the editor enforces.

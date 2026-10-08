@@ -1,3 +1,40 @@
+## [1.1.0](https://github.com/JellyUX/Easy_Notif/compare/v1.0.2...v1.1.0) (2026-10-08)
+
+### Features
+
+* add a follow bell on series pages ([555b354](https://github.com/JellyUX/Easy_Notif/commit/555b354608f888861f0041b50df5bec44f6dcd80))
+* add a per-user access filter ([6e732ff](https://github.com/JellyUX/Easy_Notif/commit/6e732ffa04fde1b4672820ce9f8537b53e3198b3))
+* add a schema migration hook to file stores ([2e91083](https://github.com/JellyUX/Easy_Notif/commit/2e91083c0ffd5e0a8097fc0b145b59f580e8d198))
+* add followed-series endpoints ([0ebaed2](https://github.com/JellyUX/Easy_Notif/commit/0ebaed26fb96c711c07a7780447d6e4213a593d4))
+* add per-series unsubscribe tokens ([1ba6f63](https://github.com/JellyUX/Easy_Notif/commit/1ba6f638b6b5b61556f2f255ffd76969673afceb))
+* add the new-episodes email template ([f2a1a92](https://github.com/JellyUX/Easy_Notif/commit/f2a1a92bab1e6aa690588524164e963e0e1eaa98))
+* add the series notification store ([57ceb28](https://github.com/JellyUX/Easy_Notif/commit/57ceb2818d9013996c4910b8cea6b1ca8e6f17fa))
+* allow disabling the web UI injection ([888d1cc](https://github.com/JellyUX/Easy_Notif/commit/888d1ccf47c7fe45b691ee7405c2ad146d645be2))
+* budget the quota for series notifications ([3660678](https://github.com/JellyUX/Easy_Notif/commit/3660678f0fa57b06af27e377f92d3735e314f7e7))
+* cap the newsletter size ([7ca9c74](https://github.com/JellyUX/Easy_Notif/commit/7ca9c74b7a8244f6c211ca5ded7152fd2cebabca))
+* expire unsubscribe tokens and rate-limit the endpoint ([f8890f2](https://github.com/JellyUX/Easy_Notif/commit/f8890f2450f12e315d8d750edef6edb818d8fec4))
+* flush followed-series episodes on a debounce window ([d305e98](https://github.com/JellyUX/Easy_Notif/commit/d305e980554c7d56857c935e7a08fec41da96bfd))
+* list followed series in the preferences panel ([555d783](https://github.com/JellyUX/Easy_Notif/commit/555d783f08231aa21ac502ccb45b05882ef17f5a))
+* make the sending quota configurable ([bb4399c](https://github.com/JellyUX/Easy_Notif/commit/bb4399cc9a0e3f0cb192d4f91df5e5ddc621e6ef))
+* queue new episodes of followed series ([20a88c8](https://github.com/JellyUX/Easy_Notif/commit/20a88c827fbf820da3bc59e5c7607f989f088ef3))
+* send manual emails in the background ([4b9ba4c](https://github.com/JellyUX/Easy_Notif/commit/4b9ba4c07e6a0658f3e08153c67253a5223281c3))
+
+### Bug Fixes
+
+* add security headers to the unsubscribe page ([f7134da](https://github.com/JellyUX/Easy_Notif/commit/f7134da544af1a74864ea634f1b89d44c94c43f4))
+* honour unsubscribe on manual announcements ([4b34dca](https://github.com/JellyUX/Easy_Notif/commit/4b34dcaf6952d03147aedba744c6b14283f7f60d))
+* isolate campaign failures during dispatch ([3190e48](https://github.com/JellyUX/Easy_Notif/commit/3190e48ce63063f733d7fea18252fdc88c753e4c))
+* let the action bar wrap so the series bell stays on screen ([25c0cb2](https://github.com/JellyUX/Easy_Notif/commit/25c0cb260cd27eb73c0204a44d5abec40dd2c517))
+* make every send idempotent across restarts ([eef8afc](https://github.com/JellyUX/Easy_Notif/commit/eef8afcb576dc7161c993d3bad7e01dc4125b955))
+* purge series subscriptions with the user or series ([c2edf8d](https://github.com/JellyUX/Easy_Notif/commit/c2edf8daaa69690fc220afb2ad4800588d00bfc7))
+* reject unsubscribe tokens of deleted users ([d63d1a6](https://github.com/JellyUX/Easy_Notif/commit/d63d1a62c173b838dd7090e842bc5d5aa43fdbce))
+* retry failed recipients of a campaign run ([80fbfdd](https://github.com/JellyUX/Easy_Notif/commit/80fbfdd224c2a41d67a6074530823ec98e99aba6))
+* scope the newsletter to each recipient's library access ([45bd0bc](https://github.com/JellyUX/Easy_Notif/commit/45bd0bc5f0fc600f7d3a9e76f938024846d6653c))
+* skip announced and pre-subscription episodes in the series catch-up ([552fb09](https://github.com/JellyUX/Easy_Notif/commit/552fb09406cd6f1397b55f6f800a67b4207ce05a))
+* skip disabled Jellyfin accounts ([f056550](https://github.com/JellyUX/Easy_Notif/commit/f056550957aaba0376db70851223adc41a3455a1))
+* stop re-announcing media already sent ([ae52e89](https://github.com/JellyUX/Easy_Notif/commit/ae52e89ea9aa55d7757cdcc977b44b0268f974e2))
+* validate campaign intervals and isolate startup steps ([57e1a36](https://github.com/JellyUX/Easy_Notif/commit/57e1a3688c2d7bb2db1037af251df7709b21406c))
+
 ## [1.0.2](https://github.com/JellyUX/Easy_Notif/compare/v1.0.1...v1.0.2) (2026-09-09)
 
 ### Bug Fixes

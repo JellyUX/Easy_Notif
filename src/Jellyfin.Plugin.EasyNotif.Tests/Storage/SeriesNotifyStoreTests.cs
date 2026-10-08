@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Storage;
 /// <summary>
 /// Covers <see cref="SeriesNotifyStore"/>: inert without a subscription (no file), episodes of
 /// followed series only, state surviving a reload, detached copies, an entry leaving the queue once
-/// every follower was served, removed keys and retention.
+/// every follower was served, removed keys, retention and the per-user daily send count.
 /// </summary>
 public sealed class SeriesNotifyStoreTests : IDisposable
 {
@@ -140,6 +140,23 @@ public sealed class SeriesNotifyStoreTests : IDisposable
     }
 
     /// <inheritdoc/>
+    [Fact]
+    public void RecordSend_CountsPerUserSinceATime_SurvivesReload_ForgetsAfterADay()
+    {
+        var store = Build();
+        store.RecordSend(UserA, T0);
+        store.RecordSend(UserA, T0.AddHours(2));
+        store.RecordSend(UserB, T0.AddHours(2));
+
+        var reloaded = Build();
+        Assert.Equal(2, reloaded.SentSince(UserA, T0.Date));
+        Assert.Equal(1, reloaded.SentSince(UserA, T0.AddHours(1)));
+        Assert.Equal(1, reloaded.SentSince(UserB, T0.Date));
+
+        reloaded.RecordSend(UserB, T0.AddHours(27));
+        Assert.Equal(0, reloaded.SentSince(UserA, DateTime.MinValue));
+    }
+
     public void Dispose()
     {
         foreach (var store in _stores)

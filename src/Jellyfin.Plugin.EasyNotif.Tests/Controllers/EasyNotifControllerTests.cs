@@ -398,6 +398,22 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void GetStatus_ReportsTheReserve_OfACampaignDueToday()
+    {
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+
+        // Overdue, hence before the next 00:00 UTC whatever the time the test runs.
+        var campaigns = new FakeCampaignStore(new Campaign { Id = "newsletter", Enabled = true, NextRunUtc = DateTime.UtcNow.AddMinutes(-5) });
+        var ok = Assert.IsType<OkObjectResult>(BuildController(quota: quota, sendLog: sendLog, campaigns: campaigns).GetStatus());
+
+        Assert.Contains("\"reserve\":40", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PutSettings_OnSuccess_LogsAnUpdateEvent_WithoutTheKey()
     {
         var easyNotifLog = new FakeEasyNotifLog();

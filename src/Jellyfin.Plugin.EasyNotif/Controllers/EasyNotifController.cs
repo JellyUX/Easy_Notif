@@ -459,7 +459,8 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>
     /// Gets the Resend transport status for the settings tab: whether it is configured, the rolling
-    /// send quota, the last webhook received, and the last few sends. Never returns a secret.
+    /// send quota with its configured limits and the share reserved for a campaign due today, the
+    /// last webhook received, and the last few sends. Never returns a secret.
     /// Administrators only.
     /// </summary>
     /// <returns>The status object.</returns>
@@ -487,7 +488,8 @@ public class EasyNotifController : ControllerBase
                 dailyLimit = quota.DailyLimit,
                 warn80 = quota.Warn80,
                 over = quota.Over,
-                suspendedUntilUtc = quota.SuspendedUntilUtc
+                suspendedUntilUtc = quota.SuspendedUntilUtc,
+                reserve = QuotaBudget.Reserve(quota.DailyLimit, _campaigns.All(), DateTime.UtcNow)
             },
             lastWebhookUtc,
             lastWebhookType,

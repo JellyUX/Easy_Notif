@@ -80,6 +80,14 @@
             .replace('{dLimit}', q.dailyLimit != null ? q.dailyLimit : 0);
         root.appendChild(quota);
 
+        if (q.reserve > 0) {
+            var reserve = document.createElement('p');
+            reserve.textContent = _t(dict, 'status.reserve')
+                .replace('{n}', q.reserve)
+                .replace('{max}', q.dailyLimit - q.reserve);
+            root.appendChild(reserve);
+        }
+
         if (q.suspendedUntilUtc) {
             var suspended = document.createElement('p');
             suspended.className = 'enotif-warn';

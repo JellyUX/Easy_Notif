@@ -44,6 +44,10 @@ public interface ISeriesNotifier
 /// key and the "new episode" label (DEC-15).</para>
 /// <para>Never announced: a key removed within 24 hours (an upgrade), a key the series channel
 /// announced up to the episode's arrival, or a key present in the library under another id.</para>
+/// <para>Quota (PERF-04): one email per user and per flush, at most <see cref="MaxPerUserPerDay"/>
+/// per user and per UTC day (decision D2, DEC-37), and never into the share of the daily quota
+/// reserved for a campaign due today (<see cref="QuotaBudget"/>). What is held back stays pending
+/// for a later flush.</para>
 /// <para>Retries reuse the campaign backoff through a <c>retry-queue.json</c> entry keyed
 /// <see cref="RetryPrefix"/> plus the user id, holding no content: the episodes stay pending until
 /// the user is served (DEC-35).</para>
@@ -61,6 +65,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
 
     /// <summary>How far back the startup catch-up looks for episodes missed while the server was down.</summary>
     public static readonly TimeSpan CatchUpWindow = TimeSpan.FromHours(24);
+
+    /// <summary>The most series emails a user receives per UTC day (decision D2).</summary>
+    public const int MaxPerUserPerDay = 3;
 
     private const int CatchUpLimit = 500;
 
@@ -281,7 +288,8 @@ public sealed class SeriesNotifier : ISeriesNotifier
             ["sent"] = stats.Sent,
             ["failed"] = stats.Failed,
             ["retryQueued"] = stats.RetryQueued,
-            ["held"] = stats.Held
+            ["held"] = stats.Held,
+            ["capped"] = stats.Capped
         });
     }
 
@@ -304,16 +312,40 @@ public sealed class SeriesNotifier : ISeriesNotifier
             return;
         }
 
-        var french = _campaigns.All().FirstOrDefault(c => c.Type == CampaignType.Newsletter)?.MailLanguage != "en";
+        var campaigns = _campaigns.All();
+        var french = campaigns.FirstOrDefault(c => c.Type == CampaignType.Newsletter)?.MailLanguage != "en";
+        var startOfDay = now.Date;
         for (var i = 0; i < ready.Count; i++)
         {
             var (userId, entries) = ready[i];
-            if (_quota.Snapshot().Over)
+            var quota = _quota.Snapshot();
+            if (quota.Over)
             {
                 // Postponed to a later flush, without loss (section 9.3).
                 stats.Held = ready.Count - i;
                 _log.Warn("series.skipped", new Dictionary<string, object?> { ["reason"] = "quota-over" });
                 return;
+            }
+
+            var reserve = QuotaBudget.Reserve(quota.DailyLimit, campaigns, now);
+            if (reserve > 0 && quota.DailyToday >= quota.DailyLimit - reserve)
+            {
+                // The rest of today's quota belongs to the campaign due today; held, not lost.
+                stats.Held = ready.Count - i;
+                _log.Info("series.skipped", new Dictionary<string, object?>
+                {
+                    ["reason"] = "quota-reserve",
+                    ["dailyToday"] = quota.DailyToday,
+                    ["reserve"] = reserve
+                });
+                return;
+            }
+
+            if (_store.SentSince(userId, startOfDay) >= MaxPerUserPerDay)
+            {
+                // Over the daily cap: the episodes stay pending and join the user's next email.
+                stats.Capped++;
+                continue;
             }
 
             var batch = entries.Where(p => !excluded.Contains(p.ItemId)).ToList();
@@ -372,6 +404,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
             if (result.Success)
             {
                 _quota.RecordSend();
+                _store.RecordSend(recipient.UserId, now);
             }
 
             status = result.Success ? "sent" : "deduplicated";
@@ -544,5 +577,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
         public int RetryQueued { get; set; }
 
         public int Held { get; set; }
+
+        public int Capped { get; set; }
     }
 }

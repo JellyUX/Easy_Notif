@@ -52,7 +52,7 @@ internal sealed class SeriesNotifierHarness : IDisposable
             .Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<bool>()))
             .Returns<IReadOnlyCollection<Guid>?, bool>((ids, _) =>
                 [.. Emails.Where(kv => ids is null || ids.Contains(kv.Key)).Select(kv => new Recipient(kv.Key, kv.Value))]);
-        Quota.Setup(q => q.Snapshot()).Returns(() => new QuotaSnapshot(0, 0, 3000, 100, false, QuotaOver));
+        Quota.Setup(q => q.Snapshot()).Returns(() => new QuotaSnapshot(0, DailyToday, 3000, 100, false, QuotaOver));
         Sender
             .Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
             .Returns<EmailMessage, CancellationToken>((message, _) =>
@@ -83,6 +83,8 @@ internal sealed class SeriesNotifierHarness : IDisposable
     public Dictionary<Guid, string> Emails { get; } = [];
 
     public bool QuotaOver { get; set; }
+
+    public int DailyToday { get; set; }
 
     public Func<EmailMessage, SendResult>? NextResult { get; set; }
 

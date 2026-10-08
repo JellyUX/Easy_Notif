@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using MediaBrowser.Controller.Entities.TV;
 using Xunit;
@@ -7,8 +8,9 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Scheduling;
 
 /// <summary>
 /// Covers <see cref="SeriesNotifier"/>: inert without a subscription, startup catch-up, the one-tick
-/// metadata deferral, the access filter, the quota, and the retry gate shared with the campaigns
-/// (DEC-35).
+/// metadata deferral, the access filter, the quota, the retry gate shared with the campaigns
+/// (DEC-35), and the quota budget (PERF-04): one email per user and per flush, three per UTC day,
+/// none into the reserve of a campaign due today.
 /// </summary>
 public sealed class SeriesNotifierTests : IDisposable
 {
@@ -180,5 +182,75 @@ public sealed class SeriesNotifierTests : IDisposable
     }
 
     /// <inheritdoc/>
+    [Fact]
+    public async Task OneFlush_SendsOneEmailPerUser_AcrossTheirSeries()
+    {
+        var user = _h.Follow(Series);
+        var second = Guid.NewGuid();
+        var third = Guid.NewGuid();
+        _h.Store.Subscribe(user, second, "bell", _h.Now);
+        _h.Store.Subscribe(user, third, "bell", _h.Now);
+        _h.Add(Series, 1, 1);
+        _h.Add(Series, 1, 2);
+        _h.Add(second, 2, 1, "Andor");
+        _h.Add(second, 2, 2, "Andor");
+        _h.Add(third, 1, 1, "Slow Horses");
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        var mail = Assert.Single(_h.Sent);
+        Assert.Contains("Andor", mail.Text, StringComparison.Ordinal);
+        Assert.Contains("Slow Horses", mail.Text, StringComparison.Ordinal);
+        Assert.False(_h.Store.HasPending);
+    }
+
+    [Fact]
+    public async Task FourthEmailOfTheDay_IsHeldUntilTheNextUtcDay()
+    {
+        _h.Follow(Series);
+        for (var number = 1; number <= 3; number++)
+        {
+            _h.Add(Series, 1, number);
+            await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+        }
+
+        Assert.Equal(SeriesNotifier.MaxPerUserPerDay, _h.Sent.Count);
+
+        _h.Add(Series, 1, 4);
+        _h.Add(Series, 1, 5);
+        await _h.RunTicksAsync(TimeSpan.FromHours(6));
+        Assert.Equal(3, _h.Sent.Count);
+        Assert.True(_h.Store.HasPending);
+        Assert.Contains(_h.Log.Entries, e => e.EventType == "series.flush" && (int?)e.Fields?["capped"] == 1);
+
+        _h.Now = _h.Now.Date.AddDays(1).AddMinutes(-15);
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(15));
+
+        Assert.Equal(4, _h.Sent.Count);
+        Assert.Contains("S01E04", _h.Sent[3].Text, StringComparison.Ordinal);
+        Assert.Contains("S01E05", _h.Sent[3].Text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(8, 60, false)]
+    [InlineData(8, 59, true)]
+    [InlineData(20, 99, true)]
+    public async Task ReserveOfACampaignDueToday_StopsTheSeriesEmails(int campaignInHours, int dailyToday, bool sent)
+    {
+        _h.Campaigns.Campaigns.Add(new Campaign { Id = "newsletter", Type = CampaignType.Newsletter, Enabled = true, NextRunUtc = _h.Now.AddHours(campaignInHours) });
+        _h.DailyToday = dailyToday;
+        _h.Follow(Series);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        Assert.Equal(sent ? 1 : 0, _h.Sent.Count);
+        Assert.Equal(!sent, _h.Store.HasPending);
+        if (!sent)
+        {
+            Assert.Contains(_h.Log.Entries, e => e.EventType == "series.skipped" && (string?)e.Fields?["reason"] == "quota-reserve");
+        }
+    }
+
     public void Dispose() => _h.Dispose();
 }

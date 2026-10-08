@@ -38,6 +38,7 @@
   "status.quota": "Sent: {m30} / {mLimit} in the last 30 days, {d} / {dLimit} today.",
   "status.warn": "You have used 80 percent of a sending limit.",
   "status.quotaNoDaily": "Sent: {m30} / {mLimit} in the last 30 days, {d} today (no daily limit).",
+  "status.reserve": "{n} of today's sends are kept for a campaign due today: series emails stop at {max}.",
   "status.suspended": "Resend refused a send for quota: sending is paused until {date} UTC.",
   "status.lastWebhook": "Last webhook: {type} at {date} UTC.",
   "status.lastWebhookNone": "No webhook received yet.",

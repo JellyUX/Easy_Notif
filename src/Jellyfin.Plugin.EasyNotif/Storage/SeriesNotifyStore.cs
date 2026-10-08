@@ -84,6 +84,17 @@ public interface ISeriesNotifyStore
     /// <param name="nowUtc">The current time (UTC).</param>
     /// <returns>The number of pending entries dropped.</returns>
     int Prune(DateTime nowUtc);
+
+    /// <summary>Records one series email sent to the user, and forgets those older than a day.</summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="nowUtc">The current time (UTC).</param>
+    void RecordSend(Guid userId, DateTime nowUtc);
+
+    /// <summary>Counts the series emails sent to the user since a time (at most a day back).</summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="sinceUtc">The start of the count (UTC).</param>
+    /// <returns>The number of series emails.</returns>
+    int SentSince(Guid userId, DateTime sinceUtc);
 }
 
 /// <summary>On-disk shape of <c>series-notify.json</c>.</summary>
@@ -103,6 +114,9 @@ public sealed class SeriesNotifyFile
 
     /// <summary>Gets the keys removed recently.</summary>
     public List<RemovedKey> RemovedRecent { get; init; } = [];
+
+    /// <summary>Gets the series emails sent over the last day, for the per-user daily cap.</summary>
+    public List<SeriesSend> Sends { get; init; } = [];
 }
 
 /// <summary>One user following one series.</summary>
@@ -121,6 +135,11 @@ public sealed record SeriesExclusion(Guid UserId, Guid SeriesId);
 /// <param name="Key">The media key.</param>
 /// <param name="At">The UTC time of the removal.</param>
 public sealed record RemovedKey(string Key, DateTime At);
+
+/// <summary>One series email sent to a user.</summary>
+/// <param name="UserId">The Jellyfin user id.</param>
+/// <param name="At">When it was sent (UTC).</param>
+public sealed record SeriesSend(Guid UserId, DateTime At);
 
 /// <summary>One new episode waiting for its debounce window. Ids only, no title.</summary>
 public sealed class PendingEpisode
@@ -158,6 +177,9 @@ public sealed class SeriesNotifyStore : JsonFileStore<SeriesNotifyFile>, ISeries
 
     /// <summary>How long a removed key blocks a notification.</summary>
     public static readonly TimeSpan RemovedRetention = TimeSpan.FromHours(24);
+
+    /// <summary>How long a sent series email is remembered for the per-user daily cap.</summary>
+    public static readonly TimeSpan SendRetention = TimeSpan.FromHours(24);
 
     private volatile HashSet<Guid> _followed;
     private volatile bool _hasPending;
@@ -322,6 +344,21 @@ public sealed class SeriesNotifyStore : JsonFileStore<SeriesNotifyFile>, ISeries
         });
         return dropped;
     }
+
+    /// <inheritdoc/>
+    public void RecordSend(Guid userId, DateTime nowUtc)
+    {
+        Mutate(file =>
+        {
+            file.Sends.RemoveAll(s => nowUtc - s.At >= SendRetention);
+            file.Sends.Add(new SeriesSend(userId, nowUtc));
+            return true;
+        });
+    }
+
+    /// <inheritdoc/>
+    public int SentSince(Guid userId, DateTime sinceUtc) =>
+        Read(file => file.Sends.Count(s => s.UserId == userId && s.At >= sinceUtc));
 
     // An entry is done once every current follower of its series was served (a follower who left
     // during the window no longer counts); a series nobody follows any more empties the same way.

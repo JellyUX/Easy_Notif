@@ -166,6 +166,18 @@ describe('_buildStatus', () => {
         expect(el.textContent).toContain('12 today (no daily limit)');
     });
 
+    it('shows the campaign reserve and where the series emails stop', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: { last30d: 3, dailyToday: 1, monthlyLimit: 3000, dailyLimit: 100, warn80: false, over: false, reserve: 40 },
+            lastWebhookUtc: null,
+            recent: []
+        });
+
+        expect(el.textContent).toContain('40 of today');
+        expect(el.textContent).toContain('series emails stop at 60');
+    });
+
     it('says no webhook when lastWebhookUtc is null', () => {
         const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [] });
 

@@ -81,6 +81,21 @@ public sealed class StartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_WhenTheInjectionIsTurnedOff_RegistersNothing_AndWarnsOfNothing()
+    {
+        var detector = Detector(available: false);
+        var config = new FakeConfigAccessor(new PluginConfiguration { InjectWebUi = false, StartupWarning = "stale" });
+        var log = new FakeEasyNotifLog();
+
+        await Build(detector, config, log).StartAsync(CancellationToken.None);
+
+        detector.Verify(d => d.RegisterTransformation(It.IsAny<JObject>()), Times.Never);
+        detector.Verify(d => d.IsAvailable(), Times.Never);
+        Assert.Null(config.Config.StartupWarning);
+        Assert.Contains(log.Entries, e => e.EventType == "webinjection.disabled");
+    }
+
+    [Fact]
     public async Task StartAsync_WhenDetectorUnavailable_SetsStartupWarning_DoesNotRegister()
     {
         var detector = Detector(available: false);

@@ -107,4 +107,17 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>The highest accepted 30-day send limit.</summary>
     public const int MaxQuotaMonthlyLimit = 1_000_000;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the plugin injects its settings panel (and the series
+    /// bell) into Jellyfin Web. Read at startup: a change takes effect after a restart. Turning it off
+    /// is the way out when a Jellyfin Web update breaks the injection.
+    /// </summary>
+    public bool InjectWebUi { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the injected script shows the follow bell on series
+    /// pages. Ignored when <see cref="InjectWebUi"/> is off; takes effect after a restart.
+    /// </summary>
+    public bool InjectSeriesBell { get; set; } = true;
 }

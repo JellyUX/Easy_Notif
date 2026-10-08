@@ -455,6 +455,11 @@
         });
     }
 
+    // The bell lives in the injected script: without the injection it cannot show.
+    function _syncBellToggle() {
+        _el('enotifInjectSeriesBell').disabled = !_el('enotifInjectWebUi').checked;
+    }
+
     function _loadSettings() {
         return window.ApiClient.getJSON(_url('admin/settings')).then(function (s) {
             _el('enotifFromEmail').value = s.fromEmail || '';
@@ -466,6 +471,9 @@
             _el('enotifMaxSeries').value = s.newsletterMaxSeries || 30;
             _el('enotifQuotaDaily').value = s.quotaDailyLimit != null ? s.quotaDailyLimit : 100;
             _el('enotifQuotaMonthly').value = s.quotaMonthlyLimit || 3000;
+            _el('enotifInjectWebUi').checked = s.injectWebUi !== false;
+            _el('enotifInjectSeriesBell').checked = s.injectSeriesBell !== false;
+            _syncBellToggle();
             _el('enotifApiKey').value = '';
             _el('enotifWebhookSecret').value = '';
             _el('enotifApiKeyHint').textContent = _secretHint(dict, s.resendApiKeySet);
@@ -498,7 +506,9 @@
             NewsletterMaxMovies: parseInt(_el('enotifMaxMovies').value, 10),
             NewsletterMaxSeries: parseInt(_el('enotifMaxSeries').value, 10),
             QuotaDailyLimit: parseInt(_el('enotifQuotaDaily').value, 10),
-            QuotaMonthlyLimit: parseInt(_el('enotifQuotaMonthly').value, 10)
+            QuotaMonthlyLimit: parseInt(_el('enotifQuotaMonthly').value, 10),
+            InjectWebUi: _el('enotifInjectWebUi').checked,
+            InjectSeriesBell: _el('enotifInjectSeriesBell').checked
         };
         var key = _el('enotifApiKey').value.trim();
         var secret = _el('enotifWebhookSecret').value.trim();
@@ -1231,6 +1241,7 @@
             t.addEventListener('click', function () { _selectTab(t.getAttribute('data-tab')); });
         });
         _el('enotifSettingsForm').addEventListener('submit', _saveSettings);
+        _el('enotifInjectWebUi').addEventListener('change', _syncBellToggle);
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
         _bindManual();
         _bindLogs();

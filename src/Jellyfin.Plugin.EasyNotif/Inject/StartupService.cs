@@ -220,6 +220,15 @@ public sealed class StartupService : IHostedService
 
     private void RegisterWebInjection()
     {
+        if (!_config.Get().InjectWebUi)
+        {
+            // Turned off by the admin (FEAT-10): nothing is injected, so FileTransformation is not needed.
+            SetStartupWarning(null);
+            _logger.LogInformation("[EasyNotif] Web UI injection is turned off in the settings.");
+            _easyNotifLog.Info("webinjection.disabled", new Dictionary<string, object?>());
+            return;
+        }
+
         if (!_detector.IsAvailable())
         {
             const string Warning =

@@ -436,6 +436,8 @@ public class EasyNotifController : ControllerBase
             newsletterMaxSeries = cfg.NewsletterMaxSeries,
             quotaDailyLimit = cfg.QuotaDailyLimit,
             quotaMonthlyLimit = cfg.QuotaMonthlyLimit,
+            injectWebUi = cfg.InjectWebUi,
+            injectSeriesBell = cfg.InjectSeriesBell,
             resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
             webhookSigningSecretSet = !string.IsNullOrEmpty(secrets.WebhookSigningSecret),
             startupWarning = cfg.StartupWarning
@@ -504,6 +506,8 @@ public class EasyNotifController : ControllerBase
             cfg.NewsletterMaxSeries = body.NewsletterMaxSeries ?? cfg.NewsletterMaxSeries;
             cfg.QuotaDailyLimit = body.QuotaDailyLimit ?? cfg.QuotaDailyLimit;
             cfg.QuotaMonthlyLimit = body.QuotaMonthlyLimit ?? cfg.QuotaMonthlyLimit;
+            cfg.InjectWebUi = body.InjectWebUi ?? cfg.InjectWebUi;
+            cfg.InjectSeriesBell = body.InjectSeriesBell ?? cfg.InjectSeriesBell;
             if (!string.IsNullOrWhiteSpace(body.SchedulerTimeZone))
             {
                 cfg.SchedulerTimeZone = body.SchedulerTimeZone.Trim();
@@ -1516,6 +1520,12 @@ public sealed class SettingsUpdate
 
     /// <summary>Gets or sets the 30-day send limit (1 to 1000000). Null leaves it unchanged.</summary>
     public int? QuotaMonthlyLimit { get; set; }
+
+    /// <summary>Gets or sets whether the web UI is injected (null = unchanged; takes effect after a restart).</summary>
+    public bool? InjectWebUi { get; set; }
+
+    /// <summary>Gets or sets whether the series bell is shown (null = unchanged; takes effect after a restart).</summary>
+    public bool? InjectSeriesBell { get; set; }
 
     /// <summary>Gets or sets a new Resend API key. Blank leaves the stored one untouched.</summary>
     public string? ResendApiKey { get; set; }

@@ -359,6 +359,34 @@ public sealed class EasyNotifControllerTests
         Assert.IsType<NoContentResult>(result);
     }
 
+    [Fact]
+    public void Settings_RoundTripTheInjectionSwitches_AndKeepThemWhenOmitted()
+    {
+        var config = new FakeConfig();
+        var controller = BuildController(config: config);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { InjectWebUi = false, InjectSeriesBell = false }));
+        Assert.False(config.Config.InjectWebUi);
+        Assert.False(config.Config.InjectSeriesBell);
+
+        controller.PutSettings(new SettingsUpdate());
+        Assert.False(config.Config.InjectWebUi);
+
+        var ok = Assert.IsType<OkObjectResult>(controller.GetSettings());
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.False(json.RootElement.GetProperty("injectWebUi").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("injectSeriesBell").GetBoolean());
+    }
+
+    [Fact]
+    public void InjectionSwitches_DefaultToOn()
+    {
+        var cfg = new PluginConfiguration();
+
+        Assert.True(cfg.InjectWebUi);
+        Assert.True(cfg.InjectSeriesBell);
+    }
+
     // -------------------------------------------------------------------------
     // Settings: secrets never leak, blank never overwrites
     // -------------------------------------------------------------------------

@@ -139,7 +139,8 @@ public class EasyNotifController : ControllerBase
             {
                 news = pref.Categories.GetValueOrDefault(EmailCategory.News),
                 recap = pref.Categories.GetValueOrDefault(EmailCategory.Recap),
-                announcements = !pref.AnnouncementsOptOut
+                announcements = !pref.AnnouncementsOptOut,
+                episodes = !pref.EpisodesOptOut
             });
         });
     }
@@ -156,7 +157,11 @@ public class EasyNotifController : ControllerBase
         var userId = await CurrentUserIdAsync().ConfigureAwait(false);
         return Wrap(() =>
         {
-            _preferences.SetCategories(userId, BuildCategoryMap(body), body?.Announcements is { } on ? !on : null);
+            _preferences.SetCategories(
+                userId,
+                BuildCategoryMap(body),
+                body?.Announcements is { } on ? !on : null,
+                body?.Episodes is { } episodes ? !episodes : null);
             return NoContent();
         });
     }
@@ -1347,6 +1352,12 @@ public class CategoryUpdate
     /// <c>PUT me/preferences</c> only: an admin cannot override a user's opt-out.
     /// </summary>
     public bool? Announcements { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the caller receives new-episode emails of the series they follow.
+    /// Honoured on <c>PUT me/preferences</c> only.
+    /// </summary>
+    public bool? Episodes { get; set; }
 }
 
 /// <summary>Admin change to another user's preferences.</summary>

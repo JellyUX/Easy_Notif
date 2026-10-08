@@ -2,6 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Media;
+using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -52,6 +53,9 @@ internal sealed class SeriesNotifierHarness : IDisposable
             .Setup(p => p.GetContactable(It.IsAny<IReadOnlyCollection<Guid>?>(), It.IsAny<bool>()))
             .Returns<IReadOnlyCollection<Guid>?, bool>((ids, _) =>
                 [.. Emails.Where(kv => ids is null || ids.Contains(kv.Key)).Select(kv => new Recipient(kv.Key, kv.Value))]);
+        Preferences
+            .Setup(p => p.GetOrCreate(It.IsAny<Guid>()))
+            .Returns<Guid>(id => new UserPreference { UserId = id, EpisodesOptOut = OptedOut.Contains(id) });
         Quota.Setup(q => q.Snapshot()).Returns(() => new QuotaSnapshot(0, DailyToday, 3000, 100, false, QuotaOver));
         Sender
             .Setup(s => s.SendAsync(It.IsAny<EmailMessage>(), It.IsAny<CancellationToken>()))
@@ -81,6 +85,8 @@ internal sealed class SeriesNotifierHarness : IDisposable
     public HashSet<Guid> Hidden { get; } = [];
 
     public Dictionary<Guid, string> Emails { get; } = [];
+
+    public HashSet<Guid> OptedOut { get; } = [];
 
     public bool QuotaOver { get; set; }
 

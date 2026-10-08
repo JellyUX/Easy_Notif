@@ -15,11 +15,13 @@ public sealed record SeriesEpisodeLine(int? Season, int? Number, int? NumberEnd,
 /// <param name="SeriesId">The series id.</param>
 /// <param name="SeriesName">The series name.</param>
 /// <param name="Episodes">The episodes, in season and episode order.</param>
-public sealed record SeriesEpisodesGroup(Guid SeriesId, string SeriesName, IReadOnlyList<SeriesEpisodeLine> Episodes);
+/// <param name="UnsubscribeUrl">The link that stops this series only, or null without a public URL or secret.</param>
+public sealed record SeriesEpisodesGroup(Guid SeriesId, string SeriesName, IReadOnlyList<SeriesEpisodeLine> Episodes, string? UnsubscribeUrl = null);
 
 /// <summary>The content of one series notification email: the new episodes of each followed series.</summary>
 /// <param name="Series">The series, in name order.</param>
-public sealed record SeriesEpisodesDigest(IReadOnlyList<SeriesEpisodesGroup> Series);
+/// <param name="UnsubscribeAllUrl">The link that stops every new-episode email, or null without a public URL or secret.</param>
+public sealed record SeriesEpisodesDigest(IReadOnlyList<SeriesEpisodesGroup> Series, string? UnsubscribeAllUrl = null);
 
 /// <summary>
 /// Provisional rendering of a <see cref="SeriesEpisodesDigest"/> (DEC-33): plain HTML and text built
@@ -56,7 +58,23 @@ public static class SeriesEpisodesRenderer
             }
 
             html.Append("</ul>");
+            if (group.UnsubscribeUrl is { } seriesUrl)
+            {
+                var stop = french ? "Ne plus suivre cette série" : "Stop following this series";
+                html.Append("<p><a href=\"").Append(WebUtility.HtmlEncode(seriesUrl)).Append("\">")
+                    .Append(WebUtility.HtmlEncode(stop)).Append("</a></p>");
+                text.Append(stop).Append(": ").Append(seriesUrl).Append('\n');
+            }
+
             text.Append('\n');
+        }
+
+        if (digest.UnsubscribeAllUrl is { } allUrl)
+        {
+            var stopAll = french ? "Ne plus recevoir les mails de nouveaux épisodes" : "Stop all new-episode emails";
+            html.Append("<hr><p><a href=\"").Append(WebUtility.HtmlEncode(allUrl)).Append("\">")
+                .Append(WebUtility.HtmlEncode(stopAll)).Append("</a></p>");
+            text.Append(stopAll).Append(": ").Append(allUrl).Append('\n');
         }
 
         return (subject, html.ToString(), text.ToString().TrimEnd() + "\n");

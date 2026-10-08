@@ -28,6 +28,7 @@ public class UnsubscribeController : ControllerBase
 
     private readonly ISecretStore _secrets;
     private readonly IPreferenceService _preferences;
+    private readonly IFollowedSeriesService _followedSeries;
     private readonly IUserManager _userManager;
     private readonly UnsubscribeRateLimiter _rateLimiter;
     private readonly TimeProvider _time;
@@ -37,6 +38,7 @@ public class UnsubscribeController : ControllerBase
     /// <summary>Initializes a new instance of the <see cref="UnsubscribeController"/> class.</summary>
     /// <param name="secrets">The transport secret store (for the unsubscribe secret).</param>
     /// <param name="preferences">The preference service.</param>
+    /// <param name="followedSeries">The followed-series service, for <c>series:</c> tokens.</param>
     /// <param name="userManager">Jellyfin user manager, to reject tokens of deleted accounts.</param>
     /// <param name="rateLimiter">The per-address request limiter.</param>
     /// <param name="time">The clock, for token expiry.</param>
@@ -45,6 +47,7 @@ public class UnsubscribeController : ControllerBase
     public UnsubscribeController(
         ISecretStore secrets,
         IPreferenceService preferences,
+        IFollowedSeriesService followedSeries,
         IUserManager userManager,
         UnsubscribeRateLimiter rateLimiter,
         TimeProvider time,
@@ -53,6 +56,7 @@ public class UnsubscribeController : ControllerBase
     {
         _secrets = secrets;
         _preferences = preferences;
+        _followedSeries = followedSeries;
         _userManager = userManager;
         _rateLimiter = rateLimiter;
         _time = time;
@@ -118,8 +122,30 @@ public class UnsubscribeController : ControllerBase
 
         return Guarded(() =>
         {
-            // "all" also covers manual announcements, which are opt-out: unsubscribing sets the opt-out.
-            _preferences.SetCategories(userId, CategoryMap(category, target), category == "all" ? !target : null);
+            if (UnsubscribeToken.TryParseSeriesCategory(category, out var seriesId))
+            {
+                // Resubscribing recreates the subscription only while the series is still visible to
+                // the user; otherwise the page offers the unsubscribe again and nothing is stored.
+                if (target && !_followedSeries.Follow(userId, seriesId, "email"))
+                {
+                    return Page(category, done: false, resubscribed: false);
+                }
+
+                if (!target)
+                {
+                    _followedSeries.Unfollow(userId, seriesId);
+                }
+            }
+            else
+            {
+                // "all" also covers the opt-out kinds (announcements, new episodes): unsubscribing sets them.
+                var optOut = category is "all" ? !target : (bool?)null;
+                _preferences.SetCategories(
+                    userId,
+                    CategoryMap(category, target),
+                    optOut,
+                    category is "episodes" ? !target : optOut);
+            }
 
             _easyNotifLog.Info("unsubscribe.action", new Dictionary<string, object?>
             {
@@ -159,7 +185,7 @@ public class UnsubscribeController : ControllerBase
         }
 
         // A deleted account's token must not recreate a preferences row after the purge.
-        return category is "news" or "recap" or "all"
+        return (category is "news" or "recap" or "episodes" or "all" || UnsubscribeToken.TryParseSeriesCategory(category, out _))
             && _userManager.GetUserById(userId) is not null;
     }
 
@@ -176,7 +202,8 @@ public class UnsubscribeController : ControllerBase
     {
         "news" => new() { [EmailCategory.News] = value },
         "recap" => new() { [EmailCategory.Recap] = value },
-        _ => new() { [EmailCategory.News] = value, [EmailCategory.Recap] = value },
+        "all" => new() { [EmailCategory.News] = value, [EmailCategory.Recap] = value },
+        _ => [],
     };
 
     private string PickLang()

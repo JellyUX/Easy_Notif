@@ -30,11 +30,12 @@ public static class UnsubscribeToken
     private const byte Version2 = 0x02;
     private const int V2HeaderBytes = 1 + sizeof(long);
     private const long MaxUnixSeconds = 253402300799; // 9999-12-31T23:59:59Z, the DateTimeOffset maximum
+    private const string SeriesPrefix = "series:";
 
     /// <summary>Builds a v2 token for a user and a category.</summary>
     /// <param name="secret">The plugin unsubscribe secret (from <see cref="Configuration.ISecretStore"/>).</param>
     /// <param name="userId">The Jellyfin user id.</param>
-    /// <param name="category">The category to unsubscribe from: <c>news</c>, <c>recap</c> or <c>all</c>.</param>
+    /// <param name="category">The category to unsubscribe from: <c>news</c>, <c>recap</c>, <c>episodes</c>, <c>all</c> or a <see cref="SeriesCategory"/>.</param>
     /// <param name="issuedAt">The issue time; null means now.</param>
     /// <returns>The token.</returns>
     public static string Create(string secret, Guid userId, string category, DateTimeOffset? issuedAt = null)
@@ -163,6 +164,44 @@ public static class UnsubscribeToken
             ["List-Unsubscribe"] = $"<{url}>",
             ["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
         };
+    }
+
+    /// <summary>
+    /// Builds the link to the unsubscribe page for a category, or null when the secret is not set or
+    /// the public server URL is missing or not a valid http/https URL.
+    /// </summary>
+    /// <param name="publicServerUrl">The public base URL of this server.</param>
+    /// <param name="secret">The plugin unsubscribe secret.</param>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="category">The token category.</param>
+    /// <param name="lang">The page language, <c>fr</c> or <c>en</c>.</param>
+    /// <returns>The link, or null.</returns>
+    public static string? BuildUrl(string? publicServerUrl, string? secret, Guid userId, string category, string lang)
+    {
+        if (string.IsNullOrWhiteSpace(secret) || !PublicUrl.IsValid(publicServerUrl))
+        {
+            return null;
+        }
+
+        return $"{publicServerUrl.TrimEnd('/')}/EasyNotif/u/{Create(secret, userId, category)}?lang={lang}";
+    }
+
+    /// <summary>Returns the token category that stops the new-episode emails of one series.</summary>
+    /// <param name="seriesId">The series id.</param>
+    /// <returns><c>series:{seriesId:N}</c>.</returns>
+    public static string SeriesCategory(Guid seriesId) => $"{SeriesPrefix}{seriesId:N}";
+
+    /// <summary>Reads the series id out of a <see cref="SeriesCategory"/> category.</summary>
+    /// <param name="category">The token category.</param>
+    /// <param name="seriesId">The series id, when the category is a series one.</param>
+    /// <returns>True for a well-formed series category.</returns>
+    public static bool TryParseSeriesCategory(string? category, out Guid seriesId)
+    {
+        seriesId = Guid.Empty;
+        return category is not null
+            && category.StartsWith(SeriesPrefix, StringComparison.Ordinal)
+            && Guid.TryParseExact(category[SeriesPrefix.Length..], "N", out seriesId)
+            && seriesId != Guid.Empty;
     }
 
     private static byte[] Sign(string secret, byte[] payload)

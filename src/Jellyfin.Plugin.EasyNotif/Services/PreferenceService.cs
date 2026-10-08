@@ -52,10 +52,10 @@ public sealed class PreferenceService : IPreferenceService
     }
 
     /// <inheritdoc/>
-    public void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null)
+    public void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null, bool? episodesOptOut = null)
     {
         ArgumentNullException.ThrowIfNull(categories);
-        if (categories.Count == 0 && announcementsOptOut is null)
+        if (categories.Count == 0 && announcementsOptOut is null && episodesOptOut is null)
         {
             return;
         }
@@ -76,6 +76,12 @@ public sealed class PreferenceService : IPreferenceService
             if (announcementsOptOut is { } optOut && row.AnnouncementsOptOut != optOut)
             {
                 row.AnnouncementsOptOut = optOut;
+                changed = true;
+            }
+
+            if (episodesOptOut is { } episodes && row.EpisodesOptOut != episodes)
+            {
+                row.EpisodesOptOut = episodes;
                 changed = true;
             }
 

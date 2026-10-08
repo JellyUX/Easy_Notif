@@ -47,13 +47,14 @@ public interface IPreferenceService
     void SetContactEmail(Guid userId, string? email);
 
     /// <summary>
-    /// Sets the opt-in state for one or more categories, and optionally the announcements opt-out,
+    /// Sets the opt-in state for one or more categories, and optionally the announcements and new-episodes opt-outs,
     /// in a single write. Categories not present in the dictionary are left unchanged.
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="categories">The categories to change and their new state.</param>
     /// <param name="announcementsOptOut">The new announcements opt-out, or null to leave it unchanged.</param>
-    void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null);
+    /// <param name="episodesOptOut">The new new-episodes opt-out, or null to leave it unchanged.</param>
+    void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null, bool? episodesOptOut = null);
 
     /// <summary>
     /// Returns every user who has opted in to a category and has a valid contact address.

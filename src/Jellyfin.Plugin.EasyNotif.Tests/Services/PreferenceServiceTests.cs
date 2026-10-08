@@ -181,6 +181,23 @@ public sealed class PreferenceServiceTests
     }
 
     [Fact]
+    public void SetCategories_WritesTheEpisodesOptOut_AndLeavesTheOthers()
+    {
+        Assert.False(_service.GetOrCreate(_alice).EpisodesOptOut);
+
+        _service.SetCategories(_alice, Cats(), episodesOptOut: true);
+        var pref = _service.GetOrCreate(_alice);
+        Assert.True(pref.EpisodesOptOut);
+        Assert.False(pref.AnnouncementsOptOut);
+
+        _service.SetCategories(_alice, Cats(news: true), announcementsOptOut: true);
+        Assert.True(_service.GetOrCreate(_alice).EpisodesOptOut);
+
+        _service.SetCategories(_alice, Cats(), episodesOptOut: false);
+        Assert.False(_service.GetOrCreate(_alice).EpisodesOptOut);
+    }
+
+    [Fact]
     public void GetContactable_ExcludesAnnouncementOptOuts_OnlyWhenAsked()
     {
         _service.SetContactEmail(_alice, "alice@example.org");

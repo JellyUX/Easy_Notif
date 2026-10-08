@@ -61,6 +61,60 @@ public sealed class SeriesNotifierTests : IDisposable
     }
 
     [Fact]
+    public async Task UserOptedOutOfNewEpisodes_GetsNothing_AndTheEpisodesLeaveTheQueue()
+    {
+        var user = _h.Follow(Series);
+        _h.OptedOut.Add(user);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        Assert.Empty(_h.Attempts);
+        Assert.False(_h.Store.HasPending);
+    }
+
+    [Fact]
+    public async Task Mail_CarriesAPerSeriesLink_AGlobalLink_AndAGlobalListUnsubscribe()
+    {
+        _h.Secrets.UnsubscribeSecret = "unsub-secret-0123456789";
+        _h.Config.Config.PublicServerUrl = "https://media.example.org";
+        var user = _h.Follow(Series);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        var mail = Assert.Single(_h.Sent);
+        var links = System.Text.RegularExpressions.Regex.Matches(mail.Html!, "/EasyNotif/u/([A-Za-z0-9_-]+)\\?lang=fr")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+        Assert.Equal(2, links.Count);
+        Assert.True(UnsubscribeToken.TryVerify("unsub-secret-0123456789", links[0], out var seriesUser, out var seriesCategory));
+        Assert.Equal(user, seriesUser);
+        Assert.Equal(UnsubscribeToken.SeriesCategory(Series), seriesCategory);
+        Assert.True(UnsubscribeToken.TryVerify("unsub-secret-0123456789", links[1], out _, out var globalCategory));
+        Assert.Equal("episodes", globalCategory);
+
+        var header = mail.Headers!["List-Unsubscribe"].Trim('<', '>');
+        Assert.True(UnsubscribeToken.TryVerify("unsub-secret-0123456789", header[(header.LastIndexOf('/') + 1)..], out _, out var headerCategory));
+        Assert.Equal("episodes", headerCategory);
+        Assert.Contains("Ne plus suivre cette série", mail.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutPublicUrl_TheMailHasNoUnsubscribeLinkOrHeader()
+    {
+        _h.Secrets.UnsubscribeSecret = "unsub-secret-0123456789";
+        _h.Follow(Series);
+        _h.Add(Series, 1, 1);
+
+        await _h.RunTicksAsync(TimeSpan.FromMinutes(30));
+
+        var mail = Assert.Single(_h.Sent);
+        Assert.DoesNotContain("/EasyNotif/u/", mail.Html, StringComparison.Ordinal);
+        Assert.Null(mail.Headers);
+    }
+
+    [Fact]
     public async Task HiddenEpisode_IsNeverSent_OthersAre()
     {
         _h.Follow(Series);

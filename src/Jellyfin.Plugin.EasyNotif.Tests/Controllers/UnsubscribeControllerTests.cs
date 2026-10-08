@@ -31,7 +31,7 @@ public sealed class UnsubscribeControllerTests
     private static readonly DateTimeOffset Now = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
 
     private static (UnsubscribeController Controller, Mock<IPreferenceService> Prefs, FakeEasyNotifLog Log) Build(
-        bool newsOptIn = true, bool recapOptIn = true, DateTimeOffset? now = null, UnsubscribeRateLimiter? limiter = null)
+        bool newsOptIn = true, bool recapOptIn = true, DateTimeOffset? now = null, UnsubscribeRateLimiter? limiter = null, Mock<IFollowedSeriesService>? followed = null)
     {
         var prefs = new Mock<IPreferenceService>();
         prefs.Setup(p => p.GetOrCreate(User)).Returns(new UserPreference
@@ -45,6 +45,7 @@ public sealed class UnsubscribeControllerTests
         var controller = new UnsubscribeController(
             new FakeSecretStore(unsubscribeSecret: Secret),
             prefs.Object,
+            (followed ?? new Mock<IFollowedSeriesService>()).Object,
             users.Object,
             limiter ?? new UnsubscribeRateLimiter(),
             new FixedTime(now ?? Now),
@@ -81,7 +82,7 @@ public sealed class UnsubscribeControllerTests
 
         Assert.Equal("text/html; charset=utf-8", result.ContentType);
         Assert.Contains("<form method=\"post\">", result.Content!, StringComparison.Ordinal);
-        prefs.Verify(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()), Times.Never);
+        prefs.Verify(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>(), It.IsAny<bool?>()), Times.Never);
     }
 
     [Fact]
@@ -101,7 +102,7 @@ public sealed class UnsubscribeControllerTests
 
         Assert.IsType<ContentResult>(result);
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m.Count == 1 && m[EmailCategory.News] == false), null), Times.Once);
+            m => m.Count == 1 && m[EmailCategory.News] == false), null, null), Times.Once);
         var entry = Assert.Single(log.Entries, e => e.EventType == "unsubscribe.action");
         Assert.Equal("Info", entry.Level);
         Assert.Equal(false, entry.Fields!["resubscribe"]);
@@ -116,7 +117,7 @@ public sealed class UnsubscribeControllerTests
         controller.Post(Token("news"));
 
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m[EmailCategory.News]), null), Times.Once);
+            m => m[EmailCategory.News]), null, null), Times.Once);
     }
 
     [Fact]
@@ -132,7 +133,7 @@ public sealed class UnsubscribeControllerTests
     public void Post_StorageFailure_Returns503_NotAnUnhandledError()
     {
         var (controller, prefs, _) = Build();
-        prefs.Setup(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()))
+        prefs.Setup(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>(), It.IsAny<bool?>()))
             .Throws(new UnauthorizedAccessException("preferences.json is locked"));
 
         var result = controller.Post(Token("news"));
@@ -148,7 +149,7 @@ public sealed class UnsubscribeControllerTests
         controller.Post(Token("all"));
 
         prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(
-            m => m.Count == 2 && !m[EmailCategory.News] && !m[EmailCategory.Recap]), true), Times.Once);
+            m => m.Count == 2 && !m[EmailCategory.News] && !m[EmailCategory.Recap]), true, true), Times.Once);
     }
 
     [Fact]
@@ -159,7 +160,7 @@ public sealed class UnsubscribeControllerTests
 
         controller.Post(Token("all"));
 
-        prefs.Verify(p => p.SetCategories(User, It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), false), Times.Once);
+        prefs.Verify(p => p.SetCategories(User, It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), false, false), Times.Once);
     }
 
     [Fact]
@@ -248,6 +249,67 @@ public sealed class UnsubscribeControllerTests
 
         Assert.Contains("lang=\"fr\"", result.Content!, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Post_Episodes_SetsOnlyTheNewEpisodesOptOut()
+    {
+        var (controller, prefs, _) = Build();
+
+        controller.Post(Token("episodes"));
+
+        prefs.Verify(p => p.SetCategories(User, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(m => m.Count == 0), null, true), Times.Once);
+    }
+
+    [Fact]
+    public void Post_SeriesToken_UnfollowsOnlyThatSeries_AndTouchesNoPreference()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        var (controller, prefs, _) = Build(followed: followed);
+        var series = Guid.NewGuid();
+
+        var page = Assert.IsType<ContentResult>(controller.Post(Token(UnsubscribeToken.SeriesCategory(series))));
+
+        followed.Verify(f => f.Unfollow(User, series), Times.Once);
+        followed.VerifyNoOtherCalls();
+        prefs.Verify(p => p.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>(), It.IsAny<bool?>()), Times.Never);
+        Assert.Contains("this series", page.Content!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Post_SeriesToken_Resubscribe_FollowsAgainWhileTheSeriesIsVisible()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.Follow(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>())).Returns(true);
+        var (controller, _, _) = Build(followed: followed);
+        SetForm(controller, new() { ["resubscribe"] = "true" });
+        var series = Guid.NewGuid();
+
+        var page = Assert.IsType<ContentResult>(controller.Post(Token(UnsubscribeToken.SeriesCategory(series))));
+
+        followed.Verify(f => f.Follow(User, series, "email"), Times.Once);
+        Assert.Contains("again", page.Content!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Post_SeriesToken_Resubscribe_ToAnInvisibleSeries_StoresNothing_AndConfirmsNothing()
+    {
+        var followed = new Mock<IFollowedSeriesService>();
+        var (controller, _, _) = Build(followed: followed);
+        SetForm(controller, new() { ["resubscribe"] = "true" });
+
+        var page = Assert.IsType<ContentResult>(controller.Post(Token(UnsubscribeToken.SeriesCategory(Guid.NewGuid()))));
+
+        followed.Verify(f => f.Unfollow(It.IsAny<Guid>(), It.IsAny<Guid>()), Times.Never);
+        Assert.DoesNotContain("again", page.Content!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Done.", page.Content!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("series:")]
+    [InlineData("series:not-a-guid")]
+    [InlineData("series:00000000000000000000000000000000")]
+    public void MalformedSeriesToken_Returns404(string category)
+        => Assert.IsType<NotFoundResult>(Build().Controller.Get(UnsubscribeToken.Create(Secret, User, category)));
 
     [Theory]
     [InlineData(nameof(UnsubscribeController.Get))]

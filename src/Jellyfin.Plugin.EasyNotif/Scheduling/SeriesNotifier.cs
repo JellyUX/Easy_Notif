@@ -57,6 +57,9 @@ public sealed class SeriesNotifier : ISeriesNotifier
     /// <summary>The key prefix of the series entries in the retry queue.</summary>
     public const string RetryPrefix = "series:";
 
+    /// <summary>The unsubscribe token category that stops every new-episode email (DEC-40).</summary>
+    public const string EpisodesCategory = "episodes";
+
     /// <summary>The quiet period after the last episode of a user's batch (decision D1).</summary>
     public static readonly TimeSpan QuietPeriod = TimeSpan.FromMinutes(30);
 
@@ -341,6 +344,13 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 return;
             }
 
+            if (_preferences.GetOrCreate(userId).EpisodesOptOut)
+            {
+                // Opted out of every new-episode email: the episodes are skipped for the user, not held.
+                _store.MarkNotified(userId, entries.Select(p => p.ItemId));
+                continue;
+            }
+
             if (_store.SentSince(userId, startOfDay) >= MaxPerUserPerDay)
             {
                 // Over the daily cap: the episodes stay pending and join the user's next email.
@@ -366,7 +376,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 continue;
             }
 
-            await SendToUserAsync(recipients[0], batch, items, keys, french, cfg, now, stats, cancellationToken).ConfigureAwait(false);
+            await SendToUserAsync(recipients[0], batch, items, keys, french, cfg, secrets.UnsubscribeSecret, now, stats, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -377,12 +387,15 @@ public sealed class SeriesNotifier : ISeriesNotifier
         Dictionary<Guid, string> keys,
         bool french,
         PluginConfiguration cfg,
+        string? unsubscribeSecret,
         DateTime now,
         FlushStats stats,
         CancellationToken cancellationToken)
     {
         var batchKeys = batch.Select(p => keys[p.ItemId]).OrderBy(k => k, StringComparer.Ordinal).ToList();
-        var (subject, html, text) = SeriesEpisodesRenderer.Render(BuildDigest(batch, items), french);
+        var lang = french ? "fr" : "en";
+        string? Link(string category) => UnsubscribeToken.BuildUrl(cfg.PublicServerUrl, unsubscribeSecret, recipient.UserId, category, lang);
+        var (subject, html, text) = SeriesEpisodesRenderer.Render(BuildDigest(batch, items, Link), french);
         var result = await _sender.SendAsync(
             new EmailMessage
             {
@@ -392,6 +405,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 Text = text,
                 ReplyTo = cfg.ReplyTo,
                 Tags = [new EmailTag("context", "series"), new EmailTag("category", "Series")],
+                Headers = UnsubscribeToken.BuildListUnsubscribeHeaders(cfg.PublicServerUrl, unsubscribeSecret, recipient.UserId, EpisodesCategory),
                 IdempotencyKey = $"{RetryPrefix}{recipient.UserId:N}:{Hash(batchKeys)}"
             },
             cancellationToken).ConfigureAwait(false);
@@ -520,7 +534,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
         return excluded;
     }
 
-    private SeriesEpisodesDigest BuildDigest(List<PendingEpisode> batch, Dictionary<Guid, Episode> items)
+    private SeriesEpisodesDigest BuildDigest(List<PendingEpisode> batch, Dictionary<Guid, Episode> items, Func<string, string?> link)
     {
         var groups = batch
             .GroupBy(p => p.SeriesId, p => items[p.ItemId])
@@ -530,10 +544,11 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 [.. g.OrderBy(e => e.ParentIndexNumber ?? int.MaxValue)
                     .ThenBy(e => e.IndexNumber ?? int.MaxValue)
                     .ThenBy(e => e.PremiereDate)
-                    .Select(e => new SeriesEpisodeLine(e.ParentIndexNumber, e.IndexNumber, e.IndexNumberEnd, e.IndexNumber is null ? e.PremiereDate : null))]))
+                    .Select(e => new SeriesEpisodeLine(e.ParentIndexNumber, e.IndexNumber, e.IndexNumberEnd, e.IndexNumber is null ? e.PremiereDate : null))],
+                link(UnsubscribeToken.SeriesCategory(g.Key))))
             .OrderBy(g => g.SeriesName, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
-        return new SeriesEpisodesDigest(groups);
+        return new SeriesEpisodesDigest(groups, link(EpisodesCategory));
     }
 
     private string SeriesName(Guid seriesId, Episode sample)

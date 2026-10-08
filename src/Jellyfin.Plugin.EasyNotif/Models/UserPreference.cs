@@ -29,6 +29,13 @@ public sealed class UserPreference
     /// </summary>
     public bool AnnouncementsOptOut { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the user opted out of every new-episode email of the
+    /// series they follow (the global "new episodes" category). Opt-out like announcements, and kept
+    /// outside <see cref="Categories"/> for the same 1.0.2 compatibility reason.
+    /// </summary>
+    public bool EpisodesOptOut { get; set; }
+
     /// <summary>Gets or sets the UTC time this record was last changed.</summary>
     public DateTime UpdatedAt { get; set; }
 
@@ -40,6 +47,7 @@ public sealed class UserPreference
         ContactEmail = ContactEmail,
         Categories = new Dictionary<EmailCategory, bool>(Categories),
         AnnouncementsOptOut = AnnouncementsOptOut,
+        EpisodesOptOut = EpisodesOptOut,
         UpdatedAt = UpdatedAt
     };
 }

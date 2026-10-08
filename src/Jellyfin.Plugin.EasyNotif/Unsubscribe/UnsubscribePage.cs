@@ -11,7 +11,7 @@ public static class UnsubscribePage
 {
     /// <summary>Builds the page.</summary>
     /// <param name="lang">The language, <c>fr</c> or <c>en</c>.</param>
-    /// <param name="category">The category the token targets: <c>news</c>, <c>recap</c> or <c>all</c>.</param>
+    /// <param name="category">The category the token targets: <c>news</c>, <c>recap</c>, <c>episodes</c>, <c>all</c> or <c>series:{id}</c> (the series name is never shown).</param>
     /// <param name="done">True after a POST, to confirm the action just applied.</param>
     /// <param name="resubscribed">After a POST, true when the action was a resubscribe.</param>
     /// <returns>A complete HTML document.</returns>
@@ -92,6 +92,8 @@ public static class UnsubscribePage
     {
         "news" => fr ? "Nouveautés de la médiathèque" : "New media",
         "recap" => fr ? "Résumé de la semaine" : "Weekly recap",
+        "episodes" => fr ? "Nouveaux épisodes des séries suivies" : "New episodes of followed series",
+        _ when Email.UnsubscribeToken.TryParseSeriesCategory(category, out _) => fr ? "Nouveaux épisodes de cette série" : "New episodes of this series",
         _ => fr ? "tous les emails Easy Notif" : "all Easy Notif emails",
     };
 }

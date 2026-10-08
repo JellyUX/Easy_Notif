@@ -253,18 +253,45 @@ public sealed class EasyNotifControllerTests
 
         await controller.PutMyPreferences(new CategoryUpdate { Announcements = false });
 
-        service.Verify(s => s.SetCategories(userId, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(m => m.Count == 0), true), Times.Once);
+        service.Verify(s => s.SetCategories(userId, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(m => m.Count == 0), true, null), Times.Once);
     }
 
     [Fact]
-    public void PutUserPreferences_IgnoresAnnouncements_AnAdminCannotOverrideAnOptOut()
+    public async Task PutMyPreferences_Episodes_WritesTheOptOut()
+    {
+        var userId = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service, auth: AuthReturning(userId));
+
+        await controller.PutMyPreferences(new CategoryUpdate { Episodes = false });
+
+        service.Verify(s => s.SetCategories(userId, It.Is<IReadOnlyDictionary<EmailCategory, bool>>(m => m.Count == 0), null, true), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task GetMyPreferences_ReportsEpisodesAsTheInverseOfTheOptOut(bool optOut, bool expected)
+    {
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetOrCreate(It.IsAny<Guid>())).Returns(new UserPreference { EpisodesOptOut = optOut });
+        var controller = BuildController(service, auth: AuthReturning(Guid.NewGuid()));
+
+        var ok = Assert.IsType<OkObjectResult>(await controller.GetMyPreferences());
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        Assert.Equal(expected, json.RootElement.GetProperty("episodes").GetBoolean());
+    }
+
+    [Fact]
+    public void PutUserPreferences_IgnoresAnnouncementsAndEpisodes_AnAdminCannotOverrideAnOptOut()
     {
         var service = new Mock<IPreferenceService>();
         var controller = BuildController(service);
 
-        controller.PutUserPreferences(Guid.NewGuid(), new AdminPreferenceUpdate { Announcements = true });
+        controller.PutUserPreferences(Guid.NewGuid(), new AdminPreferenceUpdate { Announcements = true, Episodes = true });
 
-        service.Verify(s => s.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>()), Times.Never);
+        service.Verify(s => s.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>(), It.IsAny<bool?>()), Times.Never);
     }
 
     // -------------------------------------------------------------------------

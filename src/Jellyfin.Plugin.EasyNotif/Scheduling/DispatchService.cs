@@ -698,6 +698,7 @@ public sealed class DispatchService : IDispatchService
                 Context = campaign.Id,
                 Category = campaign.Category.ToString(),
                 ToMasked = EmailMasker.Mask(recipient.Email),
+                UserId = recipient.UserId,
                 Subject = content.Subject,
                 ResendId = result.ResendId,
                 Status = outcome switch

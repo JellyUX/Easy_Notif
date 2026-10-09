@@ -36,6 +36,13 @@ public sealed class UserPreference
     /// </summary>
     public bool EpisodesOptOut { get; set; }
 
+    /// <summary>
+    /// Gets or sets the UTC time Resend reported <see cref="ContactEmail"/> as permanently
+    /// undeliverable (hard bounce or suppression, DEC-49), or null while it is valid. A marked
+    /// address receives nothing until the user saves an address again (DEC-50).
+    /// </summary>
+    public DateTime? ContactEmailRejectedUtc { get; set; }
+
     /// <summary>Gets or sets the UTC time this record was last changed.</summary>
     public DateTime UpdatedAt { get; set; }
 
@@ -48,6 +55,7 @@ public sealed class UserPreference
         Categories = new Dictionary<EmailCategory, bool>(Categories),
         AnnouncementsOptOut = AnnouncementsOptOut,
         EpisodesOptOut = EpisodesOptOut,
+        ContactEmailRejectedUtc = ContactEmailRejectedUtc,
         UpdatedAt = UpdatedAt
     };
 }

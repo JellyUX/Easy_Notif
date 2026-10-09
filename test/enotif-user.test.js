@@ -119,6 +119,19 @@ describe('_buildPanel', () => {
         expect(withoutEmail.querySelector('.enotif-test').disabled).toBe(true);
     });
 
+    it('shows the rejected-address notice only when the address was rejected, in FR and EN', () => {
+        const rejectedFr = _buildPanel('fr', { email: 'alice@example.org', emailRejected: true });
+        const rejectedEn = _buildPanel('en', { email: 'alice@example.org', emailRejected: true });
+        const valid = _buildPanel('en', { email: 'alice@example.org', emailRejected: false });
+
+        const notice = rejectedFr.querySelector('.enotif-email-rejected');
+        expect(notice.hidden).toBe(false);
+        expect(notice.getAttribute('role')).toBe('alert');
+        expect(notice.textContent).toContain('a été rejetée');
+        expect(rejectedEn.querySelector('.enotif-email-rejected').textContent).toContain('was rejected');
+        expect(valid.querySelector('.enotif-email-rejected').hidden).toBe(true);
+    });
+
     it('treats a hostile stored address as data, never markup', () => {
         const panel = _buildPanel('en', { email: '<img src=x onerror=alert(1)>' });
 
@@ -213,6 +226,13 @@ describe('_bellView', () => {
         expect(noEmail.title).toContain('set a contact address');
         expect(optedOut.warn).toBe(true);
         expect(optedOut.title).toContain('« Nouveaux épisodes » est décoché');
+    });
+
+    it('warns a follower whose address was rejected', () => {
+        const rejected = _bellView('fr', true, { email: 'alice@example.org', episodes: true, emailRejected: true });
+
+        expect(rejected.warn).toBe(true);
+        expect(rejected.title).toContain('votre adresse de contact a été rejetée');
     });
 
     it('does not warn before following, nor without preference data', () => {

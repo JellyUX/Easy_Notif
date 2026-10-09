@@ -33,6 +33,7 @@
             'panel.title': 'Email notifications',
             'panel.email.label': 'Contact email',
             'panel.email.help': 'The address your notifications are sent to. Leave blank to receive none.',
+            'panel.email.rejected': 'This address was rejected by your mail server, so no email is sent to it. Please correct it, or save it again once it works.',
             'panel.cat.news': 'New media',
             'panel.cat.recap': 'Weekly recap',
             'panel.cat.announcements': 'Announcements',
@@ -51,12 +52,14 @@
             'bell.follow': 'Follow new episodes',
             'bell.unfollow': 'Following new episodes. Click to stop.',
             'bell.noEmail': 'No email will be sent: set a contact address in Settings, Email notifications.',
-            'bell.optedOut': 'No email will be sent: New episodes is unticked in Settings, Email notifications.'
+            'bell.optedOut': 'No email will be sent: New episodes is unticked in Settings, Email notifications.',
+            'bell.rejected': 'No email will be sent: your contact address was rejected, correct it in Settings, Email notifications.'
         },
         fr: {
             'panel.title': 'Notifications par email',
             'panel.email.label': 'Email de contact',
             'panel.email.help': "L'adresse à laquelle vos notifications sont envoyées. Laissez vide pour n'en recevoir aucune.",
+            'panel.email.rejected': "Cette adresse a été rejetée par votre serveur de messagerie : aucun email ne lui est envoyé. Merci de la corriger, ou de l'enregistrer à nouveau une fois réparée.",
             'panel.cat.news': 'Nouveautés',
             'panel.cat.recap': 'Résumé de la semaine',
             'panel.cat.announcements': 'Annonces',
@@ -75,7 +78,8 @@
             'bell.follow': 'Suivre les nouveaux épisodes',
             'bell.unfollow': 'Nouveaux épisodes suivis. Cliquez pour arrêter.',
             'bell.noEmail': 'Aucun mail ne sera envoyé : renseignez une adresse de contact dans Paramètres, Notifications par email.',
-            'bell.optedOut': 'Aucun mail ne sera envoyé : « Nouveaux épisodes » est décoché dans Paramètres, Notifications par email.'
+            'bell.optedOut': 'Aucun mail ne sera envoyé : « Nouveaux épisodes » est décoché dans Paramètres, Notifications par email.',
+            'bell.rejected': 'Aucun mail ne sera envoyé : votre adresse de contact a été rejetée, corrigez-la dans Paramètres, Notifications par email.'
         }
     };
 
@@ -111,6 +115,8 @@
         if (following && data) {
             if (!data.email) {
                 warn = 'bell.noEmail';
+            } else if (data.emailRejected) {
+                warn = 'bell.rejected';
             } else if (data.episodes === false) {
                 warn = 'bell.optedOut';
             }
@@ -212,6 +218,14 @@
         emailHelp.className = 'fieldDescription';
         emailHelp.textContent = _t(locale, 'panel.email.help');
         emailContainer.appendChild(emailHelp);
+
+        // Hard bounce or suppression reported by Resend (PRIV-05); hidden again once saved.
+        var rejected = document.createElement('div');
+        rejected.className = 'enotif-email-rejected';
+        rejected.setAttribute('role', 'alert');
+        rejected.textContent = _t(locale, 'panel.email.rejected');
+        rejected.hidden = !(data && data.emailRejected);
+        emailContainer.appendChild(rejected);
 
         var status = document.createElement('div');
         status.className = 'enotif-status';
@@ -412,6 +426,7 @@
                 announcements: results[0].announcements !== false,
                 // New episodes are opt-out too (DEC-40).
                 episodes: results[0].episodes !== false,
+                emailRejected: results[0].emailRejected === true,
                 email: results[1].email || null
             };
             state.loadPromise = null;
@@ -466,7 +481,10 @@
             _putJson('me/contact-email', { Email: value }).then(function () {
                 if (state.data) {
                     state.data.email = value || null;
+                    // Any save lifts the rejected mark server-side (DEC-50).
+                    state.data.emailRejected = false;
                 }
+                panel.querySelector('.enotif-email-rejected').hidden = true;
                 _refreshTestButton();
                 _setStatus(status, _t(locale, 'status.saved'), false);
             }).catch(function (err) {

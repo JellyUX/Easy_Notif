@@ -3,6 +3,7 @@ using System.Text;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
+using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Jellyfin.Plugin.EasyNotif.Webhooks;
 using Microsoft.AspNetCore.Http;
@@ -29,10 +30,16 @@ public sealed class ResendWebhookControllerTests
         return "v1," + Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{timestamp}.{body}")));
     }
 
-    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null, WebhookReplayGuard? replayGuard = null)
+    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null, WebhookReplayGuard? replayGuard = null, Mock<IPreferenceService>? preferences = null)
     {
         var secrets = new FakeSecretStore(webhookSigningSecret: secret);
-        return new ResendWebhookController(secrets, sendLog.Object, replayGuard ?? new WebhookReplayGuard(TimeProvider.System), NullLogger<ResendWebhookController>.Instance, easyNotifLog ?? new FakeEasyNotifLog())
+        return new ResendWebhookController(
+            secrets,
+            sendLog.Object,
+            replayGuard ?? new WebhookReplayGuard(TimeProvider.System),
+            (preferences ?? new Mock<IPreferenceService>()).Object,
+            NullLogger<ResendWebhookController>.Instance,
+            easyNotifLog ?? new FakeEasyNotifLog())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -214,6 +221,96 @@ public sealed class ResendWebhookControllerTests
         Assert.IsType<OkResult>(await genuine.Resend());
 
         sendLog.Verify(l => l.UpdateStatus("re_abc", "email.delivered"), Times.Once);
+    }
+
+    // -------------------------------------------------------------------------
+    // PRIV-05: complaints and hard bounces act on the recipient
+    // -------------------------------------------------------------------------
+
+    private static readonly Guid Alice = Guid.Parse("8f2c1a6e-41b0-4d0b-9a57-0c3f1e2d4b6a");
+
+    private static async Task<IActionResult> Deliver(Mock<ISendLog> sendLog, Mock<IPreferenceService> preferences, string body, string svixId = "msg_1", WebhookReplayGuard? guard = null)
+    {
+        var controller = Build(sendLog, replayGuard: guard, preferences: preferences);
+        var ts = NowTimestamp();
+        SetRequest(controller, body, svixId, ts, Sign(svixId, ts, body));
+        return await controller.Resend();
+    }
+
+    private static Mock<ISendLog> LogWithAlice()
+    {
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.UserIdsFor("re_abc")).Returns([Alice]);
+        return sendLog;
+    }
+
+    [Fact]
+    public async Task Resend_ASignedComplaint_TurnsEveryEmailOffForTheRecipient()
+    {
+        var preferences = new Mock<IPreferenceService>();
+
+        var result = await Deliver(LogWithAlice(), preferences, "{\"type\":\"email.complained\",\"data\":{\"email_id\":\"re_abc\"}}");
+
+        Assert.IsType<OkResult>(result);
+        preferences.Verify(p => p.ApplyComplaint(Alice), Times.Once);
+        preferences.Verify(p => p.MarkEmailRejected(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"re_abc\",\"bounce\":{\"type\":\"Permanent\",\"subType\":\"General\"}}}", 1)]
+    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"re_abc\",\"bounce\":{\"type\":\"Permanent\",\"subType\":\"Suppressed\"}}}", 1)]
+    [InlineData("{\"type\":\"email.suppressed\",\"data\":{\"email_id\":\"re_abc\"}}", 1)]
+    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"re_abc\",\"bounce\":{\"type\":\"Temporary\"}}}", 0)]
+    [InlineData("{\"type\":\"email.bounced\",\"data\":{\"email_id\":\"re_abc\"}}", 0)]
+    [InlineData("{\"type\":\"email.delivery_delayed\",\"data\":{\"email_id\":\"re_abc\"}}", 0)]
+    public async Task Resend_OnlyAPermanentBounceOrASuppression_MarksTheAddressRejected(string body, int expectedMarks)
+    {
+        var preferences = new Mock<IPreferenceService>();
+
+        await Deliver(LogWithAlice(), preferences, body);
+
+        preferences.Verify(p => p.MarkEmailRejected(Alice), Times.Exactly(expectedMarks));
+        preferences.Verify(p => p.ApplyComplaint(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Resend_AComplaint_IsAppliedEvenWhenTheStatusWriteFails()
+    {
+        var sendLog = LogWithAlice();
+        sendLog.Setup(l => l.UpdateStatus(It.IsAny<string>(), It.IsAny<string>())).Throws(new IOException("disk full"));
+        var preferences = new Mock<IPreferenceService>();
+
+        var result = await Deliver(sendLog, preferences, "{\"type\":\"email.complained\",\"data\":{\"email_id\":\"re_abc\"}}");
+
+        Assert.IsType<OkResult>(result);
+        preferences.Verify(p => p.ApplyComplaint(Alice), Times.Once);
+    }
+
+    [Fact]
+    public async Task Resend_AComplaintForAnUnknownSend_ChangesNoPreference()
+    {
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.UserIdsFor(It.IsAny<string>())).Returns([]);
+        var preferences = new Mock<IPreferenceService>();
+
+        var result = await Deliver(sendLog, preferences, "{\"type\":\"email.complained\",\"data\":{\"email_id\":\"re_unknown\"}}");
+
+        Assert.IsType<OkResult>(result);
+        preferences.Verify(p => p.ApplyComplaint(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Resend_AReplayedComplaint_IsAppliedOnce()
+    {
+        var sendLog = LogWithAlice();
+        var preferences = new Mock<IPreferenceService>();
+        var guard = new WebhookReplayGuard(TimeProvider.System);
+        const string Body = "{\"type\":\"email.complained\",\"data\":{\"email_id\":\"re_abc\"}}";
+
+        await Deliver(sendLog, preferences, Body, guard: guard);
+        await Deliver(sendLog, preferences, Body, guard: guard);
+
+        preferences.Verify(p => p.ApplyComplaint(Alice), Times.Once);
     }
 
     [Fact]

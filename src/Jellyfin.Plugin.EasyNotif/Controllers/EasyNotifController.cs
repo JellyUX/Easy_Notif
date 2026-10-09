@@ -140,7 +140,8 @@ public class EasyNotifController : ControllerBase
                 news = pref.Categories.GetValueOrDefault(EmailCategory.News),
                 recap = pref.Categories.GetValueOrDefault(EmailCategory.Recap),
                 announcements = !pref.AnnouncementsOptOut,
-                episodes = !pref.EpisodesOptOut
+                episodes = !pref.EpisodesOptOut,
+                emailRejected = pref.ContactEmailRejectedUtc is not null
             });
         });
     }
@@ -270,6 +271,7 @@ public class EasyNotifController : ControllerBase
                 Ts = DateTime.UtcNow,
                 Context = "test",
                 ToMasked = EmailMasker.Mask(address),
+                UserId = userId,
                 Subject = subject,
                 ResendId = result.ResendId,
                 Status = result.Success ? "sent" : "failed"

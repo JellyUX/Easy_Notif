@@ -40,11 +40,28 @@ public interface IPreferenceService
 
     /// <summary>
     /// Sets or clears a user's contact address. A null or blank value clears it. A non-blank value
-    /// that is not a valid address throws <see cref="ArgumentException"/>.
+    /// that is not a valid address throws <see cref="ArgumentException"/>. Any save lifts a
+    /// rejected-address mark, even with the same address (DEC-50).
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="email">The address, or null/blank to clear it.</param>
     void SetContactEmail(Guid userId, string? email);
+
+    /// <summary>
+    /// Applies a spam complaint (DEC-51): every category off, announcements and new episodes opted
+    /// out. Followed series are kept, so the user can turn everything back on.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns>True when the user has a preferences row and something changed.</returns>
+    bool ApplyComplaint(Guid userId);
+
+    /// <summary>
+    /// Marks the user's contact address as rejected (hard bounce or suppression, DEC-49). The
+    /// address stays stored but receives nothing until the user saves an address again.
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns>True when the user has a contact address that was not already marked.</returns>
+    bool MarkEmailRejected(Guid userId);
 
     /// <summary>
     /// Sets the opt-in state for one or more categories, and optionally the announcements and new-episodes opt-outs,

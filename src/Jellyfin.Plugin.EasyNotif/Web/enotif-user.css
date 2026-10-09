@@ -24,6 +24,18 @@
     color: var(--jf-palette-error-main, #c62828);
 }
 
+.enotif-email-rejected {
+    margin-top: 0.5em;
+    padding: 0.5em 0.75em;
+    border-left: 3px solid var(--jf-palette-error-main, #c62828);
+    font-size: 0.9em;
+    color: var(--jf-palette-error-main, #c62828);
+}
+
+.enotif-email-rejected[hidden] {
+    display: none;
+}
+
 .enotif-test {
     margin-top: 0.8em;
 }

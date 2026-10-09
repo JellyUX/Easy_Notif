@@ -13,7 +13,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Services;
 /// <summary>
 /// Covers <see cref="PreferenceService"/>: the opt-out default, contact-address validation,
 /// category writes, recipient resolution (opted in AND valid address), and the admin table
-/// (left join over every Jellyfin user, addresses masked).
+/// (left join over every Jellyfin user, addresses masked), and PRIV-05: a complaint turns every
+/// email off, a rejected address receives nothing until saved again.
 /// </summary>
 public sealed class PreferenceServiceTests
 {
@@ -206,6 +207,81 @@ public sealed class PreferenceServiceTests
 
         Assert.Equal([_alice], _service.GetContactable(null, excludeAnnouncementOptOuts: true).Select(r => r.UserId));
         Assert.Equal(2, _service.GetContactable([_alice, _bob]).Count);
+    }
+
+    // -------------------------------------------------------------------------
+    // Complaints and rejected addresses (PRIV-05)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void ApplyComplaint_TurnsEveryEmailOff_AndRemovesTheUserFromEveryRecipientList()
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetCategories(_alice, Cats(news: true, recap: true), announcementsOptOut: false, episodesOptOut: false);
+
+        Assert.True(_service.ApplyComplaint(_alice));
+
+        var pref = _service.GetOrCreate(_alice);
+        Assert.False(pref.Categories[EmailCategory.News]);
+        Assert.False(pref.Categories[EmailCategory.Recap]);
+        Assert.True(pref.AnnouncementsOptOut);
+        Assert.True(pref.EpisodesOptOut);
+        Assert.Equal("alice@example.org", pref.ContactEmail);
+        Assert.Empty(_service.GetRecipients(EmailCategory.News));
+        Assert.Empty(_service.GetRecipients(EmailCategory.Recap));
+        Assert.Empty(_service.GetContactable(null, excludeAnnouncementOptOuts: true));
+        Assert.False(_service.ApplyComplaint(_alice)); // idempotent: a replay changes nothing
+    }
+
+    [Fact]
+    public void ApplyComplaint_UnknownUser_ChangesNothing()
+    {
+        Assert.False(_service.ApplyComplaint(_alice));
+        Assert.Empty(_store.Rows);
+    }
+
+    [Fact]
+    public void MarkEmailRejected_ExcludesTheUserFromEverySend_ButKeepsTheAddressAndChoices()
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetContactEmail(_bob, "bob@example.org");
+        _service.SetCategories(_alice, Cats(news: true));
+        _service.SetCategories(_bob, Cats(news: true));
+
+        Assert.True(_service.MarkEmailRejected(_alice));
+        Assert.False(_service.MarkEmailRejected(_alice));
+
+        var pref = _service.GetOrCreate(_alice);
+        Assert.NotNull(pref.ContactEmailRejectedUtc);
+        Assert.Equal("alice@example.org", pref.ContactEmail);
+        Assert.True(pref.Categories[EmailCategory.News]);
+        Assert.Equal([_bob], _service.GetRecipients(EmailCategory.News).Select(r => r.UserId));
+        Assert.Equal([_bob], _service.GetContactable().Select(r => r.UserId));
+        Assert.Equal([_bob], _service.GetContactable([_alice, _bob]).Select(r => r.UserId));
+    }
+
+    [Fact]
+    public void MarkEmailRejected_WithoutAnAddress_ChangesNothing()
+    {
+        _service.SetCategories(_alice, Cats(news: true));
+
+        Assert.False(_service.MarkEmailRejected(_alice));
+        Assert.Null(_service.GetOrCreate(_alice).ContactEmailRejectedUtc);
+    }
+
+    [Theory]
+    [InlineData("alice@example.org")]
+    [InlineData("alice.new@example.org")]
+    public void SetContactEmail_AnySave_LiftsTheRejectedMark(string saved)
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetCategories(_alice, Cats(news: true));
+        _service.MarkEmailRejected(_alice);
+
+        _service.SetContactEmail(_alice, saved);
+
+        Assert.Null(_service.GetOrCreate(_alice).ContactEmailRejectedUtc);
+        Assert.Equal([_alice], _service.GetRecipients(EmailCategory.News).Select(r => r.UserId));
     }
 
     [Fact]

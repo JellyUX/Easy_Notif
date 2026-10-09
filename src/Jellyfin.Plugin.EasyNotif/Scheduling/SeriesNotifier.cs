@@ -467,6 +467,7 @@ public sealed class SeriesNotifier : ISeriesNotifier
                 Context = "series",
                 Category = "Series",
                 ToMasked = EmailMasker.Mask(recipient.Email),
+                UserId = recipient.UserId,
                 Subject = subject,
                 ResendId = result.ResendId,
                 Status = status

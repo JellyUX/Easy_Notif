@@ -96,6 +96,30 @@ public sealed class SendLogTests : IDisposable
     }
 
     [Fact]
+    public void UserIdsFor_ReturnsTheRecordedUsers_AndSurvivesAReload()
+    {
+        var alice = Guid.NewGuid();
+        var log = Build();
+        log.Append(Entry() with { UserId = alice });
+        log.Append(Entry(resendId: "re_2") with { UserId = Guid.NewGuid() });
+
+        Assert.Equal([alice], Build().UserIdsFor("re_1"));
+        Assert.Empty(log.UserIdsFor("re_unknown"));
+    }
+
+    [Fact]
+    public void UserIdsFor_ALineWrittenWithoutAUser_ReturnsNone()
+    {
+        Directory.CreateDirectory(DataDir);
+        File.WriteAllText(FilePath, "{\"Ts\":\"2026-06-15T09:00:00Z\",\"Context\":\"newsletter\",\"ToMasked\":\"a***e@example.org\",\"Subject\":\"Hi\",\"ResendId\":\"re_old\",\"Status\":\"sent\"}");
+
+        var log = Build();
+
+        Assert.Empty(log.UserIdsFor("re_old"));
+        Assert.True(log.UpdateStatus("re_old", "email.complained"));
+    }
+
+    [Fact]
     public void UpdateStatus_UnknownId_ReturnsFalse_AndLeavesTheFile()
     {
         var log = Build();

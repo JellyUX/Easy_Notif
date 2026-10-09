@@ -226,6 +226,7 @@ public sealed class ManualEmailService : IManualEmailService
                     Ts = DateTime.UtcNow,
                     Context = isTest ? "manual-test" : "manual",
                     ToMasked = maskedTo,
+                    UserId = recipient.UserId,
                     Subject = request.Subject,
                     ResendId = result.ResendId,
                     Status = status

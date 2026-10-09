@@ -27,6 +27,11 @@ public interface ISendLog
     /// <returns>True when at least one entry matched, whether or not its status moved.</returns>
     bool UpdateStatus(string resendId, string status);
 
+    /// <summary>Returns the distinct users of the entries with the given Resend id.</summary>
+    /// <param name="resendId">The Resend message id.</param>
+    /// <returns>The user ids; empty when no entry matches or none records a user.</returns>
+    IReadOnlyList<Guid> UserIdsFor(string resendId);
+
     /// <summary>Returns the most recent entries, newest first.</summary>
     /// <param name="count">How many to return.</param>
     /// <returns>The entries.</returns>
@@ -48,6 +53,13 @@ public sealed record SendLogEntry
 
     /// <summary>Gets the masked recipient address.</summary>
     public string ToMasked { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Gets the Jellyfin user the message was sent to, so a bounce or complaint webhook can act on
+    /// that user (DEC-48). Null for a send not tied to a user (admin preview) and for lines written
+    /// by earlier versions.
+    /// </summary>
+    public Guid? UserId { get; init; }
 
     /// <summary>Gets the category, for a category-bound send; null otherwise.</summary>
     public string? Category { get; init; }
@@ -160,6 +172,15 @@ public sealed class SendLog : JsonFileStore<SendLogFile>, ISendLog
         "email.bounced" or "email.complained" or "email.failed" or "email.suppressed" => 6,
         _ => 1
     };
+
+    /// <inheritdoc/>
+    public IReadOnlyList<Guid> UserIdsFor(string resendId)
+        => string.IsNullOrEmpty(resendId)
+            ? []
+            : Read(file => (IReadOnlyList<Guid>)[.. file.Entries
+                .Where(e => e.ResendId == resendId && e.UserId is { } id && id != Guid.Empty)
+                .Select(e => e.UserId!.Value)
+                .Distinct()]);
 
     /// <inheritdoc/>
     public IReadOnlyList<SendLogEntry> Recent(int count)

@@ -46,9 +46,64 @@ public sealed class PreferenceService : IPreferenceService
         {
             var row = Upsert(users, userId);
             row.ContactEmail = normalized;
+            row.ContactEmailRejectedUtc = null;
             row.UpdatedAt = DateTime.UtcNow;
             return true;
         });
+    }
+
+    /// <inheritdoc/>
+    public bool ApplyComplaint(Guid userId)
+    {
+        var changed = false;
+        _store.Mutate(users =>
+        {
+            var row = users.FirstOrDefault(p => p.UserId == userId);
+            if (row is null)
+            {
+                return false;
+            }
+
+            foreach (var category in EmailCategories.All)
+            {
+                if (row.Categories.GetValueOrDefault(category))
+                {
+                    row.Categories[category] = false;
+                    changed = true;
+                }
+            }
+
+            changed |= !row.AnnouncementsOptOut || !row.EpisodesOptOut;
+            row.AnnouncementsOptOut = true;
+            row.EpisodesOptOut = true;
+            if (changed)
+            {
+                row.UpdatedAt = DateTime.UtcNow;
+            }
+
+            return changed;
+        });
+        return changed;
+    }
+
+    /// <inheritdoc/>
+    public bool MarkEmailRejected(Guid userId)
+    {
+        var changed = false;
+        _store.Mutate(users =>
+        {
+            var row = users.FirstOrDefault(p => p.UserId == userId);
+            if (row is null || string.IsNullOrEmpty(row.ContactEmail) || row.ContactEmailRejectedUtc is not null)
+            {
+                return false;
+            }
+
+            row.ContactEmailRejectedUtc = DateTime.UtcNow;
+            row.UpdatedAt = row.ContactEmailRejectedUtc.Value;
+            changed = true;
+            return true;
+        });
+        return changed;
     }
 
     /// <inheritdoc/>
@@ -101,6 +156,7 @@ public sealed class PreferenceService : IPreferenceService
         return _store.ReadAll()
             .Where(p => live.Contains(p.UserId)
                 && p.Categories.GetValueOrDefault(category)
+                && p.ContactEmailRejectedUtc is null
                 && MailAddress.TryCreate(p.ContactEmail, out _))
             .Select(p => new Recipient(p.UserId, p.ContactEmail!))
             .ToList();
@@ -114,6 +170,7 @@ public sealed class PreferenceService : IPreferenceService
             .Where(p => live.Contains(p.UserId)
                 && (userIds is null || userIds.Contains(p.UserId))
                 && !(excludeAnnouncementOptOuts && p.AnnouncementsOptOut)
+                && p.ContactEmailRejectedUtc is null
                 && MailAddress.TryCreate(p.ContactEmail, out _))
             .Select(p => new Recipient(p.UserId, p.ContactEmail!))
             .ToList();

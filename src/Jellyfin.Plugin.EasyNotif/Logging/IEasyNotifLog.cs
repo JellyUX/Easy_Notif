@@ -3,12 +3,12 @@ namespace Jellyfin.Plugin.EasyNotif.Logging;
 /// <summary>
 /// The plugin's own rolling log file (Synthese.md section 8), separate from Jellyfin's main log.
 /// Every WARN/ERROR is also relayed to the standard <c>ILogger</c> so failures are never hidden
-/// there. Email-shaped field values are masked at every level except <see cref="Debug"/>. Never
+/// there. Personal data in field values (addresses, user ids) is masked at every level. Never
 /// throws: a failure to open the file degrades to a no-op file sink while the relay keeps working.
 /// </summary>
 public interface IEasyNotifLog : IDisposable
 {
-    /// <summary>Writes a DEBUG entry. Field values are written unmasked.</summary>
+    /// <summary>Writes a DEBUG entry.</summary>
     /// <param name="eventType">A short, stable event identifier (for example <c>"quota.tick"</c>).</param>
     /// <param name="fields">Structured fields for the entry, or null.</param>
     void Debug(string eventType, IReadOnlyDictionary<string, object?>? fields = null);

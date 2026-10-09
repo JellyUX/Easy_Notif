@@ -28,6 +28,7 @@ public sealed class ResendEmailSender : IEmailSender
     private const string BatchEndpoint = "https://api.resend.com/emails/batch";
     private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(30);
     private const char BatchIdSeparator = '\n';
+    private const int MaxLoggedErrorLength = 300;
     private static readonly JsonSerializerOptions PayloadOptions = new() { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -154,18 +155,19 @@ public sealed class ResendEmailSender : IEmailSender
         }
         else
         {
+            var error = LoggableError(result.Error);
             _logger.LogWarning(
                 "[EasyNotif] Failed to send \"{Subject}\" to {Recipient}: {Status} {Error}",
                 message.Subject,
                 EmailMasker.Mask(message.To),
                 result.StatusCode,
-                result.Error);
+                error);
             _easyNotifLog.Error("email.failed", new Dictionary<string, object?>
             {
                 ["subject"] = message.Subject,
                 ["to"] = message.To,
                 ["httpStatus"] = result.StatusCode,
-                ["error"] = result.Error,
+                ["error"] = error,
                 ["durationMs"] = stopwatch.ElapsedMilliseconds
             });
         }
@@ -404,6 +406,18 @@ public sealed class ResendEmailSender : IEmailSender
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Prepares a provider error message for the logs (PRIV-03): addresses in it are masked, then it
+    /// is cut to <see cref="MaxLoggedErrorLength"/> characters.
+    /// </summary>
+    /// <param name="error">The raw error message, or null.</param>
+    /// <returns>The masked, bounded message, or null.</returns>
+    internal static string? LoggableError(string? error)
+    {
+        var masked = EmailMasker.MaskInText(error);
+        return masked is { Length: > MaxLoggedErrorLength } ? masked[..MaxLoggedErrorLength] : masked;
     }
 
     private static string? ExtractError(string body) => ExtractString(body, "message");

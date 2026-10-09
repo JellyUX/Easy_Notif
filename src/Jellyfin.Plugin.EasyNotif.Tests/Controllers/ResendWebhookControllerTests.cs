@@ -30,7 +30,7 @@ public sealed class ResendWebhookControllerTests
         return "v1," + Convert.ToBase64String(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{id}.{timestamp}.{body}")));
     }
 
-    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null, WebhookReplayGuard? replayGuard = null, Mock<IPreferenceService>? preferences = null)
+    private static ResendWebhookController Build(Mock<ISendLog> sendLog, string? secret = Secret, FakeEasyNotifLog? easyNotifLog = null, WebhookReplayGuard? replayGuard = null, Mock<IPreferenceService>? preferences = null, CapturingLogger<ResendWebhookController>? logger = null)
     {
         var secrets = new FakeSecretStore(webhookSigningSecret: secret);
         return new ResendWebhookController(
@@ -38,7 +38,7 @@ public sealed class ResendWebhookControllerTests
             sendLog.Object,
             replayGuard ?? new WebhookReplayGuard(TimeProvider.System),
             (preferences ?? new Mock<IPreferenceService>()).Object,
-            NullLogger<ResendWebhookController>.Instance,
+            (Microsoft.Extensions.Logging.ILogger<ResendWebhookController>?)logger ?? NullLogger<ResendWebhookController>.Instance,
             easyNotifLog ?? new FakeEasyNotifLog())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -229,9 +229,9 @@ public sealed class ResendWebhookControllerTests
 
     private static readonly Guid Alice = Guid.Parse("8f2c1a6e-41b0-4d0b-9a57-0c3f1e2d4b6a");
 
-    private static async Task<IActionResult> Deliver(Mock<ISendLog> sendLog, Mock<IPreferenceService> preferences, string body, string svixId = "msg_1", WebhookReplayGuard? guard = null)
+    private static async Task<IActionResult> Deliver(Mock<ISendLog> sendLog, Mock<IPreferenceService> preferences, string body, string svixId = "msg_1", WebhookReplayGuard? guard = null, CapturingLogger<ResendWebhookController>? logger = null)
     {
-        var controller = Build(sendLog, replayGuard: guard, preferences: preferences);
+        var controller = Build(sendLog, replayGuard: guard, preferences: preferences, logger: logger);
         var ts = NowTimestamp();
         SetRequest(controller, body, svixId, ts, Sign(svixId, ts, body));
         return await controller.Resend();
@@ -254,6 +254,20 @@ public sealed class ResendWebhookControllerTests
         Assert.IsType<OkResult>(result);
         preferences.Verify(p => p.ApplyComplaint(Alice), Times.Once);
         preferences.Verify(p => p.MarkEmailRejected(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("{\"type\":\"email.complained\",\"data\":{\"email_id\":\"re_abc\"}}")]
+    [InlineData("{\"type\":\"email.suppressed\",\"data\":{\"email_id\":\"re_abc\"}}")]
+    public async Task Resend_AComplaintOrRejection_LogsOnlyAShortenedUserId(string body)
+    {
+        var logger = new CapturingLogger<ResendWebhookController>();
+
+        await Deliver(LogWithAlice(), new Mock<IPreferenceService>(), body, logger: logger);
+
+        Assert.Contains("user 8f2c1a6e.", logger.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain(Alice.ToString(), logger.AllText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Alice.ToString("N"), logger.AllText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

@@ -449,6 +449,24 @@ public class ResendEmailSenderTests
     }
 
     [Fact]
+    public async Task SendAsync_OnFailure_LogsAMaskedBoundedProviderError()
+    {
+        var (sender, http, logger, easyNotifLog) = Build();
+        var longError = "Invalid `to` field: alice.recipient@example.org. " + new string('x', 400);
+        http.EnqueueJson(HttpStatusCode.UnprocessableEntity, "{\"message\":\"" + longError + "\",\"name\":\"validation_error\"}");
+
+        var result = await sender.SendAsync(Message(), CancellationToken.None);
+
+        Assert.Equal(longError, result.Error);
+        var logged = Assert.IsType<string>(Assert.Single(easyNotifLog.Entries).Fields!["error"]);
+        Assert.Equal(300, logged.Length);
+        Assert.StartsWith("Invalid `to` field: a***t@example.org. ", logged, StringComparison.Ordinal);
+        Assert.DoesNotContain("alice.recipient@", logger.AllText, StringComparison.Ordinal);
+        Assert.Contains("a***t@example.org. ", logger.AllText, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('x', 300), logger.AllText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SendAsync_OnFailure_LogsAnEmailFailedEvent()
     {
         var (sender, http, _, easyNotifLog) = Build();

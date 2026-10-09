@@ -4,6 +4,7 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Util;
 using Jellyfin.Plugin.EasyNotif.Webhooks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -177,12 +178,12 @@ public class ResendWebhookController : ControllerBase
                 var fields = new Dictionary<string, object?> { ["userId"] = userId, ["resendId"] = emailId, ["changed"] = changed };
                 if (complaint)
                 {
-                    _logger.LogWarning("[EasyNotif] Spam complaint: turned every email off for user {UserId}.", userId);
+                    _logger.LogWarning("[EasyNotif] Spam complaint: turned every email off for user {UserId}.", EmailMasker.MaskUserId(userId));
                     _easyNotifLog.Warn("webhook.complaint", fields);
                 }
                 else
                 {
-                    _logger.LogWarning("[EasyNotif] Address rejected by Resend: stopped mailing user {UserId}.", userId);
+                    _logger.LogWarning("[EasyNotif] Address rejected by Resend: stopped mailing user {UserId}.", EmailMasker.MaskUserId(userId));
                     _easyNotifLog.Warn("webhook.rejected", fields);
                 }
             }

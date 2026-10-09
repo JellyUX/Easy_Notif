@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Mail;
 using System.Text;
 using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Common.Configuration;
@@ -15,6 +14,7 @@ public sealed class EasyNotifLog : IEasyNotifLog
 {
     private const long MaxFileSizeBytes = 10L * 1024 * 1024;
     private const int TailBlockBytes = 64 * 1024;
+    private const string UserIdField = "userId";
     private const string OutputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
     private readonly string _logsDir;
@@ -171,8 +171,7 @@ public sealed class EasyNotifLog : IEasyNotifLog
     {
         if (_logger is not null)
         {
-            var effectiveFields = level == LogEventLevel.Debug ? fields : Mask(fields);
-            _logger.Write(level, exception, "{EventType} {Fields}", eventType, FormatFields(effectiveFields));
+            _logger.Write(level, exception, "{EventType} {Fields}", eventType, FormatFields(Mask(fields)));
         }
 
         if (level >= LogEventLevel.Warning)
@@ -193,6 +192,13 @@ public sealed class EasyNotifLog : IEasyNotifLog
             .FirstOrDefault();
     }
 
+    /// <summary>
+    /// Masks personal data in the fields at every level (PRIV-03): every address in a text value is
+    /// masked, whether it is the whole value or part of a message, and a <c>userId</c> field is
+    /// shortened to its first eight digits.
+    /// </summary>
+    /// <param name="fields">The caller's fields, or null.</param>
+    /// <returns>The masked fields, or <paramref name="fields"/> itself when nothing needed masking.</returns>
     private static IReadOnlyDictionary<string, object?>? Mask(IReadOnlyDictionary<string, object?>? fields)
     {
         if (fields is null)
@@ -203,14 +209,25 @@ public sealed class EasyNotifLog : IEasyNotifLog
         Dictionary<string, object?>? masked = null;
         foreach (var pair in fields)
         {
-            if (pair.Value is string s && MailAddress.TryCreate(s, out _))
+            var value = MaskValue(pair.Key, pair.Value);
+            if (!Equals(value, pair.Value))
             {
                 masked ??= new Dictionary<string, object?>(fields);
-                masked[pair.Key] = EmailMasker.Mask(s);
+                masked[pair.Key] = value;
             }
         }
 
         return masked ?? fields;
+    }
+
+    private static object? MaskValue(string key, object? value)
+    {
+        if (string.Equals(key, UserIdField, StringComparison.OrdinalIgnoreCase))
+        {
+            return EmailMasker.MaskUserId(value);
+        }
+
+        return value is string s ? EmailMasker.MaskInText(s) : value;
     }
 
     private static string FormatFields(IReadOnlyDictionary<string, object?>? fields)

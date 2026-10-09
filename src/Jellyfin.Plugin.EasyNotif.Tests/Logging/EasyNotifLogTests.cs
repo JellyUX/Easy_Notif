@@ -10,7 +10,7 @@ using Xunit;
 namespace Jellyfin.Plugin.EasyNotif.Tests.Logging;
 
 /// <summary>
-/// Covers <see cref="EasyNotifLog"/>: masking at every level except Debug, the WARN/ERROR relay to
+/// Covers <see cref="EasyNotifLog"/>: masking at every level, the WARN/ERROR relay to
 /// the standard logger, <see cref="EasyNotifLog.Tail(int)"/>'s file selection and truncation, and
 /// graceful degradation when the log directory cannot be created.
 /// </summary>
@@ -55,14 +55,68 @@ public sealed class EasyNotifLogTests : IDisposable
     }
 
     [Fact]
-    public void Debug_WithAnEmailField_WritesItUnmasked()
+    public void Debug_WithAnEmailField_MasksIt()
     {
         var (log, _) = Build();
 
         log.Debug("recap.build", new Dictionary<string, object?> { ["to"] = "alice.recipient@example.org" });
         log.Dispose();
 
-        Assert.Contains("alice.recipient@example.org", CurrentLogFileText(), StringComparison.Ordinal);
+        var text = CurrentLogFileText();
+        Assert.DoesNotContain("alice.recipient@example.org", text, StringComparison.Ordinal);
+        Assert.Contains("a***t@example.org", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Debug_WithAnAddressInFreeText_MasksIt()
+    {
+        var (log, _) = Build();
+
+        log.Debug("email.failed", new Dictionary<string, object?> { ["error"] = "erreur pour a.b@c.d" });
+        log.Dispose();
+
+        var text = CurrentLogFileText();
+        Assert.DoesNotContain("a.b@c.d", text, StringComparison.Ordinal);
+        Assert.Contains("erreur pour a***b@c.d", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Error_WithAddressesInFreeText_MasksEveryOne()
+    {
+        var (log, _) = Build();
+
+        log.Error("email.failed", new Dictionary<string, object?> { ["error"] = "Invalid `to` field: alice.recipient@example.org, bob.other@example.net." });
+        log.Dispose();
+
+        var text = CurrentLogFileText();
+        Assert.DoesNotContain("alice.recipient@", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("bob.other@", text, StringComparison.Ordinal);
+        Assert.Contains("a***t@example.org, b***r@example.net.", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Debug")]
+    [InlineData("Info")]
+    [InlineData("Warn")]
+    public void UserIdField_IsShortenedAtEveryLevel(string level)
+    {
+        var (log, _) = Build();
+        var userId = Guid.Parse("8f2c1a6e-41b0-4d0b-9a57-0c3f1e2d4b6a");
+        var fields = new Dictionary<string, object?> { ["userId"] = userId, ["itemId"] = "kept-as-is" };
+
+        switch (level)
+        {
+            case "Debug": log.Debug("unsubscribe.action", fields); break;
+            case "Info": log.Info("unsubscribe.action", fields); break;
+            default: log.Warn("unsubscribe.action", fields); break;
+        }
+
+        log.Dispose();
+
+        var text = CurrentLogFileText();
+        Assert.Contains("userId=8f2c1a6e ", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("41b0", text, StringComparison.Ordinal);
+        Assert.Contains("itemId=kept-as-is", text, StringComparison.Ordinal);
     }
 
     [Fact]

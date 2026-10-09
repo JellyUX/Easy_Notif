@@ -165,7 +165,8 @@ public sealed class StartupService : IHostedService
     /// <summary>
     /// Records a significant playback stop (movie or episode, watched past three minutes) in the
     /// plugin's own history, for the personalised weekly recap. Non-blocking: it only queues the
-    /// event (R13). Fires once per user in the session.
+    /// event (R13). Records the view for every user in the session, additional users included: Jellyfin
+    /// marks the item played for each of them too, so the recap matches their watched state.
     /// </summary>
     private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
     {

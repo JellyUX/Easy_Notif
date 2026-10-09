@@ -10,6 +10,7 @@ using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Session;
 using Jellyfin.Database.Implementations.Entities;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -294,7 +295,7 @@ public sealed class StartupServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_StartsHistory_AndRecordsASignificantStopForEveryUser()
+    public async Task StartAsync_StartsHistory_AndRecordsASharedStopForTheMainAndEveryAdditionalUser()
     {
         var session = new Mock<ISessionManager>();
         var history = new FakePlaybackHistoryStore();
@@ -304,22 +305,27 @@ public sealed class StartupServiceTests
         await service.StartAsync(CancellationToken.None);
 
         Assert.Equal(1, history.StartCount);
-        var users = new List<User>
+        var main = new User("a", "Default", "Default") { Id = Guid.NewGuid() };
+        var guest = new User("b", "Default", "Default") { Id = Guid.NewGuid() };
+
+        // Shaped like Jellyfin's SessionManager: Users = the session user, then the additional users.
+        var sharedSession = new SessionInfo(session.Object, NullLogger.Instance)
         {
-            new("a", "Default", "Default") { Id = Guid.NewGuid() },
-            new("b", "Default", "Default") { Id = Guid.NewGuid() }
+            UserId = main.Id,
+            AdditionalUsers = [new SessionUserInfo { UserId = guest.Id, UserName = guest.Username }]
         };
         session.Raise(
             s => s.PlaybackStopped += null,
             new PlaybackStopEventArgs
             {
                 Item = new Movie { Id = Guid.NewGuid(), Name = "Film", RunTimeTicks = TimeSpan.FromMinutes(100).Ticks },
-                Users = users,
+                Users = [main, guest],
+                Session = sharedSession,
                 PlaybackPositionTicks = TimeSpan.FromMinutes(10).Ticks,
                 PlayedToCompletion = false
             });
 
-        Assert.Equal(2, history.Recorded.Count);
+        Assert.Equal([main.Id, guest.Id], history.Recorded.Select(e => e.UserId));
         Assert.All(history.Recorded, e => Assert.Equal("Movie", e.Kind));
     }
 

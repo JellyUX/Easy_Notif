@@ -72,6 +72,7 @@ public sealed class IncidentStore : JsonFileStore<IncidentFile>, IIncidentStore
         "dispatch.error",
         "dispatch.retry-abandoned",
         "series.retry-abandoned",
+        "announcement.retry-abandoned",
         "webhook.rejected",
         "webhook.complaint",
         "drain.lost",

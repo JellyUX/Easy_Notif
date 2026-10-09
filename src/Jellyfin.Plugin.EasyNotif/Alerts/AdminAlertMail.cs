@@ -19,6 +19,7 @@ public static class AdminAlertMail
         ["dispatch.error"] = ("Campagne en erreur", "Campaign error"),
         ["dispatch.retry-abandoned"] = ("Rejeu de campagne abandonné", "Campaign retry abandoned"),
         ["series.retry-abandoned"] = ("Rejeu de mail de séries abandonné", "Series email retry abandoned"),
+        ["announcement.retry-abandoned"] = ("Rejeu d'annonce programmée abandonné", "Scheduled announcement retry abandoned"),
         ["webhook.rejected"] = ("Adresse rejetée (bounce)", "Address rejected (bounce)"),
         ["webhook.complaint"] = ("Plainte pour spam", "Spam complaint"),
         ["drain.lost"] = ("Lot perdu à l'écriture", "Batch lost on write"),

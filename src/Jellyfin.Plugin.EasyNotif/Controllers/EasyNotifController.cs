@@ -58,6 +58,7 @@ public class EasyNotifController : ControllerBase
     private readonly ISendLog _sendLog;
     private readonly IManualEmailService _manualEmail;
     private readonly IManualSendQueue _manualQueue;
+    private readonly IScheduledAnnouncementStore _announcements;
     private readonly ICampaignStore _campaigns;
     private readonly IDispatchService _dispatch;
     private readonly ITemplateStore _templates;
@@ -81,6 +82,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="sendLog">The send log.</param>
     /// <param name="manualEmail">The manual admin email service.</param>
     /// <param name="manualQueue">The background queue of manual email lots.</param>
+    /// <param name="announcements">The scheduled announcement store.</param>
     /// <param name="campaigns">The campaign store.</param>
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="templates">The email template store.</param>
@@ -101,6 +103,7 @@ public class EasyNotifController : ControllerBase
         ISendLog sendLog,
         IManualEmailService manualEmail,
         IManualSendQueue manualQueue,
+        IScheduledAnnouncementStore announcements,
         ICampaignStore campaigns,
         IDispatchService dispatch,
         ITemplateStore templates,
@@ -121,6 +124,7 @@ public class EasyNotifController : ControllerBase
         _sendLog = sendLog;
         _manualEmail = manualEmail;
         _manualQueue = manualQueue;
+        _announcements = announcements;
         _campaigns = campaigns;
         _dispatch = dispatch;
         _templates = templates;
@@ -892,6 +896,143 @@ public class EasyNotifController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
+    // Admin - scheduled announcements
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Programs a manual email for a date (FEAT-05). The date is read in the scheduler time zone
+    /// (DEC-70); the dispatch tick sends it once, resolving the recipients at that time. No
+    /// attachments and no test address (DEC-67). Administrators only.
+    /// </summary>
+    /// <param name="body">The composed email, its audience and its local send time.</param>
+    /// <returns>201 with the announcement; 400 on an invalid request; 503 on a storage failure.</returns>
+    [HttpPost("admin/announcements")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult ScheduleAnnouncement([FromBody] ScheduleAnnouncementRequest? body)
+    {
+        if (body is null || string.IsNullOrWhiteSpace(body.Subject))
+        {
+            return BadRequest(new { error = "subject-required" });
+        }
+
+        if (body.Attachments is { Count: > 0 })
+        {
+            return BadRequest(new { error = "attachments-not-allowed" });
+        }
+
+        var mode = Trimmed(body.RecipientMode) ?? "all";
+        if (mode is not ("all" or "selected"))
+        {
+            return BadRequest(new { error = "invalid-mode" });
+        }
+
+        return Wrap(() =>
+        {
+            var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
+            if (!DateTime.TryParseExact(
+                    Trimmed(body.SendAt),
+                    ["yyyy-MM-ddTHH:mm", "yyyy-MM-ddTHH:mm:ss"],
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None,
+                    out var local)
+                || tz.IsInvalidTime(local))
+            {
+                return BadRequest(new { error = "invalid-send-at" });
+            }
+
+            var now = DateTime.UtcNow;
+            var sendAtUtc = TimeZoneInfo.ConvertTimeToUtc(local, tz);
+            if (sendAtUtc <= now)
+            {
+                return BadRequest(new { error = "send-at-past" });
+            }
+
+            if (sendAtUtc > now.AddDays(366))
+            {
+                return BadRequest(new { error = "send-at-too-far" });
+            }
+
+            var announcement = new ScheduledAnnouncement
+            {
+                Id = Guid.NewGuid(),
+                Subject = body.Subject.Trim(),
+                Html = string.IsNullOrWhiteSpace(body.Html) ? null : body.Html,
+                Text = string.IsNullOrWhiteSpace(body.Text) ? null : body.Text,
+                Wrap = body.Wrap == true,
+                Lang = Trimmed(body.Lang) is "en" ? "en" : "fr",
+                Mode = mode,
+                UserIds = mode == "selected" ? body.RecipientUserIds ?? [] : [],
+                SendAtUtc = sendAtUtc,
+                CreatedUtc = now
+            };
+
+            try
+            {
+                _manualEmail.Plan(announcement.ToRequest());
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = ex.Message });
+            }
+
+            _announcements.Add(announcement);
+            return Created($"/EasyNotif/admin/announcements/{announcement.Id}", AnnouncementDto(announcement, tz));
+        });
+    }
+
+    /// <summary>Lists the scheduled announcements: upcoming ones and those finished in the last 30 days. Administrators only.</summary>
+    /// <returns>200 with <c>{ timeZone, items }</c>, items soonest first; 503 on a storage failure.</returns>
+    [HttpGet("admin/announcements")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult GetAnnouncements() => Wrap(() =>
+    {
+        var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
+        return Ok(new { timeZone = tz.Id, items = _announcements.All().Select(a => AnnouncementDto(a, tz)) });
+    });
+
+    /// <summary>Cancels a scheduled announcement that has not been sent yet. Administrators only.</summary>
+    /// <param name="id">The announcement id.</param>
+    /// <returns>204 when cancelled; 404 when unknown; 409 when it is no longer pending; 503 on a storage failure.</returns>
+    [HttpDelete("admin/announcements/{id:guid}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult CancelAnnouncement([FromRoute] Guid id) => Wrap(() =>
+        _announcements.Cancel(id, DateTime.UtcNow) switch
+        {
+            CancelOutcome.Cancelled => NoContent(),
+            CancelOutcome.NotPending => Conflict(new { error = "not-pending" }),
+            _ => NotFound()
+        });
+
+    private static object AnnouncementDto(ScheduledAnnouncement a, TimeZoneInfo tz) => new
+    {
+        id = a.Id,
+        subject = a.Subject,
+        recipientMode = a.Mode,
+        recipientCount = a.Mode == "selected" ? a.UserIds.Count : (int?)null,
+        wrap = a.Wrap,
+        lang = a.Lang,
+        status = a.Status,
+        sendAtUtc = a.SendAtUtc,
+        sendAtLocal = ToConfiguredLocal(a.SendAtUtc, tz),
+        nextAttemptLocal = ToConfiguredLocal(a.NextAttemptUtc, tz),
+        timeZone = tz.Id,
+        sent = a.SentCount,
+        failed = a.FailedCount,
+        skippedNoEmail = a.SkippedNoEmail,
+        attempts = a.Attempts,
+        finishedUtc = a.FinishedUtc
+    };
+
+    // -------------------------------------------------------------------------
     // Admin - campaigns
     // -------------------------------------------------------------------------
 
@@ -1506,6 +1647,37 @@ public sealed class ManualSendRequest
 
     /// <summary>Gets or sets the language of the layout, <c>fr</c> (default) or <c>en</c>.</summary>
     public string? Lang { get; set; }
+}
+
+/// <summary>Request body for <c>POST /EasyNotif/admin/announcements</c>.</summary>
+public sealed class ScheduleAnnouncementRequest
+{
+    /// <summary>Gets or sets the subject line.</summary>
+    public string? Subject { get; set; }
+
+    /// <summary>Gets or sets the HTML body.</summary>
+    public string? Html { get; set; }
+
+    /// <summary>Gets or sets the plain-text body.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>Gets or sets the audience: <c>all</c> (default) or <c>selected</c>.</summary>
+    public string? RecipientMode { get; set; }
+
+    /// <summary>Gets or sets the chosen user ids when the mode is <c>selected</c>.</summary>
+    public List<Guid>? RecipientUserIds { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the body is laid out with the <c>generic</c> template.</summary>
+    public bool? Wrap { get; set; }
+
+    /// <summary>Gets or sets the language of the layout, <c>fr</c> (default) or <c>en</c>.</summary>
+    public string? Lang { get; set; }
+
+    /// <summary>Gets or sets the send time in the scheduler time zone, <c>yyyy-MM-ddTHH:mm</c>.</summary>
+    public string? SendAt { get; set; }
+
+    /// <summary>Gets or sets attachments; always refused on a scheduled announcement (DEC-67).</summary>
+    public List<AttachmentDto>? Attachments { get; set; }
 }
 
 /// <summary>One attachment on a manual email.</summary>

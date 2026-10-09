@@ -26,6 +26,10 @@
         .enotif-tpl-body[readonly] { opacity: 0.7; }
         .enotif-manual-preview { width: 100%; height: 16em; border: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12)); background: var(--jf-palette-background-paper, #ffffff); }
         .enotif-manual-users { margin: 0.4em 0 0 0.4em; }
+        .enotif-announcements { margin-top: 0.8em; }
+        .enotif-announcement { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4em 1em; padding: 0.5em 0; border-bottom: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, 0.12)); }
+        .enotif-announcement-main { flex: 1 1 16em; min-width: 0; overflow-wrap: anywhere; }
+        .enotif-announcement-meta { opacity: 0.75; font-size: 0.9em; }
         .enotif-radio-row { margin: 0.4em 0; }
         .enotif-file-list { list-style: none; padding-left: 0; }
         .enotif-file-list li { display: flex; gap: 0.6em; align-items: center; margin: 0.2em 0; }
@@ -250,6 +254,16 @@
             <button is="emby-button" type="button" id="enotifManualTestBtn" class="raised" data-i18n="manual.test">Send a test</button>
             <button is="emby-button" type="button" id="enotifManualSendBtn" class="raised button-submit block" data-i18n="manual.send">Send</button>
             <div id="enotifManualResult" class="fieldDescription" role="status"></div>
+
+            <h3 class="sectionTitle" data-i18n="manual.schedule.title">Schedule the send</h3>
+            <div class="inputContainer">
+                <label class="inputLabel inputLabelUnfocused" for="enotifManualSendAt" data-i18n="manual.schedule.sendAt">Send on</label>
+                <input is="emby-input" type="datetime-local" id="enotifManualSendAt" />
+                <div class="fieldDescription" id="enotifManualTzHint"></div>
+            </div>
+            <button is="emby-button" type="button" id="enotifManualScheduleBtn" class="raised" data-i18n="manual.schedule.button">Schedule</button>
+            <div id="enotifScheduleResult" class="fieldDescription" role="status"></div>
+            <div id="enotifAnnouncementList" class="enotif-announcements"></div>
         </div>
 
         <div class="enotif-panel" data-panel="preferences" hidden>

@@ -20,18 +20,26 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
 
     private readonly IDispatchService _dispatch;
     private readonly ISeriesNotifier _series;
+    private readonly IScheduledAnnouncementRunner _announcements;
     private readonly IAdminAlertService _alerts;
     private readonly ILogger<EasyNotifDispatchTask> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="EasyNotifDispatchTask"/> class.</summary>
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="series">The series notifier, flushed after the campaigns.</param>
+    /// <param name="announcements">The scheduled announcements, sent after the series.</param>
     /// <param name="alerts">The incident digest, sent last.</param>
     /// <param name="logger">Logger.</param>
-    public EasyNotifDispatchTask(IDispatchService dispatch, ISeriesNotifier series, IAdminAlertService alerts, ILogger<EasyNotifDispatchTask> logger)
+    public EasyNotifDispatchTask(
+        IDispatchService dispatch,
+        ISeriesNotifier series,
+        IScheduledAnnouncementRunner announcements,
+        IAdminAlertService alerts,
+        ILogger<EasyNotifDispatchTask> logger)
     {
         _dispatch = dispatch;
         _series = series;
+        _announcements = announcements;
         _alerts = alerts;
         _logger = logger;
     }
@@ -63,6 +71,15 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "[EasyNotif] Series notification flush failed; it runs again on the next tick.");
+        }
+
+        try
+        {
+            await _announcements.RunDueAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "[EasyNotif] Scheduled announcements failed; they run again on the next tick.");
         }
 
         // Last, so it reports what this tick ran into; a failure never affects the sends above.

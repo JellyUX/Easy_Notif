@@ -97,6 +97,9 @@ public sealed record ManualSendDetail(string MaskedTo, string Status)
 {
     /// <summary>Gets the recipient's user id (<see cref="Guid.Empty"/> for a test address). Not exposed by the API.</summary>
     public Guid UserId { get; init; }
+
+    /// <summary>Gets a value indicating whether a failed send is worth another attempt. Not exposed by the API.</summary>
+    public bool Transient { get; init; }
 }
 
 /// <inheritdoc cref="IManualEmailService"/>
@@ -244,7 +247,7 @@ public sealed class ManualEmailService : IManualEmailService
             }
 
             var maskedTo = EmailMasker.Mask(recipient.Email);
-            var detail = new ManualSendDetail(maskedTo, status) { UserId = recipient.UserId };
+            var detail = new ManualSendDetail(maskedTo, status) { UserId = recipient.UserId, Transient = result.IsTransientFailure };
             details.Add(detail);
             onSent?.Invoke(detail);
 

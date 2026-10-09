@@ -50,6 +50,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IManualSendQueue, ManualSendQueue>();
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();
         serviceCollection.AddSingleton<IRetryQueueStore, RetryQueueStore>();
+        serviceCollection.AddSingleton<IScheduledAnnouncementStore, ScheduledAnnouncementStore>();
         serviceCollection.AddSingleton(new ServerLinkContext(applicationHost.SystemId, applicationHost.FriendlyName));
         serviceCollection.AddSingleton<IAddedItemsStore, AddedItemsStore>();
         serviceCollection.AddSingleton<IAnnouncedStore, AnnouncedStore>();
@@ -68,6 +69,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IEmailComposer, EmailComposer>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<ISeriesNotifier, SeriesNotifier>();
+        serviceCollection.AddSingleton<IScheduledAnnouncementRunner, ScheduledAnnouncementRunner>();
         serviceCollection.AddSingleton<IAdminAlertService, AdminAlertService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserPurgeConsumer>();

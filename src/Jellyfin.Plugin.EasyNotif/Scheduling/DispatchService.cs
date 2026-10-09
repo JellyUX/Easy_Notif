@@ -687,7 +687,7 @@ public sealed class DispatchService : IDispatchService
         }
         else
         {
-            outcome = IsTransient(result) ? SendOutcome.Transient : SendOutcome.Failed;
+            outcome = result.IsTransientFailure ? SendOutcome.Transient : SendOutcome.Failed;
         }
 
         try
@@ -716,11 +716,6 @@ public sealed class DispatchService : IDispatchService
 
         return outcome;
     }
-
-    // Network failure or timeout (no status), rate limit, provider error: worth another attempt.
-    // A 4xx is a rejection of this message and will not pass later (DEC-23).
-    private static bool IsTransient(SendResult result)
-        => result.StatusCode is 0 or 429 or >= 500;
 
     private enum SendOutcome
     {

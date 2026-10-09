@@ -6,7 +6,7 @@ import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
 const {
     _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, _incidentBanner,
-    _manualBody, _manualRecipients, _validateManual, _manualPayload, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
+    _manualBody, _manualRecipients, _validateManual, _manualPayload, _validateAnnouncement, _announcementView, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
     _previewResult, _tplOptions, _campaignTemplateBaseId,
@@ -332,6 +332,32 @@ describe('manual email helpers', () => {
 
         const test = _manualPayload({ subject: 'Hi', body: 'x', bodyMode: 'text', wrap: true, mode: 'test', testAddress: 'me@example.org' });
         expect(test).toMatchObject({ recipientMode: 'test', testAddress: 'me@example.org' });
+    });
+
+    it('_validateAnnouncement needs a date and refuses attachments', () => {
+        const base = { subject: 'Hi', body: 'x', bodyMode: 'text', mode: 'send', recipientMode: 'all', attachmentBytes: 0 };
+        expect(_validateAnnouncement({ ...base, sendAt: '2026-10-10T09:00' })).toBeNull();
+        expect(_validateAnnouncement({ ...base, sendAt: '' })).toBe('manual.error.sendAt');
+        expect(_validateAnnouncement({ ...base, sendAt: '2026-10-10T09:00', attachmentBytes: 10 })).toBe('manual.error.scheduleAttachments');
+        expect(_validateAnnouncement({ ...base, subject: '', sendAt: '2026-10-10T09:00' })).toBe('manual.error.subject');
+    });
+
+    it('_announcementView lists announcements as text, with Cancel on pending ones only', () => {
+        const el = _announcementView(enStrings, [
+            { id: 'a1', subject: '<img src=x onerror=alert(1)>', sendAtLocal: '2026-10-10 09:00', recipientMode: 'all', status: 'pending' },
+            { id: 'a2', subject: 'Done', sendAtLocal: '2026-10-01 09:00', recipientMode: 'selected', recipientCount: 2, status: 'sent', sent: 2, failed: 0, skippedNoEmail: 1 }
+        ]);
+        expect(el.querySelector('img')).toBeNull();
+        expect(el.textContent).toContain('<img src=x onerror=alert(1)>');
+        const cancels = el.querySelectorAll('[data-announcement-id]');
+        expect(cancels.length).toBe(1);
+        expect(cancels[0].getAttribute('data-announcement-id')).toBe('a1');
+        expect(el.textContent).toContain('2 selected users');
+        expect(el.textContent).toContain('2 sent, 0 failed, 1 without an address.');
+    });
+
+    it('_announcementView shows an empty state', () => {
+        expect(_announcementView(frStrings, []).textContent).toBe('Aucune annonce programmée.');
     });
 
     it('_previewSrcdoc passes HTML through and escapes text mode', () => {

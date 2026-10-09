@@ -350,6 +350,72 @@
         return payload;
     }
 
+    // Returns an error key, or null when the form can be scheduled: the send checks, plus a date and
+    // no attachment (DEC-67). The server re-checks that the date is in the future.
+    function _validateAnnouncement(state) {
+        var error = _validateManual(state);
+        if (error) {
+            return error;
+        }
+        if (!String(state.sendAt || '').trim()) {
+            return 'manual.error.sendAt';
+        }
+        if ((state.attachmentBytes || 0) > 0) {
+            return 'manual.error.scheduleAttachments';
+        }
+        return null;
+    }
+
+    // Detached DOM for the scheduled announcements, textContent only. A pending one gets a Cancel
+    // button carrying data-announcement-id; the caller binds it.
+    function _announcementView(dict, list) {
+        var root = document.createElement('div');
+        (list || []).forEach(function (a) {
+            var row = document.createElement('div');
+            row.className = 'enotif-announcement';
+            var main = document.createElement('div');
+            main.className = 'enotif-announcement-main';
+            var title = document.createElement('div');
+            title.textContent = (a.sendAtLocal || '') + ' - ' + (a.subject || '');
+            var meta = document.createElement('div');
+            meta.className = 'enotif-announcement-meta';
+            var audience = a.recipientMode === 'selected'
+                ? _t(dict, 'manual.schedule.audience.selected').replace('{count}', a.recipientCount || 0)
+                : _t(dict, 'manual.schedule.audience.all');
+            var parts = [audience, _t(dict, 'manual.schedule.status.' + a.status)];
+            if (a.status === 'sent' || a.status === 'retrying') {
+                parts.push(_t(dict, 'manual.result.summary')
+                    .replace('{sent}', a.sent || 0)
+                    .replace('{failed}', a.failed || 0)
+                    .replace('{skipped}', a.skippedNoEmail || 0));
+            }
+            if (a.status === 'retrying' && a.nextAttemptLocal) {
+                parts.push(_t(dict, 'manual.schedule.nextAttempt').replace('{when}', a.nextAttemptLocal));
+            }
+            meta.textContent = parts.join(' · ');
+            main.appendChild(title);
+            main.appendChild(meta);
+            row.appendChild(main);
+            if (a.status === 'pending') {
+                var cancel = document.createElement('button');
+                cancel.setAttribute('is', 'emby-button');
+                cancel.type = 'button';
+                cancel.className = 'raised button-alt';
+                cancel.setAttribute('data-announcement-id', a.id);
+                cancel.textContent = _t(dict, 'manual.schedule.cancel');
+                row.appendChild(cancel);
+            }
+            root.appendChild(row);
+        });
+        if (!root.childNodes.length) {
+            var empty = document.createElement('div');
+            empty.className = 'fieldDescription';
+            empty.textContent = _t(dict, 'manual.schedule.empty');
+            root.appendChild(empty);
+        }
+        return root;
+    }
+
     // Content for the sandboxed <iframe srcdoc>. HTML mode passes through (the iframe has an empty
     // sandbox, so scripts never run); text mode is escaped inside a <pre>.
     function _previewSrcdoc(mode, value) {
@@ -525,6 +591,8 @@
         _manualRecipients: _manualRecipients,
         _validateManual: _validateManual,
         _manualPayload: _manualPayload,
+        _validateAnnouncement: _validateAnnouncement,
+        _announcementView: _announcementView,
         _previewSrcdoc: _previewSrcdoc,
         _fmtBytes: _fmtBytes,
         _manualResult: _manualResult,
@@ -748,6 +816,7 @@
     }
 
     function _renderFileList() {
+        _el('enotifManualScheduleBtn').disabled = manualFiles.length > 0;
         var host = _el('enotifManualFileList');
         host.innerHTML = '';
         manualFiles.forEach(function (f, i) {
@@ -889,7 +958,77 @@
             .catch(function () { /* no lot held */ });
     }
 
+    // ---- Scheduled announcements (browser) ----------------------------------
+
+    function _loadAnnouncements() {
+        return window.ApiClient.getJSON(_url('admin/announcements')).then(function (r) {
+            _el('enotifManualTzHint').textContent = _t(dict, 'manual.schedule.timeZone').replace('{tz}', (r && r.timeZone) || '');
+            var host = _el('enotifAnnouncementList');
+            host.innerHTML = '';
+            host.appendChild(_announcementView(dict, r && r.items));
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] could not load the scheduled announcements:', err);
+        });
+    }
+
+    function _setScheduleResult(text, isError) {
+        var result = _el('enotifScheduleResult');
+        result.textContent = text;
+        result.classList.toggle('enotif-status-error', !!isError);
+    }
+
+    function _scheduleManual() {
+        var state = _manualState(false);
+        state.sendAt = _el('enotifManualSendAt').value;
+        var error = _validateAnnouncement(state);
+        if (error) {
+            _setScheduleResult(_t(dict, error), true);
+            return;
+        }
+
+        var payload = _manualPayload(state);
+        payload.sendAt = state.sendAt;
+        _postJson('admin/announcements', payload).then(function () {
+            _setScheduleResult(_t(dict, 'manual.schedule.done'), false);
+            _el('enotifManualSendAt').value = '';
+            return _loadAnnouncements();
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] scheduling failed:', err);
+            var byError = {
+                'send-at-past': 'manual.schedule.error.past',
+                'send-at-too-far': 'manual.schedule.error.tooFar',
+                'invalid-send-at': 'manual.error.sendAt'
+            };
+            var show = function (body) {
+                _setScheduleResult(_t(dict, byError[body && body.error] || 'manual.schedule.error.generic'), true);
+            };
+            if (err && typeof err.json === 'function') {
+                err.json().then(show, function () { show(null); });
+            } else {
+                show(null);
+            }
+        });
+    }
+
+    function _cancelAnnouncement(id) {
+        window.ApiClient.ajax({ type: 'DELETE', url: _url('admin/announcements/' + encodeURIComponent(id)) })
+            .then(_loadAnnouncements)
+            .catch(function (err) {
+                console.error('[EasyNotif Config] cancel failed:', err);
+                _setScheduleResult(_t(dict, 'manual.schedule.error.cancel'), true);
+                _loadAnnouncements();
+            });
+    }
+
     function _bindManual() {
+        _el('enotifManualScheduleBtn').addEventListener('click', _scheduleManual);
+        _el('enotifAnnouncementList').addEventListener('click', function (e) {
+            var button = e.target.closest('[data-announcement-id]');
+            if (button) {
+                button.disabled = true;
+                _cancelAnnouncement(button.getAttribute('data-announcement-id'));
+            }
+        });
         _el('enotifManualPreviewBtn').addEventListener('click', _refreshManualPreview);
         _el('enotifManualTestBtn').addEventListener('click', function () { _sendManual(true); });
         _el('enotifManualSendBtn').addEventListener('click', function () { _sendManual(false); });
@@ -1364,6 +1503,7 @@
                 _loadTemplates();
                 _loadCampaigns();
                 _resumeManualBatch();
+                _loadAnnouncements();
                 _loadManualUsers().then(function () {
                     var addr = _el('enotifManualTestAddress');
                     if (!addr.value) {

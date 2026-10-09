@@ -80,4 +80,10 @@ public sealed record SendResult(bool Success, string? ResendId, int StatusCode, 
     /// not a real failure - the original send stands.
     /// </summary>
     public bool Deduplicated { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether a failure is worth another attempt: network failure or
+    /// timeout (no status), rate limit, provider error. A 4xx rejects this message for good (DEC-23).
+    /// </summary>
+    public bool IsTransientFailure => !Success && !Deduplicated && StatusCode is 0 or 429 or >= 500;
 }

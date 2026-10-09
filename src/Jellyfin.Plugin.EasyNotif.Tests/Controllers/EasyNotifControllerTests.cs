@@ -55,6 +55,9 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetLatestManualBatch))]
     [InlineData(nameof(EasyNotifController.RetryManualBatch))]
     [InlineData(nameof(EasyNotifController.PreviewManualEmail))]
+    [InlineData(nameof(EasyNotifController.ScheduleAnnouncement))]
+    [InlineData(nameof(EasyNotifController.GetAnnouncements))]
+    [InlineData(nameof(EasyNotifController.CancelAnnouncement))]
     [InlineData(nameof(EasyNotifController.GetLogs))]
     [InlineData(nameof(EasyNotifController.GetCampaigns))]
     [InlineData(nameof(EasyNotifController.PutCampaign))]
@@ -1301,6 +1304,115 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void ScheduleAnnouncement_ReadsTheDateInTheSchedulerTimeZone_AndStoresIt()
+    {
+        var tz = RecurrenceSchedule.ResolveTimeZone("America/New_York");
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date.AddDays(3).AddHours(10);
+        var store = new Mock<IScheduledAnnouncementStore>();
+        ScheduledAnnouncement? added = null;
+        store.Setup(s => s.Add(It.IsAny<ScheduledAnnouncement>())).Callback<ScheduledAnnouncement>(a => added = a);
+        var manual = new Mock<IManualEmailService>();
+        var controller = BuildController(
+            config: new FakeConfig(new PluginConfiguration { SchedulerTimeZone = "America/New_York" }),
+            manualEmail: manual,
+            announcements: store.Object);
+
+        var result = controller.ScheduleAnnouncement(new ScheduleAnnouncementRequest
+        {
+            Subject = " Movie night ",
+            Text = "Friday",
+            RecipientMode = "selected",
+            RecipientUserIds = [DefaultUserId],
+            Wrap = true,
+            Lang = "en",
+            SendAt = local.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)
+        });
+
+        Assert.IsType<CreatedResult>(result);
+        Assert.NotNull(added);
+        Assert.Equal(TimeZoneInfo.ConvertTimeToUtc(local, tz), added!.SendAtUtc);
+        Assert.Equal("Movie night", added.Subject);
+        Assert.Equal(ScheduledAnnouncement.Pending, added.Status);
+        Assert.Equal([DefaultUserId], added.UserIds);
+        Assert.True(added.Wrap);
+        Assert.Equal("en", added.Lang);
+        manual.Verify(m => m.Plan(It.Is<ManualEmailRequest>(r => r.Mode == "selected" && r.Wrap)), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("test", "2099-01-01T10:00", false, "invalid-mode")]
+    [InlineData("all", "2099-01-01T10:00", true, "attachments-not-allowed")]
+    [InlineData("all", "2001-01-01T10:00", false, "send-at-past")]
+    [InlineData("all", "2099-01-01T10:00", false, "send-at-too-far")]
+    [InlineData("all", "tomorrow", false, "invalid-send-at")]
+    public void ScheduleAnnouncement_RefusesAnInvalidRequest_WithoutStoringIt(string mode, string sendAt, bool withAttachment, string error)
+    {
+        var store = new Mock<IScheduledAnnouncementStore>();
+        var controller = BuildController(announcements: store.Object);
+
+        var result = controller.ScheduleAnnouncement(new ScheduleAnnouncementRequest
+        {
+            Subject = "Hi",
+            Text = "x",
+            RecipientMode = mode,
+            SendAt = sendAt,
+            Attachments = withAttachment ? [new AttachmentDto { FileName = "a.txt", ContentBase64 = "eA==" }] : null
+        });
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains(error, JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+        store.Verify(s => s.Add(It.IsAny<ScheduledAnnouncement>()), Times.Never);
+    }
+
+    [Fact]
+    public void ScheduleAnnouncement_WithAScriptInTheBody_Returns400()
+    {
+        var manual = new Mock<IManualEmailService>();
+        manual.Setup(m => m.Plan(It.IsAny<ManualEmailRequest>())).Throws(new ArgumentException("The HTML body must not contain a script."));
+        var store = new Mock<IScheduledAnnouncementStore>();
+
+        var result = BuildController(manualEmail: manual, announcements: store.Object).ScheduleAnnouncement(new ScheduleAnnouncementRequest
+        {
+            Subject = "Hi",
+            Html = "<script>x</script>",
+            SendAt = DateTime.UtcNow.AddDays(2).ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        store.Verify(s => s.Add(It.IsAny<ScheduledAnnouncement>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(CancelOutcome.Cancelled, StatusCodes.Status204NoContent)]
+    [InlineData(CancelOutcome.NotPending, StatusCodes.Status409Conflict)]
+    [InlineData(CancelOutcome.NotFound, StatusCodes.Status404NotFound)]
+    public void CancelAnnouncement_MapsTheOutcome(CancelOutcome outcome, int status)
+    {
+        var store = new Mock<IScheduledAnnouncementStore>();
+        store.Setup(s => s.Cancel(It.IsAny<Guid>(), It.IsAny<DateTime>())).Returns(outcome);
+
+        var result = BuildController(announcements: store.Object).CancelAnnouncement(Guid.NewGuid());
+
+        Assert.Equal(status, Assert.IsAssignableFrom<IStatusCodeActionResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public void GetAnnouncements_ReturnsTheTimeZone_AndLocalTimes()
+    {
+        var store = new Mock<IScheduledAnnouncementStore>();
+        store.Setup(s => s.All()).Returns([new ScheduledAnnouncement { Id = Guid.NewGuid(), Subject = "Hi", SendAtUtc = new DateTime(2026, 12, 1, 9, 0, 0, DateTimeKind.Utc) }]);
+        var controller = BuildController(
+            config: new FakeConfig(new PluginConfiguration { SchedulerTimeZone = "Europe/Paris" }),
+            announcements: store.Object);
+
+        var json = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetAnnouncements()).Value);
+
+        Assert.Contains("\"timeZone\":\"Europe/Paris\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"sendAtLocal\":\"2026-12-01 10:00\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"status\":\"pending\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetTemplate_UnknownId_Returns404()
         => Assert.IsType<NotFoundResult>(BuildController().GetTemplate("nope", "en"));
 
@@ -1474,7 +1586,8 @@ public sealed class EasyNotifControllerTests
         Mock<IManualSendQueue>? manualQueue = null,
         Mock<IFollowedSeriesService>? followedSeries = null,
         IDrainStatus? drains = null,
-        IIncidentStore? incidents = null)
+        IIncidentStore? incidents = null,
+        IScheduledAnnouncementStore? announcements = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1506,6 +1619,7 @@ public sealed class EasyNotifControllerTests
             (sendLog ?? new Mock<ISendLog>()).Object,
             (manualEmail ?? new Mock<IManualEmailService>()).Object,
             (manualQueue ?? new Mock<IManualSendQueue>()).Object,
+            announcements ?? new Mock<IScheduledAnnouncementStore>().Object,
             campaigns ?? new FakeCampaignStore(),
             (dispatch ?? new Mock<IDispatchService>()).Object,
             templates ?? TestTemplateStore.Create(),

@@ -50,6 +50,46 @@ public sealed class TemplateStoreTests : IDisposable
     public void UnknownId_Throws()
         => Assert.Throws<InvalidOperationException>(() => Build().Get("nope", "en"));
 
+    [Theory]
+    [InlineData("newsletter__..\\x")]
+    [InlineData("newsletter__a/../b")]
+    [InlineData("newsletter__../../secrets")]
+    [InlineData("foo__bar")]
+    [InlineData("__bar")]
+    [InlineData("newsletter__Bad")]
+    [InlineData("newsletter__-lead")]
+    [InlineData("series-episodes__x")]
+    [InlineData("newsletter__x\n")]
+    public void MalformedCustomId_IsRefusedEverywhere_WithoutTouchingTheDisk(string id)
+    {
+        var store = Build();
+        Directory.CreateDirectory(_tempDir);
+        var outside = Path.Combine(_tempDir, "secrets-en.html");
+        File.WriteAllText(outside, "outside");
+
+        Assert.False(store.Exists(id));
+        Assert.Throws<InvalidOperationException>(() => store.Get(id, "en"));
+        Assert.Throws<InvalidOperationException>(() => store.GetRaw(id, "en"));
+        Assert.Throws<InvalidOperationException>(() => store.Save(id, "en", "<p>x</p>"));
+        Assert.Throws<InvalidOperationException>(() => store.Delete(id));
+        Assert.True(File.Exists(outside));
+        Assert.False(Directory.Exists(CustomDir));
+    }
+
+    [Fact]
+    public void Clone_WithATrailingNewlineInTheSlug_IsRefused()
+        => Assert.Throws<InvalidOperationException>(() => Build().Clone("newsletter", "x\n"));
+
+    [Fact]
+    public void List_IgnoresAFileWhoseIdDoesNotMatchTheCustomPattern()
+    {
+        Directory.CreateDirectory(CustomDir);
+        File.WriteAllText(Path.Combine(CustomDir, "foo__bar-en.html"), "<p>x</p>");
+        File.WriteAllText(Path.Combine(CustomDir, "series-episodes__x-en.html"), "<p>x</p>");
+
+        Assert.DoesNotContain(Build().List(), t => t.Custom);
+    }
+
     [Fact]
     public void Clone_WritesBothLanguages_AndListsTheCustom()
     {

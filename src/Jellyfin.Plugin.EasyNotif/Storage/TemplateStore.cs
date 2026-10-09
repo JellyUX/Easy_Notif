@@ -97,7 +97,13 @@ public sealed class TemplateStore : ITemplateStore
     private const int MaxNesting = 32;
     private const string CustomSeparator = "__";
 
-    private static readonly Regex SlugPattern = new("^[a-z0-9][a-z0-9-]{0,30}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SlugPattern = new(@"^[a-z0-9][a-z0-9-]{0,30}\z", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    // A custom id is a cloneable base id, the separator and a slug; nothing else reaches the disk (SEC-03).
+    private static readonly Regex CustomIdPattern = new(
+        "^(" + string.Join('|', CloneableBaseIds.Select(Regex.Escape)) + ")" + CustomSeparator + @"[a-z0-9][a-z0-9-]{0,30}\z",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Assembly PluginAssembly = typeof(TemplateStore).Assembly;
 
     private static readonly IReadOnlySet<string> NewsletterKeys = new HashSet<string>(StringComparer.Ordinal)
@@ -344,6 +350,11 @@ public sealed class TemplateStore : ITemplateStore
             throw new InvalidOperationException("Base templates are read-only.");
         }
 
+        if (!IsCustomId(templateId))
+        {
+            throw new InvalidOperationException($"Unknown template \"{templateId}\".");
+        }
+
         foreach (var lang in new[] { "en", "fr" })
         {
             var path = CustomPath(templateId, lang);
@@ -355,7 +366,7 @@ public sealed class TemplateStore : ITemplateStore
     }
 
     private static bool IsCustomId(string templateId)
-        => templateId.Contains(CustomSeparator, StringComparison.Ordinal);
+        => CustomIdPattern.IsMatch(templateId);
 
     private static string NormalizeLang(string lang) => lang is "fr" ? "fr" : "en";
 
@@ -368,7 +379,16 @@ public sealed class TemplateStore : ITemplateStore
         };
 
     private string CustomPath(string templateId, string lang)
-        => Path.Combine(_customDir, $"{templateId}-{lang}.html");
+    {
+        var path = Path.GetFullPath(Path.Combine(_customDir, $"{templateId}-{lang}.html"));
+        var root = Path.GetFullPath(_customDir) + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(root, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Template \"{templateId}\" resolves outside the templates directory.");
+        }
+
+        return path;
+    }
 
     private void WriteAtomic(string path, string content)
     {

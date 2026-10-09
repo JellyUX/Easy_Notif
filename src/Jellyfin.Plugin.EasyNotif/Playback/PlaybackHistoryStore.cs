@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Threading.Channels;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Storage;
@@ -10,7 +11,7 @@ namespace Jellyfin.Plugin.EasyNotif.Playback;
 /// <summary>
 /// The plugin's own lightweight watch history: an append-only event list plus a per-user/per-year
 /// rollup, in one JSON file (Synthese.md section 6). The rollup is kept forever (a few KB); the
-/// events are compacted to 90 days. See <see cref="PlaybackHistoryStore"/>.
+/// events are cut to 90 days on every write. See <see cref="PlaybackHistoryStore"/>.
 /// </summary>
 public interface IPlaybackHistoryStore
 {
@@ -24,14 +25,11 @@ public interface IPlaybackHistoryStore
     /// <returns>The events, newest first.</returns>
     IReadOnlyList<PlaybackEvent> GetWeek(Guid userId, DateTime sinceUtc);
 
-    /// <summary>Returns a user's year-to-date totals from the rollup (O(1), survives compaction).</summary>
+    /// <summary>Returns a user's year-to-date totals from the rollup (O(1), survives the 90-day cut).</summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="year">The calendar year.</param>
     /// <returns>The totals and the date history tracking started.</returns>
     YearToDate GetYearToDate(Guid userId, int year);
-
-    /// <summary>Drops event lines older than 90 days. A no-op (no I/O) unless a month has rolled over.</summary>
-    void Compact();
 
     /// <summary>
     /// Removes every event and rollup entry for a user. Called when the Jellyfin account is deleted.
@@ -64,9 +62,6 @@ public sealed class PlaybackHistoryFile
 
     /// <summary>Gets the per-user/per-year rollup, keyed <c>"{userId:N}:{year}"</c>.</summary>
     public Dictionary<string, RollupYear> Rollup { get; init; } = [];
-
-    /// <summary>Gets or sets when the events were last compacted.</summary>
-    public DateTime? LastCompactUtc { get; set; }
 
     /// <summary>Gets or sets when history tracking started (first run).</summary>
     public DateTime TrackingSinceUtc { get; set; }
@@ -107,6 +102,9 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
             SingleReader = true,
             FullMode = BoundedChannelFullMode.DropWrite
         });
+    // Not indented: at the 50,000-event cap the file is rewritten on every batch.
+    private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
+
     private readonly Func<DateTime> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly CancellationTokenSource _cts = new();
@@ -155,25 +153,6 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
             file.Rollup.TryGetValue(RollupKey(userId, year), out var y);
             return new YearToDate(y?.Total ?? 0, y?.Completed ?? 0, file.TrackingSinceUtc);
         });
-
-    /// <inheritdoc/>
-    public void Compact()
-    {
-        var now = _now();
-        var lastCompact = Read(file => file.LastCompactUtc);
-        if (lastCompact is { } last && last.Year == now.Year && last.Month == now.Month)
-        {
-            return;
-        }
-
-        var cutoff = now - Retention;
-        Mutate(file =>
-        {
-            file.Events.RemoveAll(e => e.Ts < cutoff);
-            file.LastCompactUtc = now;
-            return true;
-        });
-    }
 
     /// <inheritdoc/>
     public void Purge(Guid userId)
@@ -267,9 +246,10 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
                 Mutate(file =>
                 {
                     file.Events.RemoveAll(e => e.Ts < cutoff);
+                    var index = IndexByViewKey(file.Events);
                     foreach (var ev in batch)
                     {
-                        Ingest(file, ev);
+                        Ingest(file, index, ev);
                     }
 
                     if (file.Events.Count > MaxEvents)
@@ -294,23 +274,40 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
     /// Jellyfin's <c>ISessionManager.PlaybackStopped</c> can fire more than once for a single stop
     /// (observed twice for auto-advancing episodes).
     /// </summary>
-    private static void Ingest(PlaybackHistoryFile file, PlaybackEvent ev)
+    private static void Ingest(PlaybackHistoryFile file, Dictionary<(Guid User, Guid Item, DateOnly Day), int> index, PlaybackEvent ev)
     {
-        var index = file.Events.FindLastIndex(e =>
-            e.UserId == ev.UserId && e.ItemId == ev.ItemId && e.Ts.Date == ev.Ts.Date);
-
-        if (index < 0)
+        var key = ViewKey(ev);
+        if (!index.TryGetValue(key, out var position))
         {
+            index[key] = file.Events.Count;
             file.Events.Add(ev);
             ApplyToRollup(file, ev);
             return;
         }
 
-        var merged = ev with { Completed = file.Events[index].Completed || ev.Completed };
-        RemoveFromRollup(file, file.Events[index]);
-        file.Events[index] = merged;
+        var merged = ev with { Completed = file.Events[position].Completed || ev.Completed };
+        RemoveFromRollup(file, file.Events[position]);
+        file.Events[position] = merged;
         ApplyToRollup(file, merged);
     }
+
+    /// <summary>
+    /// Maps each same-user/item/day view to its row, built once per batch so <see cref="Ingest"/>
+    /// finds a duplicate in O(1). Later rows win, like the former backwards search.
+    /// </summary>
+    private static Dictionary<(Guid User, Guid Item, DateOnly Day), int> IndexByViewKey(List<PlaybackEvent> events)
+    {
+        var index = new Dictionary<(Guid User, Guid Item, DateOnly Day), int>(events.Count);
+        for (var i = 0; i < events.Count; i++)
+        {
+            index[ViewKey(events[i])] = i;
+        }
+
+        return index;
+    }
+
+    private static (Guid User, Guid Item, DateOnly Day) ViewKey(PlaybackEvent ev)
+        => (ev.UserId, ev.ItemId, DateOnly.FromDateTime(ev.Ts));
 
     /// <summary>
     /// Collapses same-user/item/day duplicate rows left by an earlier double-fire (before this
@@ -321,7 +318,7 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
         var byKey = new Dictionary<(Guid User, Guid Item, DateOnly Day), PlaybackEvent>();
         foreach (var ev in file.Events)
         {
-            var key = (ev.UserId, ev.ItemId, DateOnly.FromDateTime(ev.Ts));
+            var key = ViewKey(ev);
             byKey[key] = byKey.TryGetValue(key, out var prev)
                 ? ev with { Completed = prev.Completed || ev.Completed }
                 : ev;
@@ -402,6 +399,9 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
 
     private static string RollupKey(Guid userId, int year)
         => $"{userId:N}:{year.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <inheritdoc/>
+    protected override string Serialize(PlaybackHistoryFile value) => JsonSerializer.Serialize(value, CompactJson);
 
     /// <inheritdoc/>
     protected override void Dispose(bool disposing)

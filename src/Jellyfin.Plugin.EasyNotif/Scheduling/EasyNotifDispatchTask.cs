@@ -1,4 +1,3 @@
-using Jellyfin.Plugin.EasyNotif.Playback;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -20,19 +19,16 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
 
     private readonly IDispatchService _dispatch;
     private readonly ISeriesNotifier _series;
-    private readonly IPlaybackHistoryStore _history;
     private readonly ILogger<EasyNotifDispatchTask> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="EasyNotifDispatchTask"/> class.</summary>
     /// <param name="dispatch">The dispatch service.</param>
-    /// <param name="history">The playback history store (compacted here on the monthly rollover).</param>
     /// <param name="series">The series notifier, flushed after the campaigns.</param>
     /// <param name="logger">Logger.</param>
-    public EasyNotifDispatchTask(IDispatchService dispatch, IPlaybackHistoryStore history, ISeriesNotifier series, ILogger<EasyNotifDispatchTask> logger)
+    public EasyNotifDispatchTask(IDispatchService dispatch, ISeriesNotifier series, ILogger<EasyNotifDispatchTask> logger)
     {
         _dispatch = dispatch;
         _series = series;
-        _history = history;
         _logger = logger;
     }
 
@@ -52,17 +48,6 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(progress);
-
-        // Monthly event compaction: an in-memory no-op unless the calendar month has rolled over. A
-        // failure here must not keep the campaigns from being dispatched.
-        try
-        {
-            _history.Compact();
-        }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            _logger.LogError(ex, "[EasyNotif] Playback history compaction failed; dispatching anyway.");
-        }
 
         await _dispatch.RunDueAsync(cancellationToken).ConfigureAwait(false);
 

@@ -10,8 +10,9 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Playback;
 
 /// <summary>
 /// Covers <see cref="PlaybackHistoryStore"/>: events are drained and persisted, the rollup is
-/// incremented at write time and survives compaction, <see cref="PlaybackHistoryStore.GetWeek"/>
-/// windows and deduplicates by item, compaction is a monthly no-op, and a corrupt file self-heals.
+/// incremented at write time and survives the 90-day cut, <see cref="PlaybackHistoryStore.GetWeek"/>
+/// windows and deduplicates by item, the drain drops events past 90 days, the file is written
+/// without indentation, and a corrupt file self-heals.
 /// </summary>
 public sealed class PlaybackHistoryStoreTests : IDisposable
 {
@@ -194,7 +195,7 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Compact_DropsOldEvents_ButKeepsTheRollup()
+    public async Task Drain_DropsEventsOlderThan90Days_OnTheNextWrite_ButKeepsTheRollup()
     {
         var store = Build();
         store.Start();
@@ -203,27 +204,78 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
         store.Record(Event(user, Guid.NewGuid(), _now.AddDays(-1), completed: true));
         await WaitFor(() => store.GetYearToDate(user, 2026).Total == 2);
 
-        _now = _now.AddMonths(1); // roll the month so Compact is not a no-op
-        store.Compact();
+        store.Record(Event(user, Guid.NewGuid(), _now, completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 3);
 
-        Assert.Single(store.GetWeek(user, DateTime.MinValue)); // only the recent event remains
-        Assert.Equal(2, store.GetYearToDate(user, 2026).Total); // rollup untouched
+        Assert.Equal(2, store.GetWeek(user, DateTime.MinValue).Count); // the 120-day-old event is gone
+        Assert.Equal(3, store.GetYearToDate(user, 2026).Total);         // rollup untouched
         await store.StopAsync();
     }
 
     [Fact]
-    public void Compact_IsANoOpWithinTheSameMonth_NoDiskWrite()
+    public async Task Duplicate_InALaterBatch_IsMergedIntoTheStoredRow()
     {
-        var counting = new CountingFileSystem();
-        var store = Build(counting);
-        store.Start();     // stamps TrackingSinceUtc
-        store.Compact();   // first compaction: stamps LastCompactUtc for this month
-        var writesBefore = counting.Writes;
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        var item = Guid.NewGuid();
+        store.Record(Event(user, Guid.NewGuid(), _now.AddHours(-1), completed: false));
+        store.Record(Event(user, item, _now.AddHours(-1), completed: false));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 2);
 
-        store.Compact();   // same month
-        store.Compact();
+        store.Record(Event(user, item, _now, completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Completed == 1);
 
-        Assert.Equal(writesBefore, counting.Writes);
+        Assert.Equal(2, store.GetYearToDate(user, 2026).Total);
+        Assert.Equal(2, store.GetWeek(user, DateTime.MinValue).Count);
+        Assert.True(store.GetWeek(user, DateTime.MinValue).Single(e => e.ItemId == item).Completed);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Write_IsNotIndented()
+    {
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        store.Record(Event(user, Guid.NewGuid(), _now, completed: true));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 1);
+        await store.StopAsync();
+
+        var raw = File.ReadAllText(Path.Combine(DataDir, "playback-history.json"));
+        Assert.DoesNotContain('\n', raw);
+        Assert.Contains($"\"UserId\":\"{user}\"", raw, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Start_ReadsAnIndentedFileFromAnEarlierVersion_AndRewritesItCompact()
+    {
+        var user = Guid.NewGuid();
+        var ts = _now.ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ");
+        Directory.CreateDirectory(DataDir);
+        File.WriteAllText(
+            Path.Combine(DataDir, "playback-history.json"),
+            $$"""
+            {
+              "Schema": 1,
+              "Events": [
+                { "Ts": "{{ts}}", "UserId": "{{user}}", "ItemId": "{{Guid.NewGuid()}}", "Kind": "Movie", "Name": "m", "PositionTicks": 0, "RuntimeTicks": 0, "Completed": true }
+              ],
+              "Rollup": {},
+              "LastCompactUtc": "{{ts}}",
+              "TrackingSinceUtc": "{{ts}}"
+            }
+            """);
+
+        var store = Build();
+        store.Start(); // rebuilds the missing rollup, so it writes
+
+        Assert.Single(store.GetWeek(user, _now.AddDays(-7)));
+        Assert.Equal(1, store.GetYearToDate(user, 2026).Total);
+        var raw = File.ReadAllText(Path.Combine(DataDir, "playback-history.json"));
+        Assert.DoesNotContain('\n', raw);
+        Assert.DoesNotContain("LastCompactUtc", raw, StringComparison.Ordinal);
+        await store.StopAsync();
     }
 
     [Fact]

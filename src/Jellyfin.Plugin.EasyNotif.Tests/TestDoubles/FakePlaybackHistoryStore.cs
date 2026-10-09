@@ -4,8 +4,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 
 /// <summary>
 /// In-memory <see cref="IPlaybackHistoryStore"/> for tests: <see cref="Record"/> appends to
-/// <see cref="Recorded"/>, the week/year queries read seeded events, and start/stop/compact just
-/// count their calls.
+/// <see cref="Recorded"/>, the week/year queries read seeded events, and start/stop just count
+/// their calls.
 /// </summary>
 public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
 {
@@ -13,9 +13,6 @@ public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
 
     /// <summary>Gets the events passed to <see cref="Record"/>, in order.</summary>
     public List<PlaybackEvent> Recorded { get; } = [];
-
-    /// <summary>Gets the number of times <see cref="Compact"/> was called.</summary>
-    public int CompactCount { get; private set; }
 
     /// <summary>Gets the number of times <see cref="Start"/> was called.</summary>
     public int StartCount { get; private set; }
@@ -48,9 +45,6 @@ public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
 
     /// <inheritdoc/>
     public YearToDate GetYearToDate(Guid userId, int year) => YearToDate;
-
-    /// <inheritdoc/>
-    public void Compact() => CompactCount++;
 
     /// <summary>Gets the user ids passed to <see cref="Purge"/>, in order.</summary>
     public List<Guid> Purged { get; } = [];

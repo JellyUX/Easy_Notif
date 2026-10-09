@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -19,16 +20,19 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
 
     private readonly IDispatchService _dispatch;
     private readonly ISeriesNotifier _series;
+    private readonly IAdminAlertService _alerts;
     private readonly ILogger<EasyNotifDispatchTask> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="EasyNotifDispatchTask"/> class.</summary>
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="series">The series notifier, flushed after the campaigns.</param>
+    /// <param name="alerts">The incident digest, sent last.</param>
     /// <param name="logger">Logger.</param>
-    public EasyNotifDispatchTask(IDispatchService dispatch, ISeriesNotifier series, ILogger<EasyNotifDispatchTask> logger)
+    public EasyNotifDispatchTask(IDispatchService dispatch, ISeriesNotifier series, IAdminAlertService alerts, ILogger<EasyNotifDispatchTask> logger)
     {
         _dispatch = dispatch;
         _series = series;
+        _alerts = alerts;
         _logger = logger;
     }
 
@@ -59,6 +63,16 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "[EasyNotif] Series notification flush failed; it runs again on the next tick.");
+        }
+
+        // Last, so it reports what this tick ran into; a failure never affects the sends above.
+        try
+        {
+            await _alerts.RunAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "[EasyNotif] Incident digest failed; it runs again on the next tick.");
         }
 
         progress.Report(100);

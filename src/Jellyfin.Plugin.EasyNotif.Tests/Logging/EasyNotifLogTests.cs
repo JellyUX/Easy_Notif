@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Configuration;
@@ -21,7 +22,7 @@ public sealed class EasyNotifLogTests : IDisposable
 
     private string LogsDir => Path.Combine(_tempDir, "Jellyfin.Plugin.EasyNotif", "logs");
 
-    private (EasyNotifLog Log, CapturingLogger<EasyNotifLog> Relay) Build(int retentionDays = 30)
+    private (EasyNotifLog Log, CapturingLogger<EasyNotifLog> Relay) Build(int retentionDays = 30, IIncidentStore? incidents = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
@@ -30,7 +31,7 @@ public sealed class EasyNotifLogTests : IDisposable
         configManager.Setup(c => c.Configuration).Returns(new ServerConfiguration { ActivityLogRetentionDays = retentionDays });
 
         var relay = new CapturingLogger<EasyNotifLog>();
-        var log = new EasyNotifLog(paths.Object, configManager.Object, relay);
+        var log = new EasyNotifLog(paths.Object, configManager.Object, relay, incidents ?? Mock.Of<IIncidentStore>());
         _logs.Add(log);
         return (log, relay);
     }
@@ -39,6 +40,24 @@ public sealed class EasyNotifLogTests : IDisposable
     {
         var file = Directory.GetFiles(LogsDir, "easynotif-*.log").Single();
         return File.ReadAllText(file);
+    }
+
+    [Fact]
+    public void WarnAndError_AreForwardedToTheIncidentStore_Masked_InfoIsNot()
+    {
+        var incidents = new Mock<IIncidentStore>();
+        var (log, _) = Build(incidents: incidents.Object);
+
+        log.Info("email.sent", new Dictionary<string, object?> { ["to"] = "alice.recipient@example.org" });
+        log.Warn("quota.threshold", null);
+        log.Error("email.failed", new Dictionary<string, object?> { ["error"] = "rejected alice.recipient@example.org" });
+        log.Dispose();
+
+        incidents.Verify(s => s.Record("email.sent", It.IsAny<IReadOnlyDictionary<string, object?>?>()), Times.Never);
+        incidents.Verify(s => s.Record("quota.threshold", null), Times.Once);
+        incidents.Verify(
+            s => s.Record("email.failed", It.Is<IReadOnlyDictionary<string, object?>?>(f => !((string)f!["error"]!).Contains("alice.recipient", StringComparison.Ordinal))),
+            Times.Once);
     }
 
     [Fact]
@@ -288,7 +307,7 @@ public sealed class EasyNotifLogTests : IDisposable
         configManager.Setup(c => c.Configuration).Returns(new ServerConfiguration());
         var relay = new CapturingLogger<EasyNotifLog>();
 
-        var log = new EasyNotifLog(paths.Object, configManager.Object, relay);
+        var log = new EasyNotifLog(paths.Object, configManager.Object, relay, Mock.Of<IIncidentStore>());
         _logs.Add(log);
 
         log.Info("should.be.dropped");

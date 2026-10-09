@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using System.Reflection;
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
@@ -43,6 +44,9 @@ public class EasyNotifController : ControllerBase
 {
     private static readonly Assembly PluginAssembly = typeof(EasyNotifController).Assembly;
 
+    // The admin banner shows while an incident is younger than this (DEC-64).
+    private static readonly TimeSpan BannerWindow = TimeSpan.FromHours(24);
+
     private readonly IPreferenceService _preferences;
     private readonly IFollowedSeriesService _followedSeries;
     private readonly IConfigAccessor _config;
@@ -59,6 +63,7 @@ public class EasyNotifController : ControllerBase
     private readonly ITemplateStore _templates;
     private readonly IFileTransformationDetector _fileTransformation;
     private readonly IDrainStatus _drains;
+    private readonly IIncidentStore _incidents;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
@@ -81,6 +86,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="templates">The email template store.</param>
     /// <param name="fileTransformation">The FileTransformation availability detector.</param>
     /// <param name="drains">The health of the background drains.</param>
+    /// <param name="incidents">The incidents shown in the admin banner.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
@@ -100,6 +106,7 @@ public class EasyNotifController : ControllerBase
         ITemplateStore templates,
         IFileTransformationDetector fileTransformation,
         IDrainStatus drains,
+        IIncidentStore incidents,
         IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
@@ -119,6 +126,7 @@ public class EasyNotifController : ControllerBase
         _templates = templates;
         _fileTransformation = fileTransformation;
         _drains = drains;
+        _incidents = incidents;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -444,6 +452,8 @@ public class EasyNotifController : ControllerBase
             quotaMonthlyLimit = cfg.QuotaMonthlyLimit,
             injectWebUi = cfg.InjectWebUi,
             injectSeriesBell = cfg.InjectSeriesBell,
+            alertEmail = cfg.AlertEmail,
+            alertLanguage = cfg.AlertLanguage,
             resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
             webhookSigningSecretSet = !string.IsNullOrEmpty(secrets.WebhookSigningSecret),
             startupWarning = cfg.StartupWarning
@@ -474,12 +484,17 @@ public class EasyNotifController : ControllerBase
             return BadRequest();
         }
 
-        foreach (var address in new[] { body.FromEmail, body.ReplyTo })
+        foreach (var address in new[] { body.FromEmail, body.ReplyTo, body.AlertEmail })
         {
             if (!string.IsNullOrWhiteSpace(address) && !MailAddress.TryCreate(address.Trim(), out _))
             {
                 return BadRequest();
             }
+        }
+
+        if (body.AlertLanguage is not null and not "fr" and not "en")
+        {
+            return BadRequest();
         }
 
         if (!string.IsNullOrWhiteSpace(body.PublicServerUrl) && !PublicUrl.IsValid(body.PublicServerUrl.Trim()))
@@ -514,6 +529,12 @@ public class EasyNotifController : ControllerBase
             cfg.QuotaMonthlyLimit = body.QuotaMonthlyLimit ?? cfg.QuotaMonthlyLimit;
             cfg.InjectWebUi = body.InjectWebUi ?? cfg.InjectWebUi;
             cfg.InjectSeriesBell = body.InjectSeriesBell ?? cfg.InjectSeriesBell;
+            cfg.AlertLanguage = body.AlertLanguage ?? cfg.AlertLanguage;
+            if (body.AlertEmail is not null)
+            {
+                cfg.AlertEmail = Trimmed(body.AlertEmail);
+            }
+
             if (!string.IsNullOrWhiteSpace(body.SchedulerTimeZone))
             {
                 cfg.SchedulerTimeZone = body.SchedulerTimeZone.Trim();
@@ -544,7 +565,8 @@ public class EasyNotifController : ControllerBase
     /// <summary>
     /// Gets the Resend transport status for the settings tab: whether it is configured, the rolling
     /// send quota with its configured limits and the share reserved for a campaign due today, the
-    /// last webhook received, each campaign's last error, the health of the background drains
+    /// last webhook received, the incidents of the last 7 days with the banner flag (one younger
+    /// than 24 hours), each campaign's last error, the health of the background drains
     /// (last write, lost batches, dropped items, queue depth), and the last few sends. Never
     /// returns a secret.
     /// Administrators only.
@@ -560,9 +582,11 @@ public class EasyNotifController : ControllerBase
         var (lastWebhookUtc, lastWebhookType) = _sendLog.LastWebhook();
         var quota = _quota.Snapshot();
         var tz = RecurrenceSchedule.ResolveTimeZone(cfg.SchedulerTimeZone);
+        var incidents = _incidents.All();
+        var now = DateTime.UtcNow;
         return Ok(new
         {
-            configured = !string.IsNullOrWhiteSpace(_secrets.Get().ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
+            configured =!string.IsNullOrWhiteSpace(_secrets.Get().ResendApiKey) && !string.IsNullOrWhiteSpace(cfg.FromEmail),
             fromEmail = cfg.FromEmail,
             publicUrlSet = !string.IsNullOrWhiteSpace(cfg.PublicServerUrl),
             fileTransformation = _fileTransformation.IsAvailable(),
@@ -598,6 +622,15 @@ public class EasyNotifController : ControllerBase
                 lostItems = d.Value.LostItems,
                 dropped = d.Value.Dropped,
                 depth = d.Value.Depth
+            }),
+            banner = incidents.Any(i => i.Ts >= now - BannerWindow),
+            alertEmailSet = !string.IsNullOrWhiteSpace(cfg.AlertEmail),
+            lastDigestUtc = _incidents.LastDigestUtc,
+            incidents = incidents.OrderByDescending(i => i.Ts).Take(50).Select(i => new
+            {
+                ts = i.Ts,
+                type = i.Type,
+                detail = i.Detail
             }),
             recent = _sendLog.Recent(10).Select(e => new
             {
@@ -1545,6 +1578,12 @@ public sealed class SettingsUpdate
 
     /// <summary>Gets or sets whether the series bell is shown (null = unchanged; takes effect after a restart).</summary>
     public bool? InjectSeriesBell { get; set; }
+
+    /// <summary>Gets or sets the incident digest address. Null leaves it unchanged; blank turns the digest off.</summary>
+    public string? AlertEmail { get; set; }
+
+    /// <summary>Gets or sets the incident digest language, <c>"fr"</c> or <c>"en"</c>. Null leaves it unchanged.</summary>
+    public string? AlertLanguage { get; set; }
 
     /// <summary>Gets or sets a new Resend API key. Blank leaves the stored one untouched.</summary>
     public string? ResendApiKey { get; set; }

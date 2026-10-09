@@ -491,7 +491,8 @@ public class ResendEmailSenderTests
         using var realLog = new Jellyfin.Plugin.EasyNotif.Logging.EasyNotifLog(
             paths.Object,
             configManager.Object,
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<Jellyfin.Plugin.EasyNotif.Logging.EasyNotifLog>.Instance);
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Jellyfin.Plugin.EasyNotif.Logging.EasyNotifLog>.Instance,
+            Moq.Mock.Of<Jellyfin.Plugin.EasyNotif.Alerts.IIncidentStore>());
 
         try
         {

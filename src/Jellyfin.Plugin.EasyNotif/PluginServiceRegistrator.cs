@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
@@ -29,6 +30,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<IFileSystem, FileSystem>();
+        serviceCollection.AddSingleton<IIncidentStore, IncidentStore>();
         serviceCollection.AddSingleton<IEasyNotifLog, EasyNotifLog>();
         serviceCollection.AddSingleton<IConfigAccessor, PluginConfigAccessor>();
         serviceCollection.AddSingleton<ISecretStore, SecretStore>();
@@ -66,6 +68,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IEmailComposer, EmailComposer>();
         serviceCollection.AddSingleton<IDispatchService, DispatchService>();
         serviceCollection.AddSingleton<ISeriesNotifier, SeriesNotifier>();
+        serviceCollection.AddSingleton<IAdminAlertService, AdminAlertService>();
         serviceCollection.AddSingleton<IFileTransformationDetector, FileTransformationDetector>();
         serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserPurgeConsumer>();
         serviceCollection.AddHostedService<StartupService>();

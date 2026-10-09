@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
@@ -669,6 +670,52 @@ public sealed class EasyNotifControllerTests
         Assert.Contains("\"episodes\":{\"lastFlushUtc\":null,\"lostBatches\":0,\"lostItems\":0,\"dropped\":0,\"depth\":7}", json, StringComparison.Ordinal);
         Assert.Contains("\"playback\":{", json, StringComparison.Ordinal);
         Assert.Contains("\"lastError\":\"InvalidOperationException: template missing\",\"lastErrorUtc\":\"2026-10-09T08:00:00Z\"", json, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(-23, true)]
+    [InlineData(-25, false)]
+    public void GetStatus_RaisesTheBanner_ForAnIncidentYoungerThan24Hours(int hoursAgo, bool banner)
+    {
+        var incidents = new Mock<IIncidentStore>();
+        incidents.Setup(s => s.All()).Returns([new Incident(DateTime.UtcNow.AddHours(hoursAgo), "drain.lost", "drain=newItems, count=4")]);
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+
+        var json = JsonSerializer.Serialize(
+            Assert.IsType<OkObjectResult>(BuildController(sendLog: sendLog, incidents: incidents.Object).GetStatus()).Value);
+
+        Assert.Contains($"\"banner\":{(banner ? "true" : "false")}", json, StringComparison.Ordinal);
+        Assert.Contains("\"type\":\"drain.lost\",\"detail\":\"drain=newItems, count=4\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"alertEmailSet\":false", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PutSettings_StoresTheAlertAddressAndLanguage_NullLeavesThemUnchanged()
+    {
+        var config = new FakeConfig(new PluginConfiguration());
+        var controller = BuildController(config: config);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { AlertEmail = " admin@example.org ", AlertLanguage = "en" }));
+        Assert.Equal("admin@example.org", config.Get().AlertEmail);
+        Assert.Equal("en", config.Get().AlertLanguage);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate()));
+        Assert.Equal("admin@example.org", config.Get().AlertEmail);
+        Assert.Equal("en", config.Get().AlertLanguage);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { AlertEmail = "" }));
+        Assert.Null(config.Get().AlertEmail);
+    }
+
+    [Theory]
+    [InlineData("not-an-email", null)]
+    [InlineData(null, "de")]
+    public void PutSettings_WithABadAlertAddressOrLanguage_Returns400(string? email, string? lang)
+    {
+        var result = BuildController().PutSettings(new SettingsUpdate { AlertEmail = email, AlertLanguage = lang });
+
+        Assert.IsType<BadRequestResult>(result);
     }
 
     [Fact]
@@ -1392,7 +1439,8 @@ public sealed class EasyNotifControllerTests
         FakeEasyNotifLog? easyNotifLog = null,
         Mock<IManualSendQueue>? manualQueue = null,
         Mock<IFollowedSeriesService>? followedSeries = null,
-        IDrainStatus? drains = null)
+        IDrainStatus? drains = null,
+        IIncidentStore? incidents = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1429,6 +1477,7 @@ public sealed class EasyNotifControllerTests
             templates ?? TestTemplateStore.Create(),
             (fileTransformation ?? new Mock<IFileTransformationDetector>()).Object,
             drains ?? Mock.Of<IDrainStatus>(d => d.Snapshot() == new Dictionary<string, DrainHealthSnapshot>()),
+            incidents ?? Mock.Of<IIncidentStore>(s => s.All() == new List<Incident>()),
             easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext

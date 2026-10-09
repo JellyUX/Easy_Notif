@@ -120,4 +120,13 @@ public class PluginConfiguration : BasePluginConfiguration
     /// pages. Ignored when <see cref="InjectWebUi"/> is off; takes effect after a restart.
     /// </summary>
     public bool InjectSeriesBell { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the address that receives the daily incident digest (FEAT-04), or null to send
+    /// none. The admin page banner shows the incidents either way.
+    /// </summary>
+    public string? AlertEmail { get; set; }
+
+    /// <summary>Gets or sets the language of the incident digest, <c>"fr"</c> or <c>"en"</c>.</summary>
+    public string AlertLanguage { get; set; } = "fr";
 }

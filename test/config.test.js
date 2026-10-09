@@ -5,7 +5,7 @@ import enStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/en.json';
 import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
 const {
-    _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus,
+    _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, _incidentBanner,
     _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
@@ -109,6 +109,24 @@ describe('_buildPrefRow', () => {
 
         expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
         expect(html).not.toContain('<script>');
+    });
+});
+
+describe('_incidentBanner', () => {
+    const dict = enStrings;
+
+    it('counts the incidents of the last 24 hours when the server raises the banner', () => {
+        const recent = new Date(Date.now() - 3600 * 1000).toISOString();
+        const old = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+
+        const text = _incidentBanner(dict, { banner: true, incidents: [{ ts: recent }, { ts: recent }, { ts: old }] });
+
+        expect(text).toBe('2 incident(s) in the last 24 hours. See Transport status in the Settings tab.');
+    });
+
+    it('is empty without the banner flag or a payload', () => {
+        expect(_incidentBanner(dict, { banner: false, incidents: [{ ts: new Date().toISOString() }] })).toBe('');
+        expect(_incidentBanner(dict, null)).toBe('');
     });
 });
 
@@ -217,6 +235,34 @@ describe('_buildStatus', () => {
         expect(cells[0].textContent).toBe('2026-10-09 08:00 UTC <b>IOException</b>: disk full');
         expect(cells[1].textContent).toBe('-');
         expect(el.innerHTML).not.toContain('<b>');
+    });
+
+    it('lists the incidents with their label, as text', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [],
+            alertEmailSet: true,
+            lastDigestUtc: '2026-10-09T08:15:00Z',
+            incidents: [
+                { ts: '2026-10-09T08:00:00Z', type: 'email.failed', detail: 'error=<i>API key is invalid</i>' },
+                { ts: '2026-10-09T07:00:00Z', type: 'future.type', detail: null }
+            ]
+        });
+
+        const rows = Array.from(el.querySelectorAll('tbody tr'));
+        expect(rows[0].textContent).toContain('Send refused or failed');
+        expect(rows[0].textContent).toContain('error=<i>API key is invalid</i>');
+        expect(rows[1].textContent).toContain('future.type');
+        expect(el.innerHTML).not.toContain('<i>');
+        expect(el.textContent).toContain('last digest sent on 2026-10-09 08:15 UTC');
+    });
+
+    it('says when no alert address is set', () => {
+        const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [], alertEmailSet: false });
+
+        expect(el.textContent).toContain(dict['status.alertOff']);
     });
 
     it('says no webhook when lastWebhookUtc is null', () => {

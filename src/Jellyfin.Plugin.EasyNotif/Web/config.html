@@ -49,6 +49,7 @@
                 Configure the email service and manage each user's notification preferences.
             </p>
             <p id="enotifStartupWarning" class="fieldDescription enotif-warn" hidden></p>
+            <p id="enotifIncidentBanner" class="fieldDescription enotif-warn" role="status" hidden></p>
         </div>
 
         <div class="enotif-tabs">
@@ -113,6 +114,18 @@
                     <label class="inputLabel inputLabelUnfocused" for="enotifQuotaMonthly" data-i18n="settings.quotaMonthly">Sending limit over 30 days</label>
                     <input is="emby-input" type="number" id="enotifQuotaMonthly" min="1" max="1000000" step="1" required />
                     <div class="fieldDescription" data-i18n="settings.quotaMonthly.help">Your Resend plan's monthly quota (3000 on the free plan).</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="enotifAlertEmail" data-i18n="settings.alertEmail">Incident alert address</label>
+                    <input is="emby-input" type="email" id="enotifAlertEmail" autocomplete="off" />
+                    <div class="fieldDescription" data-i18n="settings.alertEmail.help">At most one digest a day when something went wrong (failed sends, quota, campaign error, bounce, lost data). Leave empty to rely on the banner of this page only.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="selectLabel" for="enotifAlertLanguage" data-i18n="settings.alertLanguage">Alert language</label>
+                    <select is="emby-select" id="enotifAlertLanguage" class="emby-select">
+                        <option value="fr">Français</option>
+                        <option value="en">English</option>
+                    </select>
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">

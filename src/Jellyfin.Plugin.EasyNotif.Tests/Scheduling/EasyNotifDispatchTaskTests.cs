@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -16,7 +17,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void GetDefaultTriggers_IsStartupPlusFifteenMinuteInterval()
     {
-        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
+        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
 
         Assert.Equal(2, triggers.Count);
         Assert.Contains(triggers, t => t.Type == TaskTriggerInfoType.StartupTrigger);
@@ -31,7 +32,7 @@ public sealed class EasyNotifDispatchTaskTests
         var dispatch = new Mock<IDispatchService>();
         var progress = new Mock<IProgress<double>>();
 
-        await new EasyNotifDispatchTask(dispatch.Object, Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
+        await new EasyNotifDispatchTask(dispatch.Object, Mock.Of<ISeriesNotifier>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
 
         dispatch.Verify(d => d.RunDueAsync(It.IsAny<CancellationToken>()), Times.Once);
         progress.Verify(p => p.Report(100), Times.Once);
@@ -47,7 +48,7 @@ public sealed class EasyNotifDispatchTaskTests
         series.Setup(s => s.FlushAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("series")).ThrowsAsync(new IOException("disk"));
         var progress = new Mock<IProgress<double>>();
 
-        await new EasyNotifDispatchTask(dispatch.Object, series.Object, NullLogger<EasyNotifDispatchTask>.Instance)
+        await new EasyNotifDispatchTask(dispatch.Object, series.Object, Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance)
             .ExecuteAsync(progress.Object, CancellationToken.None);
 
         Assert.Equal(["dispatch", "series"], calls);
@@ -57,7 +58,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void Identity_IsStable()
     {
-        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), NullLogger<EasyNotifDispatchTask>.Instance);
+        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance);
 
         Assert.Equal("EasyNotifDispatch", task.Key);
         Assert.False(string.IsNullOrWhiteSpace(task.Name));

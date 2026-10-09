@@ -59,6 +59,18 @@
             + '</tr>';
     }
 
+    // The page banner (DEC-64): shown while an incident is younger than 24 hours, empty otherwise.
+    // It stays the source of truth when the transport itself is down and no digest can leave.
+    function _incidentBanner(dict, status) {
+        if (!status || !status.banner) {
+            return '';
+        }
+
+        var since = Date.now() - 24 * 3600 * 1000;
+        var count = (status.incidents || []).filter(function (i) { return Date.parse(i.ts) >= since; }).length;
+        return _t(dict, 'status.banner').replace('{n}', count);
+    }
+
     // Detached DOM built from the /admin/status payload. Every cell is set via textContent, so a
     // hostile stored value (a masked address, a webhook type) is data, never markup.
     function _buildStatus(dict, status) {
@@ -198,6 +210,46 @@
             });
             dTable.appendChild(dBody);
             root.appendChild(dTable);
+        }
+
+        var alert = document.createElement('p');
+        alert.textContent = !status.alertEmailSet
+            ? _t(dict, 'status.alertOff')
+            : (status.lastDigestUtc
+                ? _t(dict, 'status.alertLast').replace('{date}', _fmtDateTime(status.lastDigestUtc))
+                : _t(dict, 'status.alertNone'));
+        root.appendChild(alert);
+
+        var incidents = status.incidents || [];
+        if (incidents.length) {
+            var incidentsTitle = document.createElement('p');
+            incidentsTitle.textContent = _t(dict, 'status.incidents');
+            root.appendChild(incidentsTitle);
+
+            var iTable = document.createElement('table');
+            var iHead = document.createElement('tr');
+            ['status.col.date', 'status.col.incident', 'status.col.detail'].forEach(function (key) {
+                var th = document.createElement('th');
+                th.textContent = _t(dict, key);
+                iHead.appendChild(th);
+            });
+            var iThead = document.createElement('thead');
+            iThead.appendChild(iHead);
+            iTable.appendChild(iThead);
+
+            var iBody = document.createElement('tbody');
+            incidents.forEach(function (incident) {
+                var tr = document.createElement('tr');
+                var label = dict['incident.' + incident.type] ? _t(dict, 'incident.' + incident.type) : (incident.type || '');
+                [_fmtDateTime(incident.ts) || '', label, incident.detail || '-'].forEach(function (value) {
+                    var td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+                iBody.appendChild(tr);
+            });
+            iTable.appendChild(iBody);
+            root.appendChild(iTable);
         }
 
         var recent = status.recent || [];
@@ -444,6 +496,7 @@
         _secretHint: _secretHint,
         _buildPrefRow: _buildPrefRow,
         _buildStatus: _buildStatus,
+        _incidentBanner: _incidentBanner,
         _manualBody: _manualBody,
         _manualRecipients: _manualRecipients,
         _validateManual: _validateManual,
@@ -519,6 +572,8 @@
             _el('enotifQuotaMonthly').value = s.quotaMonthlyLimit || 3000;
             _el('enotifInjectWebUi').checked = s.injectWebUi !== false;
             _el('enotifInjectSeriesBell').checked = s.injectSeriesBell !== false;
+            _el('enotifAlertEmail').value = s.alertEmail || '';
+            _el('enotifAlertLanguage').value = s.alertLanguage === 'en' ? 'en' : 'fr';
             _syncBellToggle();
             _el('enotifApiKey').value = '';
             _el('enotifWebhookSecret').value = '';
@@ -536,6 +591,10 @@
             var body = _el('enotifStatusBody');
             body.innerHTML = '';
             body.appendChild(_buildStatus(dict, status));
+
+            var banner = _el('enotifIncidentBanner');
+            banner.textContent = _incidentBanner(dict, status);
+            banner.hidden = !banner.textContent;
         }).catch(function (err) {
             console.error('[EasyNotif Config] could not load the transport status:', err);
         });
@@ -554,7 +613,9 @@
             QuotaDailyLimit: parseInt(_el('enotifQuotaDaily').value, 10),
             QuotaMonthlyLimit: parseInt(_el('enotifQuotaMonthly').value, 10),
             InjectWebUi: _el('enotifInjectWebUi').checked,
-            InjectSeriesBell: _el('enotifInjectSeriesBell').checked
+            InjectSeriesBell: _el('enotifInjectSeriesBell').checked,
+            AlertEmail: _el('enotifAlertEmail').value.trim(),
+            AlertLanguage: _el('enotifAlertLanguage').value
         };
         var key = _el('enotifApiKey').value.trim();
         var secret = _el('enotifWebhookSecret').value.trim();

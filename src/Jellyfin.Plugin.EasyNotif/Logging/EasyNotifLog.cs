@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Jellyfin.Plugin.EasyNotif.Alerts;
 using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
@@ -19,6 +20,7 @@ public sealed class EasyNotifLog : IEasyNotifLog
 
     private readonly string _logsDir;
     private readonly ILogger<EasyNotifLog> _relay;
+    private readonly IIncidentStore _incidents;
     private readonly Serilog.Core.Logger? _logger;
     private bool _disposed;
 
@@ -26,11 +28,13 @@ public sealed class EasyNotifLog : IEasyNotifLog
     /// <param name="applicationPaths">Provides the application data directory path.</param>
     /// <param name="configManager">Provides the server's activity log retention setting.</param>
     /// <param name="relay">The standard Jellyfin logger WARN/ERROR entries are also sent to.</param>
-    public EasyNotifLog(IApplicationPaths applicationPaths, IServerConfigurationManager configManager, ILogger<EasyNotifLog> relay)
+    /// <param name="incidents">Receives the WARN/ERROR entries for the incident digest (FEAT-04).</param>
+    public EasyNotifLog(IApplicationPaths applicationPaths, IServerConfigurationManager configManager, ILogger<EasyNotifLog> relay, IIncidentStore incidents)
     {
         ArgumentNullException.ThrowIfNull(applicationPaths);
         ArgumentNullException.ThrowIfNull(configManager);
         _relay = relay;
+        _incidents = incidents;
         _logsDir = Path.Combine(applicationPaths.DataPath, "Jellyfin.Plugin.EasyNotif", "logs");
 
         try
@@ -169,14 +173,16 @@ public sealed class EasyNotifLog : IEasyNotifLog
 
     private void Write(LogEventLevel level, string eventType, IReadOnlyDictionary<string, object?>? fields, Exception? exception)
     {
+        var masked = Mask(fields);
         if (_logger is not null)
         {
-            _logger.Write(level, exception, "{EventType} {Fields}", eventType, FormatFields(Mask(fields)));
+            _logger.Write(level, exception, "{EventType} {Fields}", eventType, FormatFields(masked));
         }
 
         if (level >= LogEventLevel.Warning)
         {
             _relay.Log(ToMsLevel(level), exception, "[EasyNotif] {EventType}", eventType);
+            _incidents.Record(eventType, masked);
         }
     }
 

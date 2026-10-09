@@ -2,9 +2,11 @@ using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Entities;
 using Moq;
 using Xunit;
@@ -15,7 +17,9 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Media;
 /// Covers <see cref="PosterCache"/>: an item with no image yields null, a small JPEG, PNG or WebP
 /// under the metadata directory or a library folder is attached with a stable content id and a type
 /// taken from its bytes, and anything else (outside those roots, not an image, a GIF, oversized,
-/// missing) is skipped without throwing (SEC-02, DEC-52, DEC-53).
+/// missing) is skipped without throwing (SEC-02, DEC-52, DEC-53). Every poster goes through the
+/// image processor first; its output in the image cache is used, and any failure falls back to the
+/// original (DEC-55). Unless a test says otherwise, the processor returns the original unchanged.
 /// </summary>
 public sealed class PosterCacheTests : IDisposable
 {
@@ -27,14 +31,19 @@ public sealed class PosterCacheTests : IDisposable
     private readonly string _metadataDir;
     private readonly string _libraryDir;
     private readonly string _outsideDir;
+    private readonly string _cacheDir;
     private readonly FakeEasyNotifLog _log = new();
     private readonly Mock<ILibraryManager> _library = new();
+    private readonly Mock<IImageProcessor> _processor = new();
 
     public PosterCacheTests()
     {
         _metadataDir = Path.Combine(_tempDir, "metadata");
         _libraryDir = Path.Combine(_tempDir, "media");
         _outsideDir = Path.Combine(_tempDir, "metadata-other");
+        _cacheDir = Path.Combine(_tempDir, "cache", "images");
+        _processor.Setup(p => p.ProcessImage(It.IsAny<ImageProcessingOptions>()))
+            .ReturnsAsync((ImageProcessingOptions o) => (o.Image.Path, null, DateTime.MinValue));
         _library.Setup(l => l.GetVirtualFolders())
             .Returns([new VirtualFolderInfo { Name = "Films", Locations = [_libraryDir] }]);
     }
@@ -43,7 +52,8 @@ public sealed class PosterCacheTests : IDisposable
     {
         var paths = new Mock<IServerApplicationPaths>();
         paths.SetupGet(p => p.InternalMetadataPath).Returns(_metadataDir);
-        return new PosterCache(new FileSystem(), paths.Object, _library.Object, _log);
+        paths.SetupGet(p => p.ImageCachePath).Returns(_cacheDir);
+        return new PosterCache(new FileSystem(), paths.Object, _processor.Object, _library.Object, _log);
     }
 
     private static Movie MovieWithImage(string? onDiskPath)
@@ -181,6 +191,65 @@ public sealed class PosterCacheTests : IDisposable
         var entry = Assert.Single(_log.Entries);
         Assert.Equal("newsletter.poster.toolarge", entry.EventType);
         Assert.Equal(size, entry.Fields!["bytes"]);
+    }
+
+    [Fact]
+    public async Task Poster_IsDownscaledToAJpegOfTheTargetWidth_AndTheCachedOutputIsAttached()
+    {
+        var original = Write(_metadataDir, "poster.jpg", JpegHeader, 2 * 1024 * 1024);
+        var resized = Write(Path.Combine(_cacheDir, "resized-images", "a"), "small.jpg", JpegHeader, 20_000);
+        ImageProcessingOptions? seen = null;
+        _processor.Setup(p => p.ProcessImage(It.IsAny<ImageProcessingOptions>()))
+            .Callback((ImageProcessingOptions o) => seen = o)
+            .ReturnsAsync((resized, "image/jpeg", DateTime.MinValue));
+        var movie = MovieWithImage(original);
+
+        var result = await Build().GetInlineAsync(movie, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(20_000, result!.Content.Length);
+        Assert.NotNull(seen);
+        Assert.Same(movie, seen!.Item);
+        Assert.Equal(original, seen.Image.Path);
+        Assert.Equal(PosterCache.TargetWidth, seen.MaxWidth);
+        Assert.Equal([ImageFormat.Jpg], seen.SupportedOutputFormats);
+        Assert.DoesNotContain(_log.Entries, e => e.Level == "Warn");
+    }
+
+    [Fact]
+    public async Task ProcessorFailure_FallsBackToTheOriginal_WithAWarning()
+    {
+        var original = Write(_metadataDir, "poster.jpg", JpegHeader, 40);
+        _processor.Setup(p => p.ProcessImage(It.IsAny<ImageProcessingOptions>()))
+            .ThrowsAsync(new ArgumentNullException("source"));
+
+        var result = await Build().GetInlineAsync(MovieWithImage(original), CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(40, result!.Content.Length);
+        Assert.Contains(_log.Entries, e => e.EventType == "newsletter.poster.resizefail");
+    }
+
+    [Fact]
+    public async Task ProcessorOutputOutsideTheAllowedRoots_IsRefused()
+    {
+        var original = Write(_metadataDir, "poster.jpg", JpegHeader, 40);
+        var elsewhere = Write(_outsideDir, "out.jpg", JpegHeader, 40);
+        _processor.Setup(p => p.ProcessImage(It.IsAny<ImageProcessingOptions>()))
+            .ReturnsAsync((elsewhere, "image/jpeg", DateTime.MinValue));
+
+        Assert.Null(await Build().GetInlineAsync(MovieWithImage(original), CancellationToken.None));
+        Assert.Contains(_log.Entries, e => e.EventType == "newsletter.poster.refused");
+    }
+
+    [Fact]
+    public async Task SourceOutsideTheAllowedRoots_IsNeverHandedToTheProcessor()
+    {
+        var path = Write(_outsideDir, "secret.jpg", JpegHeader, 32);
+
+        await Build().GetInlineAsync(MovieWithImage(path), CancellationToken.None);
+
+        _processor.Verify(p => p.ProcessImage(It.IsAny<ImageProcessingOptions>()), Times.Never);
     }
 
     [Fact]

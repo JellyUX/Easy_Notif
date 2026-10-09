@@ -2,18 +2,21 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Logging;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.EasyNotif.Media;
 
 /// <summary>
-/// Reads an item's primary image from disk as an inline <c>cid:</c> attachment, for the newsletter
-/// when no public server URL is configured (Synthese.md section 5.1). Read-only with respect to the
-/// library (R12). Only a JPEG, PNG or WebP file under Jellyfin's metadata directory or a library
-/// folder is read (DEC-52, DEC-53), and never one larger than <see cref="PosterCache.MaxPosterBytes"/>;
-/// any other image is skipped and the item simply has no image.
+/// Builds an inline <c>cid:</c> attachment from an item's primary image, for the emails sent when no
+/// public server URL is configured (Synthese.md section 5.1). Read-only with respect to the library
+/// (R12): the image is downscaled by Jellyfin's image processor into its own cache (DEC-55). Only a
+/// JPEG, PNG or WebP file under Jellyfin's metadata directory, its image cache or a library folder is
+/// read (DEC-52, DEC-53), and never one larger than <see cref="PosterCache.MaxPosterBytes"/>; any
+/// other image is skipped and the item simply has no image.
 /// </summary>
 public interface IPosterCache
 {
@@ -30,23 +33,31 @@ public sealed class PosterCache : IPosterCache
     /// <summary>The largest primary image, in bytes, that is worth attaching inline.</summary>
     public const int MaxPosterBytes = 500 * 1024;
 
+    /// <summary>The width, in pixels, posters are downscaled to.</summary>
+    public const int TargetWidth = 300;
+
+    private const int TargetQuality = 82;
+
     private static readonly StringComparison PathComparison =
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private readonly IFileSystem _fileSystem;
     private readonly IServerApplicationPaths _applicationPaths;
+    private readonly IImageProcessor _imageProcessor;
     private readonly ILibraryManager _libraryManager;
     private readonly IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="PosterCache"/> class.</summary>
     /// <param name="fileSystem">File system abstraction.</param>
-    /// <param name="applicationPaths">Provides Jellyfin's metadata directory.</param>
+    /// <param name="applicationPaths">Provides Jellyfin's metadata and image cache directories.</param>
+    /// <param name="imageProcessor">Jellyfin's image processor, used to downscale the poster.</param>
     /// <param name="libraryManager">Provides the library folders.</param>
     /// <param name="log">The plugin's dedicated log.</param>
-    public PosterCache(IFileSystem fileSystem, IServerApplicationPaths applicationPaths, ILibraryManager libraryManager, IEasyNotifLog log)
+    public PosterCache(IFileSystem fileSystem, IServerApplicationPaths applicationPaths, IImageProcessor imageProcessor, ILibraryManager libraryManager, IEasyNotifLog log)
     {
         _fileSystem = fileSystem;
         _applicationPaths = applicationPaths;
+        _imageProcessor = imageProcessor;
         _libraryManager = libraryManager;
         _log = log;
     }
@@ -70,6 +81,13 @@ public sealed class PosterCache : IPosterCache
             }
 
             path = Path.GetFullPath(path);
+            if (!IsUnderAllowedRoot(path))
+            {
+                Refused(item, "outside-roots");
+                return null;
+            }
+
+            path = await DownscaleAsync(item, path).ConfigureAwait(false);
             if (!IsUnderAllowedRoot(path))
             {
                 Refused(item, "outside-roots");
@@ -139,6 +157,38 @@ public sealed class PosterCache : IPosterCache
         return null;
     }
 
+    /// <summary>
+    /// Asks Jellyfin's image processor for a JPEG at most <see cref="TargetWidth"/> pixels wide (DEC-55).
+    /// The processor caches the result under its own image cache. Any failure falls back to the
+    /// original file, which then goes through the same size and format checks.
+    /// </summary>
+    private async Task<string> DownscaleAsync(BaseItem item, string originalPath)
+    {
+        try
+        {
+            var result = await _imageProcessor.ProcessImage(new ImageProcessingOptions
+            {
+                Item = item,
+                ItemId = item.Id,
+                Image = item.GetImageInfo(ImageType.Primary, 0),
+                MaxWidth = TargetWidth,
+                Quality = TargetQuality,
+                SupportedOutputFormats = [ImageFormat.Jpg]
+            }).ConfigureAwait(false);
+
+            return string.IsNullOrEmpty(result.Path) ? originalPath : Path.GetFullPath(result.Path);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Warn("newsletter.poster.resizefail", new Dictionary<string, object?>
+            {
+                ["itemId"] = item.Id,
+                ["error"] = ex.Message
+            });
+            return originalPath;
+        }
+    }
+
     private static async Task<byte[]> ReadAtMostAsync(string path, int limit, CancellationToken cancellationToken)
     {
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -174,6 +224,7 @@ public sealed class PosterCache : IPosterCache
 
     private bool IsUnderAllowedRoot(string path)
         => IsUnder(path, _applicationPaths.InternalMetadataPath)
+            || IsUnder(path, _applicationPaths.ImageCachePath)
             || _libraryManager.GetVirtualFolders().Any(folder => folder.Locations?.Any(location => IsUnder(path, location)) == true);
 
     private void TooLarge(BaseItem item, long bytes)

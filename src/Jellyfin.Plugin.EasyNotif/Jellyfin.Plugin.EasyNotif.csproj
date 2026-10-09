@@ -32,6 +32,8 @@
     <EmbeddedResource Include="Templates\weekly-recap-fr.html" />
     <EmbeddedResource Include="Templates\series-episodes-en.html" />
     <EmbeddedResource Include="Templates\series-episodes-fr.html" />
+    <EmbeddedResource Include="Templates\generic-en.html" />
+    <EmbeddedResource Include="Templates\generic-fr.html" />
   </ItemGroup>
 
   <ItemGroup>

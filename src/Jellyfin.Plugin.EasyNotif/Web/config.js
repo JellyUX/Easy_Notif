@@ -313,6 +313,9 @@
         if (!String(state.body || '').trim()) {
             return 'manual.error.body';
         }
+        if (state.bodyMode === 'html' && /<script/i.test(state.body)) {
+            return 'manual.error.script';
+        }
         if (state.mode === 'test') {
             if (!_validEmail(state.testAddress)) {
                 return 'manual.error.testAddress';
@@ -324,6 +327,27 @@
             return 'manual.error.attachmentSize';
         }
         return null;
+    }
+
+    // Request body shared by the send and the preview: subject, body, layout (DEC-68, DEC-69) and audience.
+    function _manualPayload(state) {
+        var bodyPart = _manualBody(state.bodyMode, state.body);
+        var payload = {
+            subject: state.subject,
+            html: bodyPart.html || null,
+            text: bodyPart.text || null,
+            wrap: !!state.wrap,
+            lang: state.lang === 'en' ? 'en' : 'fr'
+        };
+        if (state.mode === 'test') {
+            payload.recipientMode = 'test';
+            payload.testAddress = state.testAddress;
+        } else {
+            var rcpt = _manualRecipients(state.recipientMode, state.checkedIds);
+            payload.recipientMode = rcpt.recipientMode;
+            payload.recipientUserIds = rcpt.recipientUserIds || null;
+        }
+        return payload;
     }
 
     // Content for the sandboxed <iframe srcdoc>. HTML mode passes through (the iframe has an empty
@@ -500,6 +524,7 @@
         _manualBody: _manualBody,
         _manualRecipients: _manualRecipients,
         _validateManual: _validateManual,
+        _manualPayload: _manualPayload,
         _previewSrcdoc: _previewSrcdoc,
         _fmtBytes: _fmtBytes,
         _manualResult: _manualResult,
@@ -743,8 +768,40 @@
         });
     }
 
+    function _manualState(isTest) {
+        return {
+            subject: _el('enotifManualSubject').value,
+            body: _el('enotifManualBody').value,
+            bodyMode: _manualMode(),
+            wrap: _el('enotifManualWrap').checked,
+            lang: _el('enotifManualLang').value,
+            mode: isTest ? 'test' : 'send',
+            recipientMode: _manualRcptMode(),
+            checkedIds: _manualCheckedIds(),
+            testAddress: _el('enotifManualTestAddress').value,
+            attachmentBytes: manualFiles.reduce(function (sum, f) { return sum + f.size; }, 0)
+        };
+    }
+
+    // Raw body: rendered locally. Laid out: rendered by the server with the generic template; the
+    // iframe keeps its empty sandbox either way.
     function _refreshManualPreview() {
-        _el('enotifManualPreview').srcdoc = _previewSrcdoc(_manualMode(), _el('enotifManualBody').value);
+        var frame = _el('enotifManualPreview');
+        var state = _manualState(false);
+        if (!state.wrap) {
+            frame.srcdoc = _previewSrcdoc(state.bodyMode, state.body);
+            return;
+        }
+        if (!String(state.body || '').trim()) {
+            frame.srcdoc = '';
+            return;
+        }
+        _postJson('admin/send/preview', _manualPayload(state)).then(function (r) {
+            frame.srcdoc = (r && r.html) || '';
+        }).catch(function (err) {
+            console.error('[EasyNotif Config] manual preview failed:', err);
+            _setManualResult(_t(dict, 'manual.error.preview'), true);
+        });
     }
 
     function _setManualResult(text, isError) {
@@ -755,40 +812,17 @@
     }
 
     function _sendManual(isTest) {
-        var mode = _manualMode();
-        var rcptMode = isTest ? 'test' : _manualRcptMode();
-        var state = {
-            subject: _el('enotifManualSubject').value,
-            body: _el('enotifManualBody').value,
-            mode: isTest ? 'test' : mode,
-            recipientMode: rcptMode,
-            checkedIds: _manualCheckedIds(),
-            testAddress: _el('enotifManualTestAddress').value,
-            attachmentBytes: manualFiles.reduce(function (sum, f) { return sum + f.size; }, 0)
-        };
-
+        var state = _manualState(isTest);
         var error = _validateManual(state);
         if (error) {
             _setManualResult(_t(dict, error), true);
             return;
         }
 
-        var payload = { subject: state.subject };
-        var bodyPart = _manualBody(mode, state.body);
-        payload.html = bodyPart.html || null;
-        payload.text = bodyPart.text || null;
+        var payload = _manualPayload(state);
         payload.attachments = manualFiles.map(function (f) {
             return { fileName: f.fileName, contentBase64: f.contentBase64, contentType: f.contentType };
         });
-
-        if (isTest) {
-            payload.recipientMode = 'test';
-            payload.testAddress = state.testAddress;
-        } else {
-            var rcpt = _manualRecipients(rcptMode, state.checkedIds);
-            payload.recipientMode = rcpt.recipientMode;
-            payload.recipientUserIds = rcpt.recipientUserIds || null;
-        }
 
         _setManualResult(_t(dict, 'manual.sending'), false);
         _postJson('admin/send/batches', payload).then(_followManualBatch).catch(function (err) {
@@ -1216,7 +1250,7 @@
         _el('enotifTplCloneBtn').hidden = !info.cloneable;
         _el('enotifTplResult').textContent = editable
             ? ''
-            : _t(dict, info.cloneable ? 'templates.base.readonly' : 'templates.base.fixed');
+            : _t(dict, info.cloneable ? 'templates.base.readonly' : (info.id === 'generic' ? 'templates.base.generic' : 'templates.base.fixed'));
         return window.ApiClient.getJSON(_url('admin/templates/' + encodeURIComponent(id) + '?lang=' + lang))
             .then(function (t) {
                 _el('enotifTplBody').value = (t && t.content) || '';

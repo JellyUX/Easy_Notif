@@ -12,7 +12,7 @@ namespace Jellyfin.Plugin.EasyNotif.Storage;
 
 /// <summary>
 /// Provides the HTML body templates of the emails. The base templates (<c>newsletter</c>,
-/// <c>weekly-recap</c>, <c>series-episodes</c>) are embedded and read-only; the admin can clone a
+/// <c>weekly-recap</c>, <c>series-episodes</c>, <c>generic</c>) are embedded and read-only; the admin can clone a
 /// campaign one to an on-disk copy under <c>{DataPath}/Jellyfin.Plugin.EasyNotif/templates/</c> and
 /// point a campaign at it
 /// (Synthese.md section 3.5). A custom id is <c>{baseId}__{slug}</c>.
@@ -88,9 +88,10 @@ public sealed record TemplateValidation(bool Ok, string? Reason = null, string? 
 public sealed class TemplateStore : ITemplateStore
 {
     /// <summary>The base template ids, in listing order.</summary>
-    public static readonly IReadOnlyList<string> BaseIds = ["newsletter", "weekly-recap", SeriesEpisodesRenderer.TemplateId];
+    public static readonly IReadOnlyList<string> BaseIds =
+        ["newsletter", "weekly-recap", SeriesEpisodesRenderer.TemplateId, GenericEmailRenderer.TemplateId];
 
-    /// <summary>The base ids that can be cloned: a series email has no campaign to point at a copy (DEC-44).</summary>
+    /// <summary>The base ids that can be cloned: a series or manual email has no campaign to point at a copy (DEC-44).</summary>
     public static readonly IReadOnlyList<string> CloneableBaseIds = ["newsletter", "weekly-recap"];
 
     private const int MaxBytes = 64 * 1024;
@@ -124,6 +125,11 @@ public sealed class TemplateStore : ITemplateStore
     private static readonly IReadOnlySet<string> SeriesKeys = new HashSet<string>(StringComparer.Ordinal)
     {
         "heading", "summary", "series", "title", "posterUrl", "detailUrl", "noLink", "episodes", "stopUrl", "unsubscribeUrl"
+    };
+
+    private static readonly IReadOnlySet<string> GenericKeys = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "heading", "body", "unsubscribeUrl"
     };
 
     private readonly ConcurrentDictionary<string, string> _embeddedCache = new(StringComparer.Ordinal);
@@ -375,6 +381,7 @@ public sealed class TemplateStore : ITemplateStore
         {
             "weekly-recap" => RecapKeys,
             SeriesEpisodesRenderer.TemplateId => SeriesKeys,
+            GenericEmailRenderer.TemplateId => GenericKeys,
             _ => NewsletterKeys
         };
 

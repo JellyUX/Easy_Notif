@@ -847,8 +847,48 @@ public class EasyNotifController : ControllerBase
             Trimmed(body.RecipientMode) ?? "all",
             body.RecipientUserIds,
             Trimmed(body.TestAddress),
-            attachments.Count > 0 ? attachments : null);
+            attachments.Count > 0 ? attachments : null)
+        {
+            Wrap = body.Wrap == true,
+            Lang = Trimmed(body.Lang) is "en" ? "en" : "fr"
+        };
         return true;
+    }
+
+    /// <summary>
+    /// Renders a manual email body inside the <c>generic</c> layout, for the sandboxed preview of the
+    /// Manual email tab. Nothing is sent. Administrators only.
+    /// </summary>
+    /// <param name="body">The composed email; its audience only decides whether the unsubscribe link shows.</param>
+    /// <returns>200 with <c>{ html }</c>; 400 when the body is missing or contains a script.</returns>
+    [HttpPost("admin/send/preview")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public ActionResult PreviewManualEmail([FromBody] ManualSendRequest? body)
+    {
+        if (body is null)
+        {
+            return BadRequest(new { error = "body-required" });
+        }
+
+        body.Attachments = null;
+        body.Subject = string.IsNullOrWhiteSpace(body.Subject) ? string.Empty : body.Subject;
+        TryBuildManualRequest(body, out var request);
+        try
+        {
+            return Ok(new { html = _manualEmail.Preview(request) });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "[EasyNotif] Could not render the manual email preview.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1460,6 +1500,12 @@ public sealed class ManualSendRequest
 
     /// <summary>Gets or sets the attachments.</summary>
     public List<AttachmentDto>? Attachments { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the body is laid out with the <c>generic</c> template (absent = raw).</summary>
+    public bool? Wrap { get; set; }
+
+    /// <summary>Gets or sets the language of the layout, <c>fr</c> (default) or <c>en</c>.</summary>
+    public string? Lang { get; set; }
 }
 
 /// <summary>One attachment on a manual email.</summary>

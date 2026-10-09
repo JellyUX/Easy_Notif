@@ -54,6 +54,7 @@ public sealed class ManualSendQueueTests
             new FakeSecretStore(),
             new Mock<IQuotaGuard>().Object,
             new Mock<ISendLog>().Object,
+            TestTemplateStore.Create(),
             NullLogger<ManualEmailService>.Instance);
         return new ManualSendQueue(manual, NullLogger<ManualSendQueue>.Instance, () => _now);
     }

@@ -54,6 +54,7 @@ public sealed class EasyNotifControllerTests
     [InlineData(nameof(EasyNotifController.GetManualBatch))]
     [InlineData(nameof(EasyNotifController.GetLatestManualBatch))]
     [InlineData(nameof(EasyNotifController.RetryManualBatch))]
+    [InlineData(nameof(EasyNotifController.PreviewManualEmail))]
     [InlineData(nameof(EasyNotifController.GetLogs))]
     [InlineData(nameof(EasyNotifController.GetCampaigns))]
     [InlineData(nameof(EasyNotifController.PutCampaign))]
@@ -1264,6 +1265,39 @@ public sealed class EasyNotifControllerTests
         var html = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(result).Value);
         Assert.Contains("Severance", html, StringComparison.Ordinal);
         Assert.Contains("8 new episodes (S03E01 to S03E08)", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PreviewTemplate_GenericBase_RendersTheSampleModel()
+    {
+        var templates = TestTemplateStore.Create();
+        var controller = BuildController(templates: templates);
+
+        var result = controller.PreviewTemplate(new TemplatePreviewRequest { BaseId = "generic", Content = templates.Get("generic", "en") });
+
+        var html = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Contains("Maintenance on Saturday", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PreviewManualEmail_PassesWrapAndLang_AndMapsAScriptTo400()
+    {
+        var manual = new Mock<IManualEmailService>();
+        ManualEmailRequest? seen = null;
+        manual.Setup(m => m.Preview(It.IsAny<ManualEmailRequest>()))
+            .Callback<ManualEmailRequest>(r => seen = r)
+            .Returns("<p>laid out</p>");
+        var controller = BuildController(manualEmail: manual);
+
+        var ok = controller.PreviewManualEmail(new ManualSendRequest { Subject = "Hi", Html = "<p>x</p>", Wrap = true, Lang = "en" });
+
+        Assert.Contains("laid out", JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(ok).Value), StringComparison.Ordinal);
+        Assert.True(seen!.Wrap);
+        Assert.Equal("en", seen.Lang);
+
+        manual.Setup(m => m.Preview(It.IsAny<ManualEmailRequest>())).Throws(new ArgumentException("script"));
+        Assert.IsType<BadRequestObjectResult>(controller.PreviewManualEmail(new ManualSendRequest { Html = "<script>" }));
+        Assert.IsType<BadRequestObjectResult>(controller.PreviewManualEmail(null));
     }
 
     [Fact]

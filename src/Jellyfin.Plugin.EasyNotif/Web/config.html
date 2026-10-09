@@ -213,6 +213,19 @@
                 <label class="inputLabel inputLabelUnfocused" for="enotifManualBody" data-i18n="manual.body">Body</label>
                 <textarea id="enotifManualBody" class="emby-textarea enotif-manual-body"></textarea>
             </div>
+            <div class="checkboxContainer">
+                <label class="emby-checkbox-label">
+                    <input is="emby-checkbox" type="checkbox" id="enotifManualWrap" checked />
+                    <span data-i18n="manual.wrap">Lay out with the Easy Notif template</span>
+                </label>
+            </div>
+            <div class="inputContainer">
+                <label class="selectLabel" for="enotifManualLang" data-i18n="manual.lang">Template language</label>
+                <select is="emby-select" id="enotifManualLang" class="emby-select">
+                    <option value="fr">Français</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
             <button is="emby-button" type="button" id="enotifManualPreviewBtn" class="raised" data-i18n="manual.preview">Refresh preview</button>
             <iframe id="enotifManualPreview" class="enotif-manual-preview" sandbox="" referrerpolicy="no-referrer" title="preview"></iframe>
 

@@ -71,6 +71,7 @@ public class ManualEmailServiceTests
                 Secrets,
                 Quota.Object,
                 SendLog.Object,
+                TestTemplateStore.Create(),
                 NullLogger<ManualEmailService>.Instance);
         }
 
@@ -295,5 +296,99 @@ public class ManualEmailServiceTests
         Assert.Equal(2, h.Sent.Count);
         h.Quota.Verify(q => q.RecordSend(), Times.Never);
         Assert.All(h.LogEntries, e => Assert.Equal("failed", e.Status));
+    }
+
+    [Theory]
+    [InlineData("fr", "Message envoyé par l'administrateur", "?lang=fr")]
+    [InlineData("en", "Message sent by the administrator", "?lang=en")]
+    public async Task Wrapped_All_LaysOutTheBody_WithTheUnsubscribeLinkInTheRequestLanguage(string lang, string footer, string langQuery)
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+        h.AdminRows(0);
+
+        await h.Service.SendAsync(Request(html: "<p>Server <b>down</b> Saturday</p>") with { Wrap = true, Lang = lang }, CancellationToken.None);
+
+        var message = Assert.Single(h.Sent);
+        Assert.Contains("Announcement</div>", message.Html, StringComparison.Ordinal);
+        Assert.Contains("<p>Server <b>down</b> Saturday</p>", message.Html, StringComparison.Ordinal);
+        Assert.Contains(footer, message.Html, StringComparison.Ordinal);
+        Assert.Contains("https://media.example.org/EasyNotif/u/", message.Html, StringComparison.Ordinal);
+        Assert.Contains(langQuery, message.Html, StringComparison.Ordinal);
+        Assert.Contains("Server down Saturday", message.Text, StringComparison.Ordinal);
+        Assert.Contains("https://media.example.org/EasyNotif/u/", message.Text, StringComparison.Ordinal);
+        Assert.NotNull(message.Headers);
+    }
+
+    [Theory]
+    [InlineData("selected")]
+    [InlineData("test")]
+    public async Task Wrapped_SelectedOrTest_HasNoUnsubscribeLink(string mode)
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+
+        await h.Service.SendAsync(
+            Request(mode, userIds: [Alice], testAddress: "me@example.org") with { Wrap = true },
+            CancellationToken.None);
+
+        var message = Assert.Single(h.Sent);
+        Assert.Contains("<p>Hello</p>", message.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("/EasyNotif/u/", message.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("/EasyNotif/u/", message.Text, StringComparison.Ordinal);
+        Assert.Null(message.Headers);
+    }
+
+    [Fact]
+    public async Task Wrapped_TextBody_IsEscapedIntoParagraphs()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+        h.AdminRows(0);
+
+        await h.Service.SendAsync(Request(html: null, text: "Tom & <Jerry>\nline two\n\nSecond") with { Wrap = true }, CancellationToken.None);
+
+        var message = Assert.Single(h.Sent);
+        Assert.Contains("Tom &amp; &lt;Jerry&gt;<br>line two</p>", message.Html, StringComparison.Ordinal);
+        Assert.Contains(">Second</p>", message.Html, StringComparison.Ordinal);
+        Assert.StartsWith("Tom & <Jerry>\nline two\n\nSecond", message.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Unwrapped_KeepsTheBodyAsWritten()
+    {
+        var h = new Harness();
+        h.Contactable(new Recipient(Alice, "alice@example.org"));
+        h.AdminRows(0);
+
+        await h.Service.SendAsync(Request(html: "<p>Raw</p>"), CancellationToken.None);
+
+        Assert.Equal("<p>Raw</p>", Assert.Single(h.Sent).Html);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ScriptInTheHtmlBody_IsRefused(bool wrap)
+    {
+        var h = new Harness();
+
+        var ex = Assert.Throws<ArgumentException>(() => h.Service.Plan(Request(html: "<p>x</p><SCRIPT>alert(1)</script>") with { Wrap = wrap }));
+        Assert.Contains("script", ex.Message, StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => h.Service.Preview(Request(html: "<script>x</script>")));
+    }
+
+    [Fact]
+    public void Preview_LaysOutTheBody_WithASampleLinkOnlyForAll()
+    {
+        var h = new Harness();
+
+        var all = h.Service.Preview(Request(html: "<p>Hi</p>"));
+        var selected = h.Service.Preview(Request("selected", html: "<p>Hi</p>"));
+
+        Assert.Contains("<p>Hi</p>", all, StringComparison.Ordinal);
+        Assert.Contains("href=\"#\"", all, StringComparison.Ordinal);
+        Assert.DoesNotContain("href=\"#\"", selected, StringComparison.Ordinal);
+        Assert.Empty(h.Sent);
     }
 }

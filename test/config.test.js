@@ -6,7 +6,7 @@ import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
 const {
     _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, _incidentBanner,
-    _manualBody, _manualRecipients, _validateManual, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
+    _manualBody, _manualRecipients, _validateManual, _manualPayload, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
     _previewResult, _tplOptions, _campaignTemplateBaseId,
@@ -316,6 +316,22 @@ describe('manual email helpers', () => {
         expect(_validateManual({ subject: 'Hi', body: 'x', mode: 'test', testAddress: 'nope' })).toBe('manual.error.testAddress');
         expect(_validateManual({ subject: 'Hi', body: 'x', mode: 'test', testAddress: 'a@b.co' })).toBeNull();
         expect(_validateManual({ subject: 'Hi', body: 'x', recipientMode: 'all', attachmentBytes: 11 * 1024 * 1024 })).toBe('manual.error.attachmentSize');
+    });
+
+    it('_validateManual refuses a script in an HTML body only', () => {
+        expect(_validateManual({ subject: 'Hi', body: '<p>x</p><SCRIPT>1</SCRIPT>', bodyMode: 'html', recipientMode: 'all' })).toBe('manual.error.script');
+        expect(_validateManual({ subject: 'Hi', body: 'about <script> tags', bodyMode: 'text', recipientMode: 'all' })).toBeNull();
+    });
+
+    it('_manualPayload carries the layout choice and the audience', () => {
+        const all = _manualPayload({ subject: 'Hi', body: '<p>x</p>', bodyMode: 'html', wrap: true, lang: 'en', mode: 'send', recipientMode: 'all' });
+        expect(all).toEqual({ subject: 'Hi', html: '<p>x</p>', text: null, wrap: true, lang: 'en', recipientMode: 'all', recipientUserIds: null });
+
+        const selected = _manualPayload({ subject: 'Hi', body: 'x', bodyMode: 'text', wrap: false, lang: 'xx', mode: 'send', recipientMode: 'selected', checkedIds: ['a'] });
+        expect(selected).toMatchObject({ text: 'x', html: null, wrap: false, lang: 'fr', recipientMode: 'selected', recipientUserIds: ['a'] });
+
+        const test = _manualPayload({ subject: 'Hi', body: 'x', bodyMode: 'text', wrap: true, mode: 'test', testAddress: 'me@example.org' });
+        expect(test).toMatchObject({ recipientMode: 'test', testAddress: 'me@example.org' });
     });
 
     it('_previewSrcdoc passes HTML through and escapes text mode', () => {

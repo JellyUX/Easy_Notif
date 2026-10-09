@@ -191,12 +191,12 @@ public sealed class TemplateStoreTests : IDisposable
     }
 
     [Fact]
-    public void List_ReturnsTheThreeBases_InOrder_PlusCustoms()
+    public void List_ReturnsTheFourBases_InOrder_PlusCustoms()
     {
         var store = Build();
 
         var bases = store.List().Where(t => !t.Custom).Select(t => t.Id).ToList();
-        Assert.Equal(["newsletter", "weekly-recap", "series-episodes"], bases);
+        Assert.Equal(["newsletter", "weekly-recap", "series-episodes", "generic"], bases);
     }
 
     [Fact]
@@ -219,6 +219,20 @@ public sealed class TemplateStoreTests : IDisposable
         var foreign = store.Validate("series-episodes", "<p>{{moreMoviesLabel}}</p>");
         Assert.False(foreign.Ok);
         Assert.Equal("moreMoviesLabel", foreign.Key);
+    }
+
+    [Theory]
+    [InlineData("fr")]
+    [InlineData("en")]
+    public void Generic_IsAReadOnlyBase_ThatValidatesInBothLanguages(string lang)
+    {
+        var store = Build();
+
+        Assert.True(store.Exists("generic"));
+        Assert.True(store.Validate("generic", store.Get("generic", lang)).Ok);
+        Assert.Throws<InvalidOperationException>(() => store.Clone("generic", "mine"));
+        Assert.Throws<InvalidOperationException>(() => store.Save("generic", lang, "<p>x</p>"));
+        Assert.Equal("unknown-key", store.Validate("generic", "<p>{{title}}</p>").Reason);
     }
 
     public void Dispose()

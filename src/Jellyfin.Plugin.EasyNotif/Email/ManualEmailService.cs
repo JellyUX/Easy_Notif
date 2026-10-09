@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Services;
+using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Util;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,12 @@ public interface IManualEmailService
     /// <returns>The plan to pass to <see cref="SendAsync(ManualEmailPlan, Guid, IReadOnlySet{Guid}?, Action{ManualSendDetail}?, CancellationToken)"/>.</returns>
     /// <exception cref="ArgumentException">The request is not valid to send.</exception>
     ManualEmailPlan Plan(ManualEmailRequest request);
+
+    /// <summary>Returns <paramref name="request"/>'s body laid out with the <c>generic</c> template, for the admin preview.</summary>
+    /// <param name="request">The composed email (its audience only decides whether the unsubscribe link shows).</param>
+    /// <returns>The HTML.</returns>
+    /// <exception cref="ArgumentException">The body is missing or contains a script.</exception>
+    string Preview(ManualEmailRequest request);
 
     /// <summary>Sends the manual email described by <paramref name="request"/>, as a lot of its own.</summary>
     /// <param name="request">The composed email and its audience.</param>
@@ -67,7 +74,14 @@ public sealed record ManualEmailRequest(
     string Mode,
     IReadOnlyList<Guid>? UserIds,
     string? TestAddress,
-    IReadOnlyList<EmailAttachment>? Attachments);
+    IReadOnlyList<EmailAttachment>? Attachments)
+{
+    /// <summary>Gets a value indicating whether the body is laid out with the <c>generic</c> template (DEC-68).</summary>
+    public bool Wrap { get; init; }
+
+    /// <summary>Gets the language of the <c>generic</c> layout, <c>fr</c> or <c>en</c> (DEC-69).</summary>
+    public string Lang { get; init; } = "fr";
+}
 
 /// <summary>The outcome of a manual send.</summary>
 /// <param name="Sent">Number of messages the provider accepted.</param>
@@ -99,6 +113,7 @@ public sealed class ManualEmailService : IManualEmailService
     private readonly ISecretStore _secrets;
     private readonly IQuotaGuard _quota;
     private readonly ISendLog _sendLog;
+    private readonly ITemplateStore _templates;
     private readonly ILogger<ManualEmailService> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="ManualEmailService"/> class.</summary>
@@ -108,6 +123,7 @@ public sealed class ManualEmailService : IManualEmailService
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="quota">The send quota guard.</param>
     /// <param name="sendLog">The send log.</param>
+    /// <param name="templates">The template store (for the <c>generic</c> layout).</param>
     /// <param name="logger">Logger.</param>
     public ManualEmailService(
         IEmailSender sender,
@@ -116,6 +132,7 @@ public sealed class ManualEmailService : IManualEmailService
         ISecretStore secrets,
         IQuotaGuard quota,
         ISendLog sendLog,
+        ITemplateStore templates,
         ILogger<ManualEmailService> logger)
     {
         _sender = sender;
@@ -124,7 +141,18 @@ public sealed class ManualEmailService : IManualEmailService
         _secrets = secrets;
         _quota = quota;
         _sendLog = sendLog;
+        _templates = templates;
         _logger = logger;
+    }
+
+    /// <inheritdoc/>
+    public string Preview(ManualEmailRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateBody(request);
+
+        var sampleUnsubscribe = string.Equals(request.Mode, "all", StringComparison.Ordinal) ? "#" : null;
+        return Compose(request with { Wrap = true }, sampleUnsubscribe).Html!;
     }
 
     /// <inheritdoc/>
@@ -141,10 +169,7 @@ public sealed class ManualEmailService : IManualEmailService
             throw new ArgumentException("A subject is required.", nameof(request));
         }
 
-        if (string.IsNullOrWhiteSpace(request.Html) && string.IsNullOrWhiteSpace(request.Text))
-        {
-            throw new ArgumentException("An HTML or a text body is required.", nameof(request));
-        }
+        ValidateBody(request);
 
         var attachmentBytes = request.Attachments?.Sum(a => (long)a.Content.Length) ?? 0;
         if (attachmentBytes > MaxAttachmentBytes)
@@ -174,8 +199,8 @@ public sealed class ManualEmailService : IManualEmailService
             : [.. plan.Recipients.Where(r => onlyUserIds.Contains(r.UserId))];
         var skippedNoEmail = plan.SkippedNoEmail;
 
-        var text = string.IsNullOrWhiteSpace(request.Text) ? HtmlToText.Convert(request.Html) : request.Text;
         var cfg = _config.Get();
+        var unsubscribeSecret = _secrets.Get().UnsubscribeSecret;
 
         var sent = 0;
         var failed = 0;
@@ -183,14 +208,18 @@ public sealed class ManualEmailService : IManualEmailService
 
         foreach (var recipient in recipients)
         {
+            var unsubscribeUrl = isAll
+                ? UnsubscribeToken.BuildUrl(cfg.PublicServerUrl, unsubscribeSecret, recipient.UserId, UnsubscribeCategory, NormalizeLang(request.Lang))
+                : null;
+            var (html, text) = Compose(request, unsubscribeUrl);
             var message = new EmailMessage
             {
                 To = recipient.Email,
                 Subject = request.Subject,
-                Html = string.IsNullOrWhiteSpace(request.Html) ? null : request.Html,
-                Text = string.IsNullOrEmpty(text) ? null : text,
+                Html = html,
+                Text = text,
                 ReplyTo = cfg.ReplyTo,
-                Headers = !isAll ? null : BuildUnsubscribeHeaders(cfg, _secrets.Get().UnsubscribeSecret, recipient.UserId),
+                Headers = !isAll ? null : BuildUnsubscribeHeaders(cfg, unsubscribeSecret, recipient.UserId),
                 Tags = [new EmailTag("context", "manual")],
                 Attachments = request.Attachments,
                 IdempotencyKey = ManualKey(lotId, recipient)
@@ -246,6 +275,38 @@ public sealed class ManualEmailService : IManualEmailService
             skippedNoEmail);
 
         return new ManualEmailResult(sent, failed, skippedNoEmail, details);
+    }
+
+    // The HTML body goes out raw (as written, or inside {{{body}}} of the generic layout): a script is
+    // refused like in a template (TemplateStore.Validate), whatever the layout choice.
+    private static void ValidateBody(ManualEmailRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Html) && string.IsNullOrWhiteSpace(request.Text))
+        {
+            throw new ArgumentException("An HTML or a text body is required.", nameof(request));
+        }
+
+        if (request.Html?.Contains("<script", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            throw new ArgumentException("The HTML body must not contain a script.", nameof(request));
+        }
+    }
+
+    private static string NormalizeLang(string? lang) => lang is "en" ? "en" : "fr";
+
+    // Unwrapped: the body as written (text generated from the HTML when absent). Wrapped: the generic
+    // layout in the request language, with the unsubscribe link in the footer when there is one.
+    private (string? Html, string? Text) Compose(ManualEmailRequest request, string? unsubscribeUrl)
+    {
+        if (!request.Wrap)
+        {
+            var text = string.IsNullOrWhiteSpace(request.Text) ? HtmlToText.Convert(request.Html) : request.Text;
+            return (string.IsNullOrWhiteSpace(request.Html) ? null : request.Html, string.IsNullOrEmpty(text) ? null : text);
+        }
+
+        var lang = NormalizeLang(request.Lang);
+        var template = _templates.Get(GenericEmailRenderer.TemplateId, lang);
+        return GenericEmailRenderer.Render(request.Subject, request.Html, request.Text, unsubscribeUrl, lang == "fr", template);
     }
 
     private (IReadOnlyList<Recipient> Recipients, int SkippedNoEmail) ResolveRecipients(ManualEmailRequest request)

@@ -16,6 +16,10 @@ public static class TemplateSampleModel
         {
             "weekly-recap" => WeeklyRecap(),
             SeriesEpisodesRenderer.TemplateId => SeriesEpisodes(),
+            GenericEmailRenderer.TemplateId => GenericEmailRenderer.Model(
+                "Maintenance on Saturday",
+                "<p>The server will be offline on Saturday from 9 to 11 am for an update.</p><p>Thank you for your patience.</p>",
+                "https://media.example.org/EasyNotif/u/sample-token?lang=en"),
             _ => Newsletter()
         };
 

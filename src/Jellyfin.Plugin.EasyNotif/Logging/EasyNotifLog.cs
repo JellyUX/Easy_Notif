@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.Mail;
+using System.Text;
 using Jellyfin.Plugin.EasyNotif.Util;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
@@ -13,6 +14,7 @@ namespace Jellyfin.Plugin.EasyNotif.Logging;
 public sealed class EasyNotifLog : IEasyNotifLog
 {
     private const long MaxFileSizeBytes = 10L * 1024 * 1024;
+    private const int TailBlockBytes = 64 * 1024;
     private const string OutputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
     private readonly string _logsDir;
@@ -82,20 +84,70 @@ public sealed class EasyNotifLog : IEasyNotifLog
             }
 
             using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(stream);
-            var lines = new List<string>();
-            string? line;
-            while ((line = reader.ReadLine()) is not null)
-            {
-                lines.Add(line);
-            }
-
-            return lines.Count <= count ? lines : lines.GetRange(lines.Count - count, count);
+            return ReadLastLines(stream, count);
         }
         catch (IOException)
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// Returns the last lines of a UTF-8 stream, reading it backwards block by block so only the tail
+    /// is loaded (PERF-03). Counting <c>\n</c> bytes is safe in UTF-8: that byte never occurs inside a
+    /// multi-byte character.
+    /// </summary>
+    /// <param name="stream">A readable, seekable stream.</param>
+    /// <param name="count">The number of lines wanted.</param>
+    /// <returns>Up to <paramref name="count"/> lines, oldest first, without line terminators.</returns>
+    internal static IReadOnlyList<string> ReadLastLines(Stream stream, int count)
+    {
+        var length = stream.Length;
+        if (count <= 0 || length == 0)
+        {
+            return [];
+        }
+
+        // A terminator on the very last byte ends the last line rather than starting an empty one.
+        var end = length;
+        stream.Seek(-1, SeekOrigin.End);
+        if (stream.ReadByte() == '\n')
+        {
+            end--;
+        }
+
+        var start = 0L;
+        var found = 0;
+        var buffer = new byte[TailBlockBytes];
+        var position = end;
+        while (position > 0 && start == 0)
+        {
+            var size = (int)Math.Min(TailBlockBytes, position);
+            position -= size;
+            stream.Seek(position, SeekOrigin.Begin);
+            stream.ReadExactly(buffer, 0, size);
+            for (var i = size - 1; i >= 0; i--)
+            {
+                if (buffer[i] == '\n' && ++found == count)
+                {
+                    start = position + i + 1;
+                    break;
+                }
+            }
+        }
+
+        var tail = new byte[end - start];
+        stream.Seek(start, SeekOrigin.Begin);
+        stream.ReadExactly(tail);
+        var text = Encoding.UTF8.GetString(tail);
+        if (start == 0)
+        {
+            text = text.TrimStart('﻿');
+        }
+
+        return text.Length == 0 && end == 0
+            ? []
+            : text.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
     }
 
     /// <inheritdoc/>

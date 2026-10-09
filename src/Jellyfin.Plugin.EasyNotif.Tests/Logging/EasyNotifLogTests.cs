@@ -126,6 +126,101 @@ public sealed class EasyNotifLogTests : IDisposable
     }
 
     [Fact]
+    public void Tail50_OnATenMegabyteFile_ReturnsTheExactLastLines_ReadingOnlyTheEnd()
+    {
+        var (log, _) = Build();
+        log.Dispose();
+        Directory.CreateDirectory(LogsDir);
+        var path = Path.Combine(LogsDir, "easynotif-20991231.log");
+        var expected = new List<string>();
+        using (var writer = new StreamWriter(path, append: false, new System.Text.UTF8Encoding(false)) { NewLine = "\r\n" })
+        {
+            for (var i = 0; writer.BaseStream.Length < 10L * 1024 * 1024; i++)
+            {
+                var line = $"{i:D7} [INF] série épisode « {new string('x', i % 200)} » ✓";
+                writer.WriteLine(line);
+                expected.Add(line);
+                writer.Flush();
+            }
+        }
+
+        var tail = log.Tail(50);
+        Assert.Equal(expected.TakeLast(50), tail);
+
+        using var counting = new CountingStream(File.OpenRead(path));
+        Assert.Equal(expected.TakeLast(50), EasyNotifLog.ReadLastLines(counting, 50));
+        Assert.True(counting.BytesRead <= 2 * 64 * 1024, $"read {counting.BytesRead} bytes");
+    }
+
+    [Theory]
+    [InlineData("", 3, new string[0])]
+    [InlineData("a", 3, new[] { "a" })]
+    [InlineData("a\nb\n", 3, new[] { "a", "b" })]
+    [InlineData("a\r\nb\r\nc", 2, new[] { "b", "c" })]
+    [InlineData("a\n\nb\n", 2, new[] { "", "b" })]
+    [InlineData("﻿a\nb\n", 5, new[] { "a", "b" })]
+    [InlineData("a\nb\n", 0, new string[0])]
+    public void ReadLastLines_HandlesTerminatorsAndShortFiles(string content, int count, string[] expected)
+    {
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+
+        Assert.Equal(expected, EasyNotifLog.ReadLastLines(stream, count));
+    }
+
+    [Fact]
+    public void ReadLastLines_KeepsAMultiByteCharacterSplitAcrossTwoBlocks()
+    {
+        // 64 Kio - 1 ASCII bytes then "é" (2 bytes): the character straddles the block boundary.
+        var first = new string('a', (64 * 1024) - 1) + "é";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(first + "\nlast\n");
+        using var stream = new MemoryStream(bytes);
+
+        Assert.Equal(new[] { first, "last" }, EasyNotifLog.ReadLastLines(stream, 2));
+    }
+
+    private sealed class CountingStream(Stream inner) : Stream
+    {
+        public long BytesRead { get; private set; }
+
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanSeek => inner.CanSeek;
+
+        public override bool CanWrite => false;
+
+        public override long Length => inner.Length;
+
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = inner.Read(buffer, offset, count);
+            BytesRead += read;
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    [Fact]
     public void Construction_WhenTheLogsDirectoryCannotBeCreated_DegradesWithoutThrowing()
     {
         // A file already sitting where the plugin data directory needs to be forces

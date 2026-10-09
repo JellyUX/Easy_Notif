@@ -14,48 +14,63 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 
 /// <summary>
 /// Receives Resend delivery webhooks at <c>POST /EasyNotif/webhooks/resend</c>. Anonymous but
-/// signature-gated: an unsigned, mis-signed or stale request gets 401. A verified event updates the
-/// matching send-log line by Resend id. The handler always answers 200 once verified, even if the
-/// write fails, so Resend does not retry into a loop (R10).
+/// signature-gated: an unsigned, mis-signed or stale request gets 401, a body over 64 KiB gets 413
+/// before any verification. A verified event updates the matching send-log line by Resend id, once
+/// per <c>svix-id</c> (a replay within 10 minutes is ignored). The handler always answers 200 once
+/// verified, even if the write fails, so Resend does not retry into a loop (R10).
 /// </summary>
 [ApiController]
 [Route("EasyNotif/webhooks")]
 public class ResendWebhookController : ControllerBase
 {
+    /// <summary>The largest accepted webhook body; Resend events are a few KiB.</summary>
+    internal const int MaxBodyBytes = 64 * 1024;
+
     private static readonly TimeSpan Tolerance = TimeSpan.FromMinutes(5);
 
     private readonly ISecretStore _secrets;
     private readonly ISendLog _sendLog;
+    private readonly WebhookReplayGuard _replayGuard;
     private readonly ILogger<ResendWebhookController> _logger;
     private readonly IEasyNotifLog _easyNotifLog;
 
     /// <summary>Initializes a new instance of the <see cref="ResendWebhookController"/> class.</summary>
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="sendLog">The send log.</param>
+    /// <param name="replayGuard">The seen-<c>svix-id</c> cache.</param>
     /// <param name="logger">Logger.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
-    public ResendWebhookController(ISecretStore secrets, ISendLog sendLog, ILogger<ResendWebhookController> logger, IEasyNotifLog easyNotifLog)
+    public ResendWebhookController(ISecretStore secrets, ISendLog sendLog, WebhookReplayGuard replayGuard, ILogger<ResendWebhookController> logger, IEasyNotifLog easyNotifLog)
     {
         _secrets = secrets;
         _sendLog = sendLog;
+        _replayGuard = replayGuard;
         _logger = logger;
         _easyNotifLog = easyNotifLog;
     }
 
     /// <summary>Handles one Resend webhook delivery.</summary>
-    /// <returns>200 when accepted; 400 when the signature headers are missing; 401 when verification fails.</returns>
+    /// <returns>200 when accepted or replayed; 400 when the signature headers are missing; 401 when verification fails; 413 when the body is too large.</returns>
     [HttpPost("resend")]
     [AllowAnonymous]
+    [RequestSizeLimit(MaxBodyBytes)]
     [Consumes("application/json")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
     public async Task<IActionResult> Resend()
     {
-        string body;
-        using (var reader = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true))
+        // The attribute bounds Kestrel; this bounded read also covers hosts that ignore it.
+        if (Request.ContentLength > MaxBodyBytes)
         {
-            body = await reader.ReadToEndAsync().ConfigureAwait(false);
+            return StatusCode(StatusCodes.Status413PayloadTooLarge);
+        }
+
+        var body = await ReadBodyAsync(HttpContext.RequestAborted).ConfigureAwait(false);
+        if (body is null)
+        {
+            return StatusCode(StatusCodes.Status413PayloadTooLarge);
         }
 
         var id = Header("svix-id", "webhook-id");
@@ -71,6 +86,12 @@ public class ResendWebhookController : ControllerBase
         {
             _logger.LogWarning("[EasyNotif] Rejected a Resend webhook: signature verification failed.");
             return Unauthorized();
+        }
+
+        if (!_replayGuard.TryRecord(id))
+        {
+            _logger.LogInformation("[EasyNotif] Ignored a replayed Resend webhook.");
+            return Ok();
         }
 
         try
@@ -104,6 +125,21 @@ public class ResendWebhookController : ControllerBase
         }
 
         return Ok();
+    }
+
+    private async Task<string?> ReadBodyAsync(CancellationToken cancellationToken)
+    {
+        // One byte past the limit is enough to tell an oversized body apart.
+        var buffer = new byte[MaxBodyBytes + 1];
+        var length = 0;
+        int read;
+        while (length < buffer.Length
+            && (read = await Request.Body.ReadAsync(buffer.AsMemory(length), cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            length += read;
+        }
+
+        return length > MaxBodyBytes ? null : Encoding.UTF8.GetString(buffer, 0, length);
     }
 
     private string? Header(string primary, string fallback)

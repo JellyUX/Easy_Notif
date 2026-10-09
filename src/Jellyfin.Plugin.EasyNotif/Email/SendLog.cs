@@ -17,10 +17,14 @@ public interface ISendLog
     /// <param name="entry">The entry. Its <see cref="SendLogEntry.ToMasked"/> must already be masked.</param>
     void Append(SendLogEntry entry);
 
-    /// <summary>Sets the status of every entry with the given Resend id.</summary>
+    /// <summary>
+    /// Sets the status of every entry with the given Resend id, unless that entry already holds a
+    /// later status (see <see cref="SendLog.StatusRank"/>): an out-of-order <c>email.delivered</c>
+    /// never overwrites <c>email.bounced</c>.
+    /// </summary>
     /// <param name="resendId">The Resend message id.</param>
     /// <param name="status">The new status (a webhook event type, for example <c>email.delivered</c>).</param>
-    /// <returns>True when at least one entry matched.</returns>
+    /// <returns>True when at least one entry matched, whether or not its status moved.</returns>
     bool UpdateStatus(string resendId, string status);
 
     /// <summary>Returns the most recent entries, newest first.</summary>
@@ -113,23 +117,49 @@ public sealed class SendLog : JsonFileStore<SendLogFile>, ISendLog
             return false;
         }
 
-        var updated = false;
+        var matched = false;
         var now = _now().UtcDateTime;
         Mutate(file =>
         {
+            var changed = false;
             for (var i = 0; i < file.Entries.Count; i++)
             {
-                if (file.Entries[i].ResendId == resendId)
+                if (file.Entries[i].ResendId != resendId)
+                {
+                    continue;
+                }
+
+                matched = true;
+                if (StatusRank(status) >= StatusRank(file.Entries[i].Status))
                 {
                     file.Entries[i] = file.Entries[i] with { Status = status, UpdatedAt = now };
-                    updated = true;
+                    changed = true;
                 }
             }
 
-            return updated;
+            return changed;
         });
-        return updated;
+        return matched;
     }
+
+    /// <summary>
+    /// Orders statuses along a message's life: the local send result, then <c>email.sent</c>,
+    /// <c>email.delivery_delayed</c>, <c>email.delivered</c>, <c>email.opened</c>,
+    /// <c>email.clicked</c>, and last the terminal outcomes (bounce, complaint, failure, suppression).
+    /// An unknown webhook type ranks with <c>email.sent</c>.
+    /// </summary>
+    /// <param name="status">A status.</param>
+    /// <returns>Its rank; a status may only be replaced by one of equal or higher rank.</returns>
+    internal static int StatusRank(string? status) => status switch
+    {
+        "sent" or "failed" or "deduplicated" or null or "" => 0,
+        "email.delivery_delayed" => 2,
+        "email.delivered" => 3,
+        "email.opened" => 4,
+        "email.clicked" => 5,
+        "email.bounced" or "email.complained" or "email.failed" or "email.suppressed" => 6,
+        _ => 1
+    };
 
     /// <inheritdoc/>
     public IReadOnlyList<SendLogEntry> Recent(int count)

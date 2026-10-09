@@ -10,6 +10,7 @@ using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using Jellyfin.Plugin.EasyNotif.Unsubscribe;
+using Jellyfin.Plugin.EasyNotif.Webhooks;
 using Jellyfin.Data.Events.Users;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Events;
@@ -42,6 +43,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IEmailSender, ResendEmailSender>();
         serviceCollection.AddSingleton<IQuotaGuard, QuotaGuard>();
         serviceCollection.AddSingleton<ISendLog, SendLog>();
+        serviceCollection.AddSingleton<WebhookReplayGuard>();
         serviceCollection.AddSingleton<IManualEmailService, ManualEmailService>();
         serviceCollection.AddSingleton<IManualSendQueue, ManualSendQueue>();
         serviceCollection.AddSingleton<ICampaignStore, CampaignStore>();

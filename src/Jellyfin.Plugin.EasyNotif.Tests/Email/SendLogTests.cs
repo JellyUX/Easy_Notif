@@ -66,6 +66,36 @@ public sealed class SendLogTests : IDisposable
     }
 
     [Fact]
+    public void UpdateStatus_DeliveredAfterBounced_KeepsBounced_AndStillReportsAMatch()
+    {
+        var log = Build();
+        log.Append(Entry());
+        log.UpdateStatus("re_1", "email.bounced");
+
+        var matched = log.UpdateStatus("re_1", "email.delivered");
+
+        Assert.True(matched);
+        Assert.Equal("email.bounced", log.Recent(1)[0].Status);
+    }
+
+    [Theory]
+    [InlineData("email.sent", "email.delivered", "email.delivered")]
+    [InlineData("email.delivered", "email.complained", "email.complained")]
+    [InlineData("email.delivered", "email.sent", "email.delivered")]
+    [InlineData("email.complained", "email.opened", "email.complained")]
+    [InlineData("email.delivery_delayed", "email.bounced", "email.bounced")]
+    public void UpdateStatus_FollowsTheMessageLifecycleOrder(string first, string second, string expected)
+    {
+        var log = Build();
+        log.Append(Entry());
+        log.UpdateStatus("re_1", first);
+
+        log.UpdateStatus("re_1", second);
+
+        Assert.Equal(expected, log.Recent(1)[0].Status);
+    }
+
+    [Fact]
     public void UpdateStatus_UnknownId_ReturnsFalse_AndLeavesTheFile()
     {
         var log = Build();

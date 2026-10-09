@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -23,6 +24,9 @@ public interface IAddedItemsStore
     /// <param name="sinceUtc">The window start (UTC).</param>
     /// <returns>The item ids.</returns>
     IReadOnlyCollection<Guid> AddedSince(DateTime sinceUtc);
+
+    /// <summary>Gets the health counters of the background writer.</summary>
+    DrainHealth Health { get; }
 
     /// <summary>Starts the background writer.</summary>
     void Start();
@@ -53,11 +57,13 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private const int MaxRecords = 20000;
 
+    // Wait, not DropWrite: TryWrite never blocks either way, but DropWrite reports a dropped item
+    // as written, and the drop must be counted (OPS-02).
     private readonly Channel<Guid> _channel =
         Channel.CreateBounded<Guid>(new BoundedChannelOptions(10_000)
         {
             SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropWrite
+            FullMode = BoundedChannelFullMode.Wait
         });
     private readonly Func<DateTime> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
@@ -68,8 +74,9 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
     /// <param name="applicationPaths">Provides the application data directory path.</param>
     /// <param name="fileSystem">File system abstraction.</param>
     /// <param name="logger">Logger.</param>
-    public AddedItemsStore(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<AddedItemsStore> logger)
-        : this(applicationPaths, fileSystem, logger, () => DateTime.UtcNow, Task.Delay)
+    /// <param name="easyNotifLog">The plugin log (lost batches).</param>
+    public AddedItemsStore(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<AddedItemsStore> logger, IEasyNotifLog easyNotifLog)
+        : this(applicationPaths, fileSystem, logger, easyNotifLog, () => DateTime.UtcNow, Task.Delay)
     {
     }
 
@@ -77,16 +84,27 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
         IApplicationPaths applicationPaths,
         IFileSystem fileSystem,
         ILogger<AddedItemsStore> logger,
+        IEasyNotifLog easyNotifLog,
         Func<DateTime> now,
         Func<TimeSpan, CancellationToken, Task> delay)
         : base(applicationPaths, fileSystem, logger, "added-items.json")
     {
         _now = now;
         _delay = delay;
+        Health = new DrainHealth("newItems", easyNotifLog, () => _channel.Reader.Count);
     }
 
     /// <inheritdoc/>
-    public void RecordAdded(Guid itemId) => _channel.Writer.TryWrite(itemId);
+    public DrainHealth Health { get; }
+
+    /// <inheritdoc/>
+    public void RecordAdded(Guid itemId)
+    {
+        if (!_channel.Writer.TryWrite(itemId))
+        {
+            Health.Dropped();
+        }
+    }
 
     /// <inheritdoc/>
     public IReadOnlyCollection<Guid> AddedSince(DateTime sinceUtc)
@@ -165,11 +183,12 @@ public sealed class AddedItemsStore : JsonFileStore<AddedItemsFile>, IAddedItems
 
                     return true;
                 });
+                Health.Flushed(now);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                // A transient write failure must not kill the drain: log the lost batch and keep going.
-                _logger.LogError(ex, "[EasyNotif] Failed to flush {Count} added-item record(s); the drain continues.", batch.Count);
+                // A transient write failure must not kill the drain: record the lost batch and keep going.
+                Health.Lost(batch.Count, ex);
             }
         }
     }

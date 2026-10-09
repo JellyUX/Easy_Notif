@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Playback;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,7 +23,7 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
 
     private string DataDir => Path.Combine(_tempDir, "Jellyfin.Plugin.EasyNotif");
 
-    private PlaybackHistoryStore Build(IFileSystem? fileSystem = null, ILogger<PlaybackHistoryStore>? logger = null)
+    private PlaybackHistoryStore Build(IFileSystem? fileSystem = null, ILogger<PlaybackHistoryStore>? logger = null, FakeEasyNotifLog? log = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
@@ -30,6 +31,7 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
             paths.Object,
             fileSystem ?? new FileSystem(),
             logger ?? NullLogger<PlaybackHistoryStore>.Instance,
+            log ?? new FakeEasyNotifLog(),
             () => _now,
             (_, _) => Task.CompletedTask);
         _stores.Add(store);
@@ -320,8 +322,8 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
     public async Task DrainLoop_SurvivesAWriteFailure_AndPersistsTheNextBatch()
     {
         var fs = new CountingFileSystem();
-        var logger = new Mock<ILogger<PlaybackHistoryStore>>();
-        var store = Build(fs, logger.Object);
+        var log = new FakeEasyNotifLog();
+        var store = Build(fs, log: log);
         var user = Guid.NewGuid();
         store.Start();                     // stamps TrackingSinceUtc (a synchronous write)
         fs.ThrowOnNextWriteAllText = true; // arm the failure for the first drain flush
@@ -338,9 +340,13 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
         await store.StopAsync();
         Assert.Equal(2, Build(new FileSystem()).GetWeek(user, _now.AddDays(-7)).Count);
 
-        logger.Verify(
-            l => l.Log(LogLevel.Error, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), It.IsAny<Exception>(), It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.AtLeastOnce);
+        // The loss is visible without the logs (OPS-02) and logged for the incident digest.
+        var health = store.Health.Snapshot();
+        Assert.Equal(1, health.LostBatches);
+        Assert.Equal(1, health.LostItems);
+        Assert.Equal(_now, health.LastFlushUtc);
+        var lost = Assert.Single(log.Entries, e => e.EventType == "drain.lost");
+        Assert.Equal("playback", lost.Fields!["drain"]);
     }
 
     [Fact]

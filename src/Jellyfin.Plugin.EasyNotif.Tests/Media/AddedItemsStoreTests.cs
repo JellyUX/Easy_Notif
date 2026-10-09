@@ -1,7 +1,7 @@
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Media;
+using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using MediaBrowser.Common.Configuration;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -19,7 +19,7 @@ public sealed class AddedItemsStoreTests : IDisposable
     private readonly List<AddedItemsStore> _stores = [];
     private DateTime _now = new(2026, 6, 15, 12, 0, 0, DateTimeKind.Utc);
 
-    private AddedItemsStore Build(IFileSystem? fileSystem = null, ILogger<AddedItemsStore>? logger = null)
+    private AddedItemsStore Build(IFileSystem? fileSystem = null, FakeEasyNotifLog? log = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
@@ -27,7 +27,8 @@ public sealed class AddedItemsStoreTests : IDisposable
         var store = new AddedItemsStore(
             paths.Object,
             fileSystem ?? new FileSystem(),
-            logger ?? NullLogger<AddedItemsStore>.Instance,
+            NullLogger<AddedItemsStore>.Instance,
+            log ?? new FakeEasyNotifLog(),
             () => _now,
             (_, _) => Task.CompletedTask);
         _stores.Add(store);
@@ -114,8 +115,8 @@ public sealed class AddedItemsStoreTests : IDisposable
     public async Task DrainLoop_SurvivesAWriteFailure_AndPersistsTheNextBatch()
     {
         var fs = new FailingFileSystem { ThrowOnNextWriteAllText = true };
-        var logger = new Mock<ILogger<AddedItemsStore>>();
-        var store = Build(fs, logger.Object);
+        var log = new FakeEasyNotifLog();
+        var store = Build(fs, log);
         store.Start();
 
         // First batch: the flush throws. The id is lost, but the drain must keep running.
@@ -126,11 +127,42 @@ public sealed class AddedItemsStoreTests : IDisposable
         var freshId = Guid.NewGuid();
         store.RecordAdded(freshId);
         await WaitFor(() => store.AddedSince(_now.AddMinutes(-1)).Contains(freshId));
-
-        logger.Verify(
-            l => l.Log(LogLevel.Error, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), It.IsAny<Exception>(), It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.AtLeastOnce);
         await store.StopAsync();
+
+        // The loss is visible without the logs (OPS-02) and logged for the incident digest.
+        var health = store.Health.Snapshot();
+        Assert.Equal(1, health.LostBatches);
+        Assert.Equal(1, health.LostItems);
+        Assert.Equal(_now, health.LastFlushUtc);
+        var lost = Assert.Single(log.Entries, e => e.EventType == "drain.lost");
+        Assert.Equal("Error", lost.Level);
+        Assert.Equal("newItems", lost.Fields!["drain"]);
+        Assert.Equal(1, lost.Fields["count"]);
+    }
+
+    [Fact]
+    public async Task RecordAdded_WhenTheChannelIsFull_CountsTheDroppedItems_AndReportsThemOnce()
+    {
+        var log = new FakeEasyNotifLog();
+        var store = Build(log: log);
+
+        // Not started: nothing drains, so the channel fills up at 10,000.
+        for (var i = 0; i < 10_003; i++)
+        {
+            store.RecordAdded(Guid.NewGuid());
+        }
+
+        Assert.Equal(3, store.Health.Snapshot().Dropped);
+        Assert.Equal(10_000, store.Health.Snapshot().Depth);
+        Assert.DoesNotContain(log.Entries, e => e.EventType == "drain.dropped");
+
+        store.Start();
+        await WaitFor(() => store.Health.Snapshot().Depth == 0 && store.Health.Snapshot().LastFlushUtc is not null);
+        await store.StopAsync();
+
+        var dropped = Assert.Single(log.Entries, e => e.EventType == "drain.dropped");
+        Assert.Equal("Warn", dropped.Level);
+        Assert.Equal(3L, dropped.Fields!["count"]);
     }
 
     public void Dispose()

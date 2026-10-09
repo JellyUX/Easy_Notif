@@ -126,7 +126,7 @@
 
             var cTable = document.createElement('table');
             var cHead = document.createElement('tr');
-            ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent'].forEach(function (key) {
+            ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent', 'status.col.lastError'].forEach(function (key) {
                 var th = document.createElement('th');
                 th.textContent = _t(dict, key);
                 cHead.appendChild(th);
@@ -142,16 +142,62 @@
                     c.id || '',
                     c.enabled ? _t(dict, 'common.yes') : _t(dict, 'common.no'),
                     c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never'),
-                    c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never')
-                ].forEach(function (value) {
+                    c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never'),
+                    c.lastError ? ((_fmtDateTime(c.lastErrorUtc) || '') + ' UTC ' + c.lastError) : '-'
+                ].forEach(function (value, i) {
                     var td = document.createElement('td');
                     td.textContent = value;
+                    if (i === 4 && c.lastError) {
+                        td.className = 'enotif-warn';
+                    }
                     tr.appendChild(td);
                 });
                 cBody.appendChild(tr);
             });
             cTable.appendChild(cBody);
             root.appendChild(cTable);
+        }
+
+        var drains = status.drains || {};
+        var drainNames = ['newItems', 'playback', 'episodes'].filter(function (name) { return drains[name]; });
+        if (drainNames.length) {
+            var drainsTitle = document.createElement('p');
+            drainsTitle.textContent = _t(dict, 'status.drains');
+            root.appendChild(drainsTitle);
+
+            var dTable = document.createElement('table');
+            var dHead = document.createElement('tr');
+            ['status.col.drain', 'status.col.lastFlush', 'status.col.lost', 'status.col.dropped', 'status.col.depth'].forEach(function (key) {
+                var th = document.createElement('th');
+                th.textContent = _t(dict, key);
+                dHead.appendChild(th);
+            });
+            var dThead = document.createElement('thead');
+            dThead.appendChild(dHead);
+            dTable.appendChild(dThead);
+
+            var dBody = document.createElement('tbody');
+            drainNames.forEach(function (name) {
+                var d = drains[name];
+                var tr = document.createElement('tr');
+                if (d.lostBatches > 0 || d.dropped > 0) {
+                    tr.className = 'enotif-warn';
+                }
+                [
+                    _t(dict, 'status.drain.' + name),
+                    _fmtDateTime(d.lastFlushUtc) || _t(dict, 'status.drainNoFlush'),
+                    _t(dict, 'status.drainLost').replace('{b}', d.lostBatches || 0).replace('{n}', d.lostItems || 0),
+                    String(d.dropped || 0),
+                    String(d.depth || 0)
+                ].forEach(function (value) {
+                    var td = document.createElement('td');
+                    td.textContent = value;
+                    tr.appendChild(td);
+                });
+                dBody.appendChild(tr);
+            });
+            dTable.appendChild(dBody);
+            root.appendChild(dTable);
         }
 
         var recent = status.recent || [];

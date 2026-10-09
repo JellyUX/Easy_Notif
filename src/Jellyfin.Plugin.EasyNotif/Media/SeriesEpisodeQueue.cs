@@ -1,8 +1,8 @@
 using System.Threading.Channels;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
-using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.EasyNotif.Media;
 
@@ -23,6 +23,9 @@ public interface ISeriesEpisodeQueue
     /// <param name="item">The removed item.</param>
     void OnRemoved(BaseItem item);
 
+    /// <summary>Gets the health counters of the background writer.</summary>
+    DrainHealth Health { get; }
+
     /// <summary>Starts the background writer.</summary>
     void Start();
 
@@ -34,15 +37,16 @@ public interface ISeriesEpisodeQueue
 /// <inheritdoc cref="ISeriesEpisodeQueue"/>
 public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
 {
+    // Wait, not DropWrite: TryWrite never blocks either way, but DropWrite reports a dropped item
+    // as written, and the drop must be counted (OPS-02).
     private readonly Channel<SeriesEvent> _channel =
         Channel.CreateBounded<SeriesEvent>(new BoundedChannelOptions(10_000)
         {
             SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropWrite
+            FullMode = BoundedChannelFullMode.Wait
         });
 
     private readonly ISeriesNotifyStore _store;
-    private readonly ILogger<SeriesEpisodeQueue> _logger;
     private readonly Func<DateTime> _now;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly CancellationTokenSource _cts = new();
@@ -50,23 +54,26 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
 
     /// <summary>Initializes a new instance of the <see cref="SeriesEpisodeQueue"/> class.</summary>
     /// <param name="store">The series notification store.</param>
-    /// <param name="logger">Logger.</param>
-    public SeriesEpisodeQueue(ISeriesNotifyStore store, ILogger<SeriesEpisodeQueue> logger)
-        : this(store, logger, () => DateTime.UtcNow, Task.Delay)
+    /// <param name="easyNotifLog">The plugin log (lost batches).</param>
+    public SeriesEpisodeQueue(ISeriesNotifyStore store, IEasyNotifLog easyNotifLog)
+        : this(store, easyNotifLog, () => DateTime.UtcNow, Task.Delay)
     {
     }
 
     internal SeriesEpisodeQueue(
         ISeriesNotifyStore store,
-        ILogger<SeriesEpisodeQueue> logger,
+        IEasyNotifLog easyNotifLog,
         Func<DateTime> now,
         Func<TimeSpan, CancellationToken, Task> delay)
     {
         _store = store;
-        _logger = logger;
         _now = now;
         _delay = delay;
+        Health = new DrainHealth("episodes", easyNotifLog, () => _channel.Reader.Count);
     }
+
+    /// <inheritdoc/>
+    public DrainHealth Health { get; }
 
     /// <inheritdoc/>
     public void OnAdded(BaseItem item)
@@ -76,7 +83,7 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
             && SeriesOf(episode) is { } seriesId
             && _store.IsFollowed(seriesId))
         {
-            _channel.Writer.TryWrite(new SeriesEvent(false, episode.Id, seriesId, null));
+            Enqueue(new SeriesEvent(false, episode.Id, seriesId, null));
         }
     }
 
@@ -88,12 +95,12 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
             && SeriesOf(episode) is { } seriesId
             && _store.IsFollowed(seriesId))
         {
-            _channel.Writer.TryWrite(new SeriesEvent(true, episode.Id, seriesId, KeyOf(episode)));
+            Enqueue(new SeriesEvent(true, episode.Id, seriesId, KeyOf(episode)));
         }
         else if (item is Series series && _store.IsFollowed(series.Id))
         {
             // A deleted series takes its subscriptions with it (SEC-11).
-            _channel.Writer.TryWrite(new SeriesEvent(true, series.Id, series.Id, null, WholeSeries: true));
+            Enqueue(new SeriesEvent(true, series.Id, series.Id, null, WholeSeries: true));
         }
     }
 
@@ -138,6 +145,14 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
         return key.StartsWith("ep:", StringComparison.Ordinal) ? key : null;
     }
 
+    private void Enqueue(SeriesEvent evt)
+    {
+        if (!_channel.Writer.TryWrite(evt))
+        {
+            Health.Dropped();
+        }
+    }
+
     private async Task DrainLoopAsync(CancellationToken cancellationToken)
     {
         // Not cancelled on stop: completing the writer ends the loop once the queued events are
@@ -164,14 +179,16 @@ public sealed class SeriesEpisodeQueue : ISeriesEpisodeQueue, IDisposable
                 continue;
             }
 
+            var now = _now();
             try
             {
-                Apply(batch, _now());
+                Apply(batch, now);
+                Health.Flushed(now);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                // A transient write failure must not kill the drain: log the lost batch and keep going.
-                _logger.LogError(ex, "[EasyNotif] Failed to record {Count} series episode event(s); the drain continues.", batch.Count);
+                // A transient write failure must not kill the drain: record the lost batch and keep going.
+                Health.Lost(batch.Count, ex);
             }
         }
     }

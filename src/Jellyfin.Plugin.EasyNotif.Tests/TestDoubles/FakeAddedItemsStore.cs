@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Media;
+using Jellyfin.Plugin.EasyNotif.Storage;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 
@@ -14,6 +15,9 @@ public sealed class FakeAddedItemsStore : IAddedItemsStore
     /// <summary>Initializes a new instance of the <see cref="FakeAddedItemsStore"/> class.</summary>
     /// <param name="now">The clock; defaults to <see cref="DateTime.UtcNow"/>.</param>
     public FakeAddedItemsStore(Func<DateTime>? now = null) => _now = now ?? (() => DateTime.UtcNow);
+
+    /// <inheritdoc/>
+    public DrainHealth Health { get; } = new("newItems", new FakeEasyNotifLog(), () => 0);
 
     /// <summary>Gets the ids passed to <see cref="RecordAdded"/>, in order.</summary>
     public List<Guid> Recorded { get; } = [];

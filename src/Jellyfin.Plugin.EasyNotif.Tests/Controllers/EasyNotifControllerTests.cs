@@ -5,6 +5,7 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Controllers;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
+using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
@@ -645,6 +646,29 @@ public sealed class EasyNotifControllerTests
         Assert.Contains("\"publicUrlSet\":true", json, StringComparison.Ordinal);
         Assert.Contains("\"id\":\"newsletter\"", json, StringComparison.Ordinal);
         Assert.Contains("\"id\":\"weekly-recap\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GetStatus_ReportsALostDrainBatch_AndTheCampaignError()
+    {
+        var added = new FakeAddedItemsStore();
+        added.Health.Lost(4, new IOException("disk full"));
+        var episodes = new Mock<ISeriesEpisodeQueue>();
+        episodes.Setup(q => q.Health).Returns(new DrainHealth("episodes", new FakeEasyNotifLog(), () => 7));
+        var drains = new DrainStatus(added, new FakePlaybackHistoryStore(), episodes.Object);
+        var campaigns = SeededCampaigns();
+        campaigns.Campaigns[0].LastError = "InvalidOperationException: template missing";
+        campaigns.Campaigns[0].LastErrorUtc = new DateTime(2026, 10, 9, 8, 0, 0, DateTimeKind.Utc);
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+
+        var json = JsonSerializer.Serialize(
+            Assert.IsType<OkObjectResult>(BuildController(sendLog: sendLog, campaigns: campaigns, drains: drains).GetStatus()).Value);
+
+        Assert.Contains("\"newItems\":{\"lastFlushUtc\":null,\"lostBatches\":1,\"lostItems\":4,\"dropped\":0,\"depth\":0}", json, StringComparison.Ordinal);
+        Assert.Contains("\"episodes\":{\"lastFlushUtc\":null,\"lostBatches\":0,\"lostItems\":0,\"dropped\":0,\"depth\":7}", json, StringComparison.Ordinal);
+        Assert.Contains("\"playback\":{", json, StringComparison.Ordinal);
+        Assert.Contains("\"lastError\":\"InvalidOperationException: template missing\",\"lastErrorUtc\":\"2026-10-09T08:00:00Z\"", json, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1367,7 +1391,8 @@ public sealed class EasyNotifControllerTests
         Mock<IFileTransformationDetector>? fileTransformation = null,
         FakeEasyNotifLog? easyNotifLog = null,
         Mock<IManualSendQueue>? manualQueue = null,
-        Mock<IFollowedSeriesService>? followedSeries = null)
+        Mock<IFollowedSeriesService>? followedSeries = null,
+        IDrainStatus? drains = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1403,6 +1428,7 @@ public sealed class EasyNotifControllerTests
             (dispatch ?? new Mock<IDispatchService>()).Object,
             templates ?? TestTemplateStore.Create(),
             (fileTransformation ?? new Mock<IFileTransformationDetector>()).Object,
+            drains ?? Mock.Of<IDrainStatus>(d => d.Snapshot() == new Dictionary<string, DrainHealthSnapshot>()),
             easyNotifLog ?? new FakeEasyNotifLog(),
             NullLogger<EasyNotifController>.Instance);
         controller.ControllerContext = new ControllerContext

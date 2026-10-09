@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Threading.Channels;
 using Jellyfin.Plugin.EasyNotif.IO;
+using Jellyfin.Plugin.EasyNotif.Logging;
 using Jellyfin.Plugin.EasyNotif.Storage;
 using MediaBrowser.Common.Configuration;
 using Microsoft.Extensions.Logging;
@@ -36,6 +37,9 @@ public interface IPlaybackHistoryStore
     /// </summary>
     /// <param name="userId">The Jellyfin user id.</param>
     void Purge(Guid userId);
+
+    /// <summary>Gets the health counters of the background writer.</summary>
+    DrainHealth Health { get; }
 
     /// <summary>Starts the background writer and stamps the tracking-start date on first run.</summary>
     void Start();
@@ -96,11 +100,13 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
     private static readonly TimeSpan Retention = TimeSpan.FromDays(90);
     private const int MaxEvents = 50000;
 
+    // Wait, not DropWrite: TryWrite never blocks either way, but DropWrite reports a dropped item
+    // as written, and the drop must be counted (OPS-02).
     private readonly Channel<PlaybackEvent> _channel =
         Channel.CreateBounded<PlaybackEvent>(new BoundedChannelOptions(10_000)
         {
             SingleReader = true,
-            FullMode = BoundedChannelFullMode.DropWrite
+            FullMode = BoundedChannelFullMode.Wait
         });
     // Not indented: at the 50,000-event cap the file is rewritten on every batch.
     private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
@@ -114,8 +120,9 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
     /// <param name="applicationPaths">Provides the application data directory path.</param>
     /// <param name="fileSystem">File system abstraction.</param>
     /// <param name="logger">Logger.</param>
-    public PlaybackHistoryStore(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<PlaybackHistoryStore> logger)
-        : this(applicationPaths, fileSystem, logger, () => DateTime.UtcNow, Task.Delay)
+    /// <param name="easyNotifLog">The plugin log (lost batches).</param>
+    public PlaybackHistoryStore(IApplicationPaths applicationPaths, IFileSystem fileSystem, ILogger<PlaybackHistoryStore> logger, IEasyNotifLog easyNotifLog)
+        : this(applicationPaths, fileSystem, logger, easyNotifLog, () => DateTime.UtcNow, Task.Delay)
     {
     }
 
@@ -123,16 +130,27 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
         IApplicationPaths applicationPaths,
         IFileSystem fileSystem,
         ILogger<PlaybackHistoryStore> logger,
+        IEasyNotifLog easyNotifLog,
         Func<DateTime> now,
         Func<TimeSpan, CancellationToken, Task> delay)
         : base(applicationPaths, fileSystem, logger, "playback-history.json")
     {
         _now = now;
         _delay = delay;
+        Health = new DrainHealth("playback", easyNotifLog, () => _channel.Reader.Count);
     }
 
     /// <inheritdoc/>
-    public void Record(PlaybackEvent playbackEvent) => _channel.Writer.TryWrite(playbackEvent);
+    public DrainHealth Health { get; }
+
+    /// <inheritdoc/>
+    public void Record(PlaybackEvent playbackEvent)
+    {
+        if (!_channel.Writer.TryWrite(playbackEvent))
+        {
+            Health.Dropped();
+        }
+    }
 
     /// <inheritdoc/>
     public IReadOnlyList<PlaybackEvent> GetWeek(Guid userId, DateTime sinceUtc)
@@ -240,7 +258,8 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
                 continue;
             }
 
-            var cutoff = _now() - Retention;
+            var now = _now();
+            var cutoff = now - Retention;
             try
             {
                 Mutate(file =>
@@ -259,11 +278,12 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
 
                     return true;
                 });
+                Health.Flushed(now);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
-                // A transient write failure must not kill the drain: log the lost batch and keep going.
-                _logger.LogError(ex, "[EasyNotif] Failed to flush {Count} playback event(s); the drain continues.", batch.Count);
+                // A transient write failure must not kill the drain: record the lost batch and keep going.
+                Health.Lost(batch.Count, ex);
             }
         }
     }

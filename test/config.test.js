@@ -178,6 +178,47 @@ describe('_buildStatus', () => {
         expect(el.textContent).toContain('series emails stop at 60');
     });
 
+    it('flags a drain that lost a batch and shows each drain', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [],
+            drains: {
+                newItems: { lastFlushUtc: '2026-10-09T08:00:00Z', lostBatches: 1, lostItems: 4, dropped: 0, depth: 0 },
+                playback: { lastFlushUtc: null, lostBatches: 0, lostItems: 0, dropped: 0, depth: 2 },
+                episodes: { lastFlushUtc: null, lostBatches: 0, lostItems: 0, dropped: 0, depth: 0 }
+            }
+        });
+
+        const rows = el.querySelectorAll('tbody tr');
+        expect(rows.length).toBe(3);
+        expect(rows[0].className).toBe('enotif-warn');
+        expect(rows[0].textContent).toContain('1 batch(es), 4 item(s)');
+        expect(rows[0].textContent).toContain('2026-10-09 08:00');
+        expect(rows[1].className).toBe('');
+        expect(rows[1].textContent).toContain(dict['status.drainNoFlush']);
+    });
+
+    it('shows a campaign error as text, never markup', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [],
+            campaigns: [
+                { id: 'newsletter', enabled: true, lastError: '<b>IOException</b>: disk full', lastErrorUtc: '2026-10-09T08:00:00Z' },
+                { id: 'weekly-recap', enabled: true, lastError: null }
+            ]
+        });
+
+        const cells = el.querySelectorAll('tbody tr td:last-child');
+        expect(cells[0].className).toBe('enotif-warn');
+        expect(cells[0].textContent).toBe('2026-10-09 08:00 UTC <b>IOException</b>: disk full');
+        expect(cells[1].textContent).toBe('-');
+        expect(el.innerHTML).not.toContain('<b>');
+    });
+
     it('says no webhook when lastWebhookUtc is null', () => {
         const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [] });
 

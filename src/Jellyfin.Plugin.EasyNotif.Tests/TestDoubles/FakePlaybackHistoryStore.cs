@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Playback;
+using Jellyfin.Plugin.EasyNotif.Storage;
 
 namespace Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 
@@ -10,6 +11,9 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
 {
     private readonly List<PlaybackEvent> _events = [];
+
+    /// <inheritdoc/>
+    public DrainHealth Health { get; } = new("playback", new FakeEasyNotifLog(), () => 0);
 
     /// <summary>Gets the events passed to <see cref="Record"/>, in order.</summary>
     public List<PlaybackEvent> Recorded { get; } = [];

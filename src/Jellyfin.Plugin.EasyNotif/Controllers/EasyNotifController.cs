@@ -58,6 +58,7 @@ public class EasyNotifController : ControllerBase
     private readonly IDispatchService _dispatch;
     private readonly ITemplateStore _templates;
     private readonly IFileTransformationDetector _fileTransformation;
+    private readonly IDrainStatus _drains;
     private readonly IEasyNotifLog _easyNotifLog;
     private readonly ILogger<EasyNotifController> _logger;
 
@@ -79,6 +80,7 @@ public class EasyNotifController : ControllerBase
     /// <param name="dispatch">The dispatch service.</param>
     /// <param name="templates">The email template store.</param>
     /// <param name="fileTransformation">The FileTransformation availability detector.</param>
+    /// <param name="drains">The health of the background drains.</param>
     /// <param name="easyNotifLog">The plugin's dedicated log.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifController(
@@ -97,6 +99,7 @@ public class EasyNotifController : ControllerBase
         IDispatchService dispatch,
         ITemplateStore templates,
         IFileTransformationDetector fileTransformation,
+        IDrainStatus drains,
         IEasyNotifLog easyNotifLog,
         ILogger<EasyNotifController> logger)
     {
@@ -115,6 +118,7 @@ public class EasyNotifController : ControllerBase
         _dispatch = dispatch;
         _templates = templates;
         _fileTransformation = fileTransformation;
+        _drains = drains;
         _easyNotifLog = easyNotifLog;
         _logger = logger;
     }
@@ -540,7 +544,9 @@ public class EasyNotifController : ControllerBase
     /// <summary>
     /// Gets the Resend transport status for the settings tab: whether it is configured, the rolling
     /// send quota with its configured limits and the share reserved for a campaign due today, the
-    /// last webhook received, and the last few sends. Never returns a secret.
+    /// last webhook received, each campaign's last error, the health of the background drains
+    /// (last write, lost batches, dropped items, queue depth), and the last few sends. Never
+    /// returns a secret.
     /// Administrators only.
     /// </summary>
     /// <returns>The status object.</returns>
@@ -581,7 +587,17 @@ public class EasyNotifController : ControllerBase
                 nextRunUtc = c.NextRunUtc,
                 lastSentUtc = c.LastSentUtc,
                 nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
-                lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz)
+                lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
+                lastError = c.LastError,
+                lastErrorUtc = c.LastErrorUtc
+            }),
+            drains = _drains.Snapshot().ToDictionary(d => d.Key, d => new
+            {
+                lastFlushUtc = d.Value.LastFlushUtc,
+                lostBatches = d.Value.LostBatches,
+                lostItems = d.Value.LostItems,
+                dropped = d.Value.Dropped,
+                depth = d.Value.Depth
             }),
             recent = _sendLog.Recent(10).Select(e => new
             {

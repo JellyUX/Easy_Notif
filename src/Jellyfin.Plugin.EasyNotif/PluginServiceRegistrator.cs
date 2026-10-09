@@ -54,6 +54,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<ISeriesNotifyStore, SeriesNotifyStore>();
         serviceCollection.AddSingleton<ISeriesEpisodeQueue, SeriesEpisodeQueue>();
         serviceCollection.AddSingleton<IPlaybackHistoryStore, PlaybackHistoryStore>();
+        serviceCollection.AddSingleton<IDrainStatus, DrainStatus>();
         serviceCollection.AddSingleton<IPosterCache, PosterCache>(); // inline newsletter posters (no public URL)
         serviceCollection.AddSingleton<IAccessFilter, AccessFilter>();
         serviceCollection.AddSingleton<IFollowedSeriesService, FollowedSeriesService>();

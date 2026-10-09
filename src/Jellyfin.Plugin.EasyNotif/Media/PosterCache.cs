@@ -1,7 +1,9 @@
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.IO;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 
 namespace Jellyfin.Plugin.EasyNotif.Media;
@@ -9,8 +11,9 @@ namespace Jellyfin.Plugin.EasyNotif.Media;
 /// <summary>
 /// Reads an item's primary image from disk as an inline <c>cid:</c> attachment, for the newsletter
 /// when no public server URL is configured (Synthese.md section 5.1). Read-only with respect to the
-/// library (R12). A poster larger than <see cref="PosterCache.MaxPosterBytes"/> is skipped rather
-/// than bloating the message; the item then simply has no image.
+/// library (R12). Only a JPEG, PNG or WebP file under Jellyfin's metadata directory or a library
+/// folder is read (DEC-52, DEC-53), and never one larger than <see cref="PosterCache.MaxPosterBytes"/>;
+/// any other image is skipped and the item simply has no image.
 /// </summary>
 public interface IPosterCache
 {
@@ -27,15 +30,24 @@ public sealed class PosterCache : IPosterCache
     /// <summary>The largest primary image, in bytes, that is worth attaching inline.</summary>
     public const int MaxPosterBytes = 500 * 1024;
 
+    private static readonly StringComparison PathComparison =
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
     private readonly IFileSystem _fileSystem;
+    private readonly IServerApplicationPaths _applicationPaths;
+    private readonly ILibraryManager _libraryManager;
     private readonly IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="PosterCache"/> class.</summary>
     /// <param name="fileSystem">File system abstraction.</param>
+    /// <param name="applicationPaths">Provides Jellyfin's metadata directory.</param>
+    /// <param name="libraryManager">Provides the library folders.</param>
     /// <param name="log">The plugin's dedicated log.</param>
-    public PosterCache(IFileSystem fileSystem, IEasyNotifLog log)
+    public PosterCache(IFileSystem fileSystem, IServerApplicationPaths applicationPaths, ILibraryManager libraryManager, IEasyNotifLog log)
     {
         _fileSystem = fileSystem;
+        _applicationPaths = applicationPaths;
+        _libraryManager = libraryManager;
         _log = log;
     }
 
@@ -57,26 +69,43 @@ public sealed class PosterCache : IPosterCache
                 return null;
             }
 
-            var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            path = Path.GetFullPath(path);
+            if (!IsUnderAllowedRoot(path))
+            {
+                Refused(item, "outside-roots");
+                return null;
+            }
+
+            var length = new FileInfo(path).Length;
+            if (length > MaxPosterBytes)
+            {
+                TooLarge(item, length);
+                return null;
+            }
+
+            var bytes = await ReadAtMostAsync(path, MaxPosterBytes + 1, cancellationToken).ConfigureAwait(false);
             if (bytes.Length > MaxPosterBytes)
             {
-                _log.Warn("newsletter.poster.toolarge", new Dictionary<string, object?>
-                {
-                    ["itemId"] = item.Id,
-                    ["bytes"] = bytes.Length
-                });
+                TooLarge(item, bytes.Length);
+                return null;
+            }
+
+            var format = DetectFormat(bytes);
+            if (format is null)
+            {
+                Refused(item, "not-image");
                 return null;
             }
 
             return new EmailAttachment
             {
-                FileName = $"poster-{item.Id:N}{Path.GetExtension(path)}",
+                FileName = $"poster-{item.Id:N}{format.Value.Extension}",
                 Content = bytes,
-                ContentType = ContentType(path),
+                ContentType = format.Value.ContentType,
                 ContentId = $"poster-{item.Id:N}"
             };
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or NotSupportedException)
         {
             _log.Warn("newsletter.poster.skip", new Dictionary<string, object?>
             {
@@ -87,11 +116,77 @@ public sealed class PosterCache : IPosterCache
         }
     }
 
-    private static string ContentType(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    /// <summary>Identifies a JPEG, PNG or WebP image by its leading bytes.</summary>
+    /// <param name="bytes">The file content.</param>
+    /// <returns>The content type and file extension, or null for anything else.</returns>
+    internal static (string ContentType, string Extension)? DetectFormat(ReadOnlySpan<byte> bytes)
     {
-        ".png" => "image/png",
-        ".webp" => "image/webp",
-        ".gif" => "image/gif",
-        _ => "image/jpeg",
-    };
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0xFF, 0xD8, 0xFF]))
+        {
+            return ("image/jpeg", ".jpg");
+        }
+
+        if (bytes.StartsWith((ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+        {
+            return ("image/png", ".png");
+        }
+
+        if (bytes.Length >= 12 && bytes[..4].SequenceEqual("RIFF"u8) && bytes[8..12].SequenceEqual("WEBP"u8))
+        {
+            return ("image/webp", ".webp");
+        }
+
+        return null;
+    }
+
+    private static async Task<byte[]> ReadAtMostAsync(string path, int limit, CancellationToken cancellationToken)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        await using (stream.ConfigureAwait(false))
+        {
+            var buffer = new byte[limit];
+            var total = 0;
+            int read;
+            while (total < limit && (read = await stream.ReadAsync(buffer.AsMemory(total, limit - total), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                total += read;
+            }
+
+            return buffer[..total];
+        }
+    }
+
+    private static bool IsUnder(string path, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return false;
+        }
+
+        var full = Path.GetFullPath(root);
+        if (!Path.EndsInDirectorySeparator(full))
+        {
+            full += Path.DirectorySeparatorChar;
+        }
+
+        return path.StartsWith(full, PathComparison);
+    }
+
+    private bool IsUnderAllowedRoot(string path)
+        => IsUnder(path, _applicationPaths.InternalMetadataPath)
+            || _libraryManager.GetVirtualFolders().Any(folder => folder.Locations?.Any(location => IsUnder(path, location)) == true);
+
+    private void TooLarge(BaseItem item, long bytes)
+        => _log.Warn("newsletter.poster.toolarge", new Dictionary<string, object?>
+        {
+            ["itemId"] = item.Id,
+            ["bytes"] = bytes
+        });
+
+    private void Refused(BaseItem item, string reason)
+        => _log.Warn("newsletter.poster.refused", new Dictionary<string, object?>
+        {
+            ["itemId"] = item.Id,
+            ["reason"] = reason
+        });
 }

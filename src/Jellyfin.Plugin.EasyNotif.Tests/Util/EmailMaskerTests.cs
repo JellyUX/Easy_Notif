@@ -42,6 +42,16 @@ public class EmailMaskerTests
         Assert.Equal(expected, EmailMasker.MaskInText(input));
     }
 
+    [Theory]
+    [InlineData("Invalid `to` field: email@example.com or Name <email@example.com>.")]
+    [InlineData("rejected: ab@example.org and alice.recipient@example.org")]
+    public void MaskInText_GivesTheSameText_WhenAppliedTwice(string input)
+    {
+        var once = EmailMasker.MaskInText(input);
+
+        Assert.Equal(once, EmailMasker.MaskInText(once));
+    }
+
     [Fact]
     public void MaskUserId_KeepsTheFirstEightDigits_OfAGuidOrAGuidString()
     {

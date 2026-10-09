@@ -11,6 +11,7 @@ namespace Jellyfin.Plugin.EasyNotif.Util;
 public static partial class EmailMasker
 {
     private const string None = "(none)";
+    private const string MaskMarker = "***";
     private const int UserIdPrefixLength = 8;
 
     /// <summary>
@@ -37,7 +38,8 @@ public static partial class EmailMasker
 
     /// <summary>
     /// Masks every address found in a free text, such as a provider error message, with
-    /// <see cref="Mask(string?)"/>; the rest of the text is kept.
+    /// <see cref="Mask(string?)"/>; the rest of the text is kept. An address that is already masked
+    /// is left as it is, so masking twice gives the same text.
     /// </summary>
     /// <param name="text">The text to scan.</param>
     /// <returns>The text with every address masked, or the input when it is null or empty.</returns>
@@ -46,6 +48,11 @@ public static partial class EmailMasker
             ? text
             : AddressPattern().Replace(text, match =>
             {
+                if (match.Value.Contains(MaskMarker, StringComparison.Ordinal))
+                {
+                    return match.Value;
+                }
+
                 var masked = Mask(match.Value);
                 return masked == None ? $"***@{match.Value[(match.Value.IndexOf('@', StringComparison.Ordinal) + 1)..]}" : masked;
             });
@@ -66,6 +73,6 @@ public static partial class EmailMasker
     private static string Shorten(Guid id)
         => id.ToString("N", CultureInfo.InvariantCulture)[..UserIdPrefixLength];
 
-    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[A-Za-z0-9._%+*-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", RegexOptions.CultureInvariant)]
     private static partial Regex AddressPattern();
 }

@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Util;
 public class EmailMaskerTests
 {
     [Theory]
-    [InlineData("samuel.lecomte37@gmail.com", "s***7@gmail.com")]
+    [InlineData("jane.doe42@example.com", "j***2@example.com")]
     [InlineData("alice@example.org", "a***e@example.org")]
     [InlineData("ab@example.org", "***@example.org")]
     [InlineData("a@example.org", "***@example.org")]

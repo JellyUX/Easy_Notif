@@ -320,13 +320,13 @@ public sealed class PreferenceServiceTests
     [Fact]
     public void GetAllForAdmin_MasksTheStoredAddress_NeverReturnsItInFull()
     {
-        _service.SetContactEmail(_alice, "samuel.lecomte37@gmail.com");
+        _service.SetContactEmail(_alice, "jane.doe42@example.com");
 
         var aliceRow = Assert.Single(_service.GetAllForAdmin(), r => r.UserId == _alice);
 
         Assert.True(aliceRow.HasEmail);
-        Assert.Equal("s***7@gmail.com", aliceRow.MaskedEmail);
-        Assert.DoesNotContain("samuel.lecomte37", aliceRow.MaskedEmail, StringComparison.Ordinal);
+        Assert.Equal("j***2@example.com", aliceRow.MaskedEmail);
+        Assert.DoesNotContain("jane.doe42", aliceRow.MaskedEmail, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -15,7 +15,7 @@ public static partial class EmailMasker
 
     /// <summary>
     /// Masks an email address, keeping the first and last character of the local part and the whole
-    /// domain: <c>samuel.lecomte37@gmail.com</c> becomes <c>s***7@gmail.com</c>. A null, blank, or
+    /// domain: <c>jane.doe42@example.com</c> becomes <c>j***2@example.com</c>. A null, blank, or
     /// unparseable address becomes <c>(none)</c>.
     /// </summary>
     /// <param name="email">The address to mask.</param>

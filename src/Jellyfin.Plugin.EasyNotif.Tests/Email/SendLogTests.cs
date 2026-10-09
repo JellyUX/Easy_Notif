@@ -182,7 +182,7 @@ public sealed class SendLogTests : IDisposable
     [Fact]
     public void Append_NeverWritesARawAddress()
     {
-        const string RawAddress = "someone.private@gmail.com";
+        const string RawAddress = "someone.private@example.com";
         var log = Build();
 
         log.Append(Entry() with { ToMasked = Jellyfin.Plugin.EasyNotif.Util.EmailMasker.Mask(RawAddress) });

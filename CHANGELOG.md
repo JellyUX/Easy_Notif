@@ -1,3 +1,15 @@
+## [1.1.1](https://github.com/JellyUX/Easy_Notif/compare/v1.1.0...v1.1.1) (2026-10-09)
+
+### Bug Fixes
+
+* bound and deduplicate Resend webhooks ([eb1cf92](https://github.com/JellyUX/Easy_Notif/commit/eb1cf92455d320b4cfebe0c891ef5f381bcb9912))
+* confine and validate inline poster files ([dabf7c1](https://github.com/JellyUX/Easy_Notif/commit/dabf7c1ef26e5be11240db4e82f3e4716c1319f2))
+* downscale inline posters through the Jellyfin image processor ([e69df20](https://github.com/JellyUX/Easy_Notif/commit/e69df20612abea02c3461446c1008cd28cd74c3d))
+* keep masked addresses stable when masked twice ([f7dca9c](https://github.com/JellyUX/Easy_Notif/commit/f7dca9ccf21fd5ac6a79bfa8f791d12cd8551301))
+* mask personal data in every log line ([c583df3](https://github.com/JellyUX/Easy_Notif/commit/c583df3b2fc872772b22431ff2e736457ef5e04b))
+* stop mailing addresses that complained or hard-bounced ([220be0f](https://github.com/JellyUX/Easy_Notif/commit/220be0f262f954c4c7e574ba48c3291a52345b21))
+* validate template ids against path traversal ([6ebad35](https://github.com/JellyUX/Easy_Notif/commit/6ebad352228cb6bcd6ebe1c1cf2b6a701599bdbb))
+
 ## [1.1.0](https://github.com/JellyUX/Easy_Notif/compare/v1.0.2...v1.1.0) (2026-10-08)
 
 ### Features

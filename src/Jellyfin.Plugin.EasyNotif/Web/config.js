@@ -816,7 +816,10 @@
     }
 
     function _renderFileList() {
-        _el('enotifManualScheduleBtn').disabled = manualFiles.length > 0;
+        // A scheduled send cannot carry attachments (DEC-67): say why the button is off.
+        var hasFiles = manualFiles.length > 0;
+        _el('enotifManualScheduleBtn').disabled = hasFiles;
+        _setScheduleResult(hasFiles ? _t(dict, 'manual.error.scheduleAttachments') : '', false);
         var host = _el('enotifManualFileList');
         host.innerHTML = '';
         manualFiles.forEach(function (f, i) {

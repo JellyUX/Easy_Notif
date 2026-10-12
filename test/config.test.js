@@ -478,6 +478,8 @@ describe('campaign schedule helpers', () => {
         expect(_previewResult(enStrings, { movies: 3, series: 1 })).toBe('Preview sent: 3 movie(s), 1 series.');
         expect(_previewResult(enStrings, {})).toBe('Preview sent: 0 movie(s), 0 series.');
         expect(_previewResult(enStrings, null)).toBe('Preview sent: 0 movie(s), 0 series.');
+        expect(_previewResult(enStrings, { movies: 0 }, 'WeeklyRecap')).toBe('Preview sent, filled with your own viewing.');
+        expect(_previewResult(frStrings, {}, 'WeeklyRecap')).toBe('Aperçu envoyé, rempli avec vos propres lectures.');
     });
 });
 

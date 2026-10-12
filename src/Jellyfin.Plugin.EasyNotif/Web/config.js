@@ -571,8 +571,12 @@
             });
     }
 
-    // Result line for the newsletter preview: how many movies / series were in the sent digest.
-    function _previewResult(dict, summary) {
+    // Result line for a campaign preview: the newsletter counts its movies and series; the weekly
+    // recap is built with the requesting admin's own data (DEC-79).
+    function _previewResult(dict, summary, type) {
+        if (type === 'WeeklyRecap') {
+            return _t(dict, 'campaigns.previewSentRecap');
+        }
         summary = summary || {};
         return _t(dict, 'campaigns.previewSent')
             .replace('{movies}', summary.movies != null ? summary.movies : 0)
@@ -1207,7 +1211,7 @@
         actions.appendChild(run);
 
         var preview = null;
-        if (campaign.type === 'Newsletter') {
+        if (campaign.type === 'Newsletter' || campaign.type === 'WeeklyRecap') {
             preview = document.createElement('button');
             preview.type = 'button';
             preview.className = 'raised enotif-campaign-preview';
@@ -1226,7 +1230,7 @@
         save.addEventListener('click', function () { _saveCampaign(campaign.id, root); });
         run.addEventListener('click', function () { _runCampaign(campaign.id, root); });
         if (preview) {
-            preview.addEventListener('click', function () { _previewCampaign(campaign.id, root); });
+            preview.addEventListener('click', function () { _previewCampaign(campaign.id, campaign.type, root); });
         }
         _applyKindVisibility(root);
         return root;
@@ -1298,13 +1302,13 @@
         });
     }
 
-    function _previewCampaign(id, root) {
+    function _previewCampaign(id, type, root) {
         var result = root.querySelector('.enotif-campaign-result');
         result.classList.remove('enotif-status-error');
         result.textContent = _t(dict, 'manual.sending');
         window.Dashboard.showLoadingMsg();
         _postJson('admin/campaigns/' + id + '/preview', {}).then(function (summary) {
-            result.textContent = _previewResult(dict, summary);
+            result.textContent = _previewResult(dict, summary, type);
         }).catch(function (err) {
             console.error('[EasyNotif Config] could not preview a campaign:', err);
             result.classList.add('enotif-status-error');

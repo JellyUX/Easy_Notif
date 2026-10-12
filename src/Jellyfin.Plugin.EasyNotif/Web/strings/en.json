@@ -183,6 +183,7 @@
   "campaigns.run": "Run now",
   "campaigns.preview": "Send a preview to me",
   "campaigns.previewSent": "Preview sent: {movies} movie(s), {series} series.",
+  "campaigns.previewSentRecap": "Preview sent, filled with your own viewing.",
   "campaigns.error.noContactEmail": "Set your contact address in your notification preferences first.",
   "campaigns.saved": "Saved.",
   "campaigns.runResult": "{sent} sent, {failed} failed, {skipped} without an address.",

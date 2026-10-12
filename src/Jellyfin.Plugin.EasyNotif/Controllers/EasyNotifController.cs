@@ -1230,7 +1230,8 @@ public class EasyNotifController : ControllerBase
 
     /// <summary>
     /// Sends the current content of one campaign to the calling administrator's contact address as a
-    /// preview. Does not advance the campaign schedule. Administrators only.
+    /// preview; a weekly recap is filled with the caller's own data (DEC-79). Does not advance the
+    /// campaign schedule. Administrators only.
     /// </summary>
     /// <param name="id">The campaign id.</param>
     /// <returns>200 with the digest counts; 400 when the caller has no contact address; 404 for an
@@ -1263,7 +1264,7 @@ public class EasyNotifController : ControllerBase
 
         try
         {
-            var r = await _dispatch.PreviewAsync(id, address, HttpContext.RequestAborted).ConfigureAwait(false);
+            var r = await _dispatch.PreviewAsync(id, userId, address, HttpContext.RequestAborted).ConfigureAwait(false);
             return r.Found
                 ? Ok(new { sent = r.Sent, movies = r.Movies, series = r.Series })
                 : NotFound();

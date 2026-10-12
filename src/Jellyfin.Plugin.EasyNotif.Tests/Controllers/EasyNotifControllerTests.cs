@@ -1207,7 +1207,7 @@ public sealed class EasyNotifControllerTests
     public async Task PreviewCampaign_UnknownId_Returns404()
     {
         var dispatch = new Mock<IDispatchService>();
-        dispatch.Setup(d => d.PreviewAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        dispatch.Setup(d => d.PreviewAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CampaignPreviewResult(false, false, 0, 0));
 
         var result = await BuildController(ServiceWithContactEmail("admin@example.org"), dispatch: dispatch).PreviewCampaign("x");
@@ -1219,7 +1219,7 @@ public sealed class EasyNotifControllerTests
     public async Task PreviewCampaign_Success_ReturnsDigestCounts()
     {
         var dispatch = new Mock<IDispatchService>();
-        dispatch.Setup(d => d.PreviewAsync("newsletter", "admin@example.org", It.IsAny<CancellationToken>()))
+        dispatch.Setup(d => d.PreviewAsync("newsletter", It.IsAny<Guid>(), "admin@example.org", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CampaignPreviewResult(true, true, 3, 1));
 
         var ok = Assert.IsType<OkObjectResult>(
@@ -1759,5 +1759,20 @@ public sealed class EasyNotifControllerTests
 
         service.Verify(s => s.SetExcludedLibraries(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()), Times.Never);
         libraries.Verify(c => c.NewsletterLibrariesFor(It.IsAny<Guid>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PreviewCampaign_PassesTheCallerAsThePreviewUser()
+    {
+        var caller = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetOrCreate(caller)).Returns(new UserPreference { UserId = caller, ContactEmail = "admin@example.org" });
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.PreviewAsync(It.IsAny<string>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CampaignPreviewResult(true, true, 0, 0));
+
+        await BuildController(service, auth: AuthReturning(caller), dispatch: dispatch).PreviewCampaign("weekly-recap");
+
+        dispatch.Verify(d => d.PreviewAsync("weekly-recap", caller, "admin@example.org", It.IsAny<CancellationToken>()), Times.Once);
     }
 }

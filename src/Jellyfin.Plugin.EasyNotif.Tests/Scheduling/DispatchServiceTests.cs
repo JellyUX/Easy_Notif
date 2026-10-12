@@ -693,7 +693,7 @@ public sealed class DispatchServiceTests
         harness.SendLog.Setup(l => l.Append(It.IsAny<SendLogEntry>())).Callback<SendLogEntry>(e => logged = e);
         var before = harness.Campaigns.Get("newsletter")!.NextRunUtc;
 
-        var result = await harness.Service.PreviewAsync("newsletter", "admin@example.org", CancellationToken.None);
+        var result = await harness.Service.PreviewAsync("newsletter", Guid.NewGuid(), "admin@example.org", CancellationToken.None);
 
         Assert.True(result.Found);
         Assert.True(result.Sent);
@@ -710,7 +710,7 @@ public sealed class DispatchServiceTests
     [Fact]
     public async Task PreviewAsync_UnknownId_ReturnsNotFound()
     {
-        var result = await new Harness().Service.PreviewAsync("nope", "admin@example.org", CancellationToken.None);
+        var result = await new Harness().Service.PreviewAsync("nope", Guid.NewGuid(), "admin@example.org", CancellationToken.None);
 
         Assert.False(result.Found);
     }
@@ -758,5 +758,36 @@ public sealed class DispatchServiceTests
         var log = Assert.Single(harness.Log.Entries, e => e.EventType == "dispatch.campaign");
         Assert.Equal(1, log.Fields!["sent"]);
         Assert.Equal(1, log.Fields!["noVisibleItems"]);
+    }
+
+    [Theory]
+    [InlineData(CampaignType.WeeklyRecap, true)]
+    [InlineData(CampaignType.Newsletter, false)]
+    public async Task PreviewAsync_RendersARecapWithTheRequestersData_AndANewsletterUnfiltered(CampaignType type, bool asRequester)
+    {
+        var requester = Guid.NewGuid();
+        var harness = new Harness([new Campaign
+        {
+            Id = "c",
+            Type = type,
+            Category = type == CampaignType.WeeklyRecap ? EmailCategory.Recap : EmailCategory.News,
+            Schedule = RecurrenceSchedule.Weekly(DayOfWeek.Monday, new TimeOnly(8, 0))
+        }]);
+        Recipient? renderedFor = null;
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), true))
+            .ReturnsAsync(new PreparedCampaign
+            {
+                ShouldSend = true,
+                Render = r =>
+                {
+                    renderedFor = r;
+                    return new EmailContent("s", "<p>b</p>", "b");
+                }
+            });
+
+        await harness.Service.PreviewAsync("c", requester, "admin@example.org", CancellationToken.None);
+
+        Assert.Equal(asRequester ? requester : Guid.Empty, renderedFor!.Value.UserId);
+        Assert.Equal("admin@example.org", Assert.Single(harness.Sent).To);
     }
 }

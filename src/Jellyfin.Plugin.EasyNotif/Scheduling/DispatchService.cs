@@ -37,13 +37,16 @@ public interface IDispatchService
 
     /// <summary>
     /// Sends the current content of one campaign to a single address as a preview, without touching
-    /// <see cref="Campaign.LastSentUtc"/> or <see cref="Campaign.NextRunUtc"/>.
+    /// <see cref="Campaign.LastSentUtc"/> or <see cref="Campaign.NextRunUtc"/>. The newsletter is
+    /// rendered unfiltered (DEC-21); the weekly recap is rendered with the requesting user's own data
+    /// (DEC-79).
     /// </summary>
     /// <param name="campaignId">The campaign id.</param>
+    /// <param name="previewUserId">The user asking for the preview, whose data fills a recap.</param>
     /// <param name="toEmail">The address to send the preview to.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The preview outcome; <see cref="CampaignPreviewResult.Found"/> is false for an unknown id.</returns>
-    Task<CampaignPreviewResult> PreviewAsync(string campaignId, string toEmail, CancellationToken cancellationToken);
+    Task<CampaignPreviewResult> PreviewAsync(string campaignId, Guid previewUserId, string toEmail, CancellationToken cancellationToken);
 }
 
 /// <summary>The outcome of a campaign preview send.</summary>
@@ -220,7 +223,7 @@ public sealed class DispatchService : IDispatchService
     }
 
     /// <inheritdoc/>
-    public async Task<CampaignPreviewResult> PreviewAsync(string campaignId, string toEmail, CancellationToken cancellationToken)
+    public async Task<CampaignPreviewResult> PreviewAsync(string campaignId, Guid previewUserId, string toEmail, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -244,7 +247,9 @@ public sealed class DispatchService : IDispatchService
             var now = _now();
             var cfg = _config.Get();
             var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken, freshWindow: true).ConfigureAwait(false);
-            var content = prepared.Render(new Recipient(Guid.Empty, toEmail))!;
+            // A recap built for no account would always be empty, so it uses the requester's data.
+            var previewAs = campaign.Type == CampaignType.WeeklyRecap ? previewUserId : Guid.Empty;
+            var content = prepared.Render(new Recipient(previewAs, toEmail))!;
 
             var result = await _sender.SendAsync(
                 new EmailMessage

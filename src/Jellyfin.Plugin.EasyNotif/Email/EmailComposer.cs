@@ -143,7 +143,7 @@ public sealed class EmailComposer : IEmailComposer
                     _recap.BuildFor(recipient.UserId, nowUtc),
                     _links.ServerName,
                     templateId,
-                    UnsubscribeUrl(recipient))
+                    freshWindow ? null : UnsubscribeUrl(recipient))
             };
         }
 

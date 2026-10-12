@@ -213,14 +213,16 @@ public sealed class EmailComposerTests
     }
 
     [Fact]
-    public async Task WeeklyRecap_FreshWindow_HasNoSpecialEffect()
+    public async Task WeeklyRecap_FreshWindow_BuildsForTheRecipient_WithoutUnsubscribeLink()
     {
-        var h = new Harness();
+        var h = WithPublicUrl();
 
-        var prepared = await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None, freshWindow: true);
-        prepared.Render(Anyone);
+        var preview = (await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None, freshWindow: true)).Render(Anyone)!;
+        var real = (await h.Composer.PrepareAsync(Recap(), Now, CancellationToken.None)).Render(Anyone)!;
 
-        h.Recap.Verify(r => r.BuildFor(Anyone.UserId, Now), Times.Once);
+        h.Recap.Verify(r => r.BuildFor(Anyone.UserId, Now), Times.Exactly(2));
+        Assert.DoesNotContain("/EasyNotif/u/", preview.Html!, StringComparison.Ordinal);
+        Assert.Contains("/EasyNotif/u/", real.Html!, StringComparison.Ordinal);
     }
 
     private static Harness WithPublicUrl() => new(new PluginConfiguration

@@ -5,8 +5,8 @@ namespace Jellyfin.Plugin.EasyNotif.Recap;
 
 /// <summary>
 /// Builds the per-user <see cref="RecapModel"/> for the weekly watch recap from the plugin's own
-/// playback history (Synthese.md section 1). Read-only: it never touches the library or user data
-/// (R12).
+/// playback history (Synthese.md section 1), plus the items to pick up again read through
+/// <see cref="IResumeLookup"/> (FEAT-03). Read-only (R12).
 /// </summary>
 public interface IWeeklyRecapService
 {
@@ -22,14 +22,17 @@ public sealed class WeeklyRecapService : IWeeklyRecapService
 {
     private readonly IPlaybackHistoryStore _history;
     private readonly IUserManager _users;
+    private readonly IResumeLookup _resume;
 
     /// <summary>Initializes a new instance of the <see cref="WeeklyRecapService"/> class.</summary>
     /// <param name="history">The playback history store.</param>
     /// <param name="users">The Jellyfin user manager (read-only, for the username).</param>
-    public WeeklyRecapService(IPlaybackHistoryStore history, IUserManager users)
+    /// <param name="resume">The lookup of started, unfinished items.</param>
+    public WeeklyRecapService(IPlaybackHistoryStore history, IUserManager users, IResumeLookup resume)
     {
         _history = history;
         _users = users;
+        _resume = resume;
     }
 
     /// <inheritdoc/>
@@ -81,6 +84,8 @@ public sealed class WeeklyRecapService : IWeeklyRecapService
 
         var name = _users.GetUserById(userId)?.Username;
 
-        return new RecapModel(watched, ytd.Total, ytd.Completed, partialSince, name);
+        var resume = _resume.For(userId, nowUtc);
+
+        return new RecapModel(watched, ytd.Total, ytd.Completed, partialSince, name, resume.Entries.Count > 0 ? resume : null);
     }
 }

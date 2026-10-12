@@ -157,6 +157,8 @@ public sealed class TemplateStoreTests : IDisposable
 
         Assert.True(store.Validate("newsletter", store.Get("newsletter", "en")).Ok);
         Assert.True(store.Validate("weekly-recap", store.Get("weekly-recap", "fr")).Ok);
+        Assert.True(store.Validate("weekly-recap", store.Get("weekly-recap", "en")).Ok);
+        Assert.True(store.Validate("weekly-recap", "{{#if hasResume}}{{#each resume}}{{title}} {{episodeLabel}} {{remainingLabel}} {{posterUrl}} {{detailUrl}} {{noLink}}{{/each}}{{/if}}").Ok);
     }
 
     [Fact]

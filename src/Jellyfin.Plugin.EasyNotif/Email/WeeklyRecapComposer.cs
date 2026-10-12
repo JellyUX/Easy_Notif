@@ -46,6 +46,7 @@ public sealed class WeeklyRecapComposer
                 : $"Your week in review - {model.WeekTitles} title(s)";
 
         var partialSince = model.PartialSince?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var resume = model.ResumeOrEmpty;
 
         var templateModel = new Dictionary<string, object?>
         {
@@ -66,11 +67,43 @@ public sealed class WeeklyRecapComposer
             ["yearTotal"] = model.YearTotal,
             ["yearCompleted"] = model.YearCompleted,
             ["partialSince"] = partialSince,
+            ["hasResume"] = resume.Entries.Count > 0,
+            ["resume"] = resume.Entries.Select(r => new Dictionary<string, object?>
+            {
+                ["title"] = r.Title,
+                ["seriesTitle"] = r.SeriesTitle,
+                ["episodeLabel"] = r.EpisodeLabel,
+                ["remainingLabel"] = RemainingLabel(r.RemainingMinutes, fr),
+                ["posterUrl"] = r.PosterUrl,
+                ["detailUrl"] = r.DetailUrl,
+                ["noLink"] = r.DetailUrl is null
+            }).ToList(),
             ["unsubscribeUrl"] = unsubscribeUrl
         };
 
         var html = TemplateEngine.Render(_templates.Get(templateId, fr ? "fr" : "en"), templateModel);
-        return new EmailContent(subject, html, BuildText(model, greeting, partialSince, fr, unsubscribeUrl));
+        return new EmailContent(
+            subject,
+            html,
+            BuildText(model, greeting, partialSince, fr, unsubscribeUrl),
+            resume.Posters.Count > 0 ? resume.Posters : null);
+    }
+
+    /// <summary>Returns the "time left" label of a resume entry, or null when the runtime is unknown.</summary>
+    /// <param name="minutes">The minutes left.</param>
+    /// <param name="fr">Whether the mail is in French.</param>
+    /// <returns>The label.</returns>
+    public static string? RemainingLabel(int? minutes, bool fr)
+    {
+        if (minutes is not { } m)
+        {
+            return null;
+        }
+
+        var span = m < 60
+            ? string.Create(CultureInfo.InvariantCulture, $"{m} min")
+            : string.Create(CultureInfo.InvariantCulture, $"{m / 60} h {m % 60:00}");
+        return fr ? $"il reste {span}" : $"{span} left";
     }
 
     private static string BuildText(RecapModel model, string greeting, string? partialSince, bool fr, string? unsubscribeUrl)
@@ -102,6 +135,27 @@ public sealed class WeeklyRecapComposer
                 else
                 {
                     sb.Append(entry.Title);
+                }
+
+                sb.AppendLine();
+            }
+        }
+
+        if (model.ResumeOrEmpty.Entries.Count > 0)
+        {
+            sb.AppendLine().AppendLine(fr ? "À reprendre :" : "Pick up where you left off:");
+            foreach (var entry in model.ResumeOrEmpty.Entries)
+            {
+                sb.Append("- ");
+                if (entry.SeriesTitle is { Length: > 0 } series)
+                {
+                    sb.Append(series).Append(entry.EpisodeLabel is { } label ? $" {label}" : string.Empty).Append(" - ");
+                }
+
+                sb.Append(entry.Title);
+                if (RemainingLabel(entry.RemainingMinutes, fr) is { } left)
+                {
+                    sb.Append(" (").Append(left).Append(')');
                 }
 
                 sb.AppendLine();

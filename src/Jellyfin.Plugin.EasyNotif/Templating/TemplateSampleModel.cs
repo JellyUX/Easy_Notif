@@ -120,6 +120,30 @@ public static class TemplateSampleModel
                 ["when"] = "2026-06-14",
                 ["completed"] = true
             }
+        },
+        ["hasResume"] = true,
+        ["resume"] = new List<Dictionary<string, object?>>
+        {
+            new()
+            {
+                ["title"] = "Mr. Pilkington's Fish",
+                ["seriesTitle"] = "Slow Horses",
+                ["episodeLabel"] = "S02E03",
+                ["remainingLabel"] = "26 min left",
+                ["posterUrl"] = "https://media.example.org/sample-poster-3.jpg",
+                ["detailUrl"] = "https://media.example.org/web/#/details?id=sample-3",
+                ["noLink"] = false
+            },
+            new()
+            {
+                ["title"] = "Arrival",
+                ["seriesTitle"] = null,
+                ["episodeLabel"] = null,
+                ["remainingLabel"] = "1 h 04 left",
+                ["posterUrl"] = null,
+                ["detailUrl"] = null,
+                ["noLink"] = true
+            }
         }
     };
 }

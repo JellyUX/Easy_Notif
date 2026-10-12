@@ -2,6 +2,7 @@ using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Recap;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
+using Jellyfin.Plugin.EasyNotif.Templating;
 using Jellyfin.Plugin.EasyNotif.Tests.TestDoubles;
 using Xunit;
 
@@ -101,5 +102,69 @@ public sealed class WeeklyRecapComposerTests
 
         var without = Compose(Campaign(), WithActivity(), "Home");
         Assert.DoesNotContain("EasyNotif/u/", without.Html!, StringComparison.Ordinal);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pick up where you left off (FEAT-03)
+    // -------------------------------------------------------------------------
+
+    private static RecapModel WithResume(bool inline = false) => WithActivity() with
+    {
+        Resume = new ResumeSection(
+            [
+                new ResumeEntry("Mr. Pilkington's Fish", "Slow Horses", "S02E03", 26,
+                    inline ? "cid:p-slow" : "https://media.example.org/p.jpg",
+                    inline ? null : "https://media.example.org/web/#/details?id=e1"),
+                new ResumeEntry("Arrival", null, null, 64, null, null)
+            ],
+            inline ? [new EmailAttachment { FileName = "p.jpg", Content = [1], ContentId = "p-slow" }] : [])
+    };
+
+    [Theory]
+    [InlineData("fr", "À reprendre", "il reste 26 min", "il reste 1 h 04")]
+    [InlineData("en", "Pick up where you left off", "26 min left", "1 h 04 left")]
+    public void Resume_IsRendered_InHtmlAndText(string lang, string heading, string left, string longLeft)
+    {
+        var content = Compose(Campaign(lang), WithResume(), "Home");
+
+        Assert.Contains(heading, content.Html!, StringComparison.Ordinal);
+        Assert.Contains("S02E03", content.Html!, StringComparison.Ordinal);
+        Assert.Contains(left, content.Html!, StringComparison.Ordinal);
+        Assert.Contains(longLeft, content.Html!, StringComparison.Ordinal);
+        Assert.Contains("href=\"https://media.example.org/web/#/details?id=e1\"", content.Html!, StringComparison.Ordinal);
+        Assert.Contains("src=\"https://media.example.org/p.jpg\"", content.Html!, StringComparison.Ordinal);
+        Assert.Contains($"Slow Horses S02E03 - Mr. Pilkington's Fish ({left})", content.Text!, StringComparison.Ordinal);
+        Assert.Null(content.Attachments);
+    }
+
+    [Fact]
+    public void Resume_InlinePosters_AreAttached()
+    {
+        var content = Compose(Campaign(), WithResume(inline: true), "Home");
+
+        Assert.Contains("src=\"cid:p-slow\"", content.Html!, StringComparison.Ordinal);
+        Assert.Equal("p-slow", Assert.Single(content.Attachments!).ContentId);
+    }
+
+    [Fact]
+    public void NoResume_LeavesTheSectionOut()
+    {
+        var content = Compose(Campaign(), WithActivity(), "Home");
+
+        Assert.DoesNotContain("À reprendre", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("À reprendre", content.Text!, StringComparison.Ordinal);
+        Assert.Null(content.Attachments);
+    }
+
+    [Fact]
+    public void CustomTemplateWithoutTheNewKeys_StillRenders()
+    {
+        var store = TestTemplateStore.Create();
+        var custom = "<p>{{heading}} {{yearTotal}}</p>";
+        Assert.True(store.Validate("weekly-recap", custom).Ok);
+
+        var html = TemplateEngine.Render(custom, new Dictionary<string, object?> { ["heading"] = "H", ["yearTotal"] = 3, ["hasResume"] = true });
+
+        Assert.Equal("<p>H 3</p>", html);
     }
 }

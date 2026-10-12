@@ -25,11 +25,11 @@ public sealed class WeeklyRecapServiceTests
     private static PlaybackEvent Episode(string name, Guid seriesId, string seriesName, DateTime ts, bool completed = true)
         => new(ts, User, Guid.NewGuid(), "Episode", seriesId, name, seriesName, 0, 0, completed);
 
-    private static WeeklyRecapService Build(FakePlaybackHistoryStore history, User? user = null)
+    private static WeeklyRecapService Build(FakePlaybackHistoryStore history, User? user = null, ResumeSection? resume = null)
     {
         var users = new Mock<IUserManager>();
         users.Setup(u => u.GetUserById(User)).Returns(user);
-        return new WeeklyRecapService(history, users.Object);
+        return new WeeklyRecapService(history, users.Object, Mock.Of<IResumeLookup>(r => r.For(It.IsAny<Guid>(), It.IsAny<DateTime>()) == (resume ?? ResumeSection.Empty)));
     }
 
     [Fact]
@@ -102,5 +102,14 @@ public sealed class WeeklyRecapServiceTests
         Assert.Equal(
             "bob",
             Build(history, new User("bob", "Default", "Default") { Id = User }).BuildFor(User, Now).UserName);
+    }
+
+    [Fact]
+    public void Resume_IsCarriedIntoTheModel_AndLeftOutWhenEmpty()
+    {
+        var section = new ResumeSection([new ResumeEntry("Arrival", null, null, 30, null, null)], []);
+
+        Assert.Same(section, Build(new FakePlaybackHistoryStore(), resume: section).BuildFor(User, Now).Resume);
+        Assert.Null(Build(new FakePlaybackHistoryStore()).BuildFor(User, Now).Resume);
     }
 }

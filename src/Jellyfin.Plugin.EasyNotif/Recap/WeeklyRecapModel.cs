@@ -35,13 +35,18 @@ public sealed record WatchedEntry(
 /// <param name="PartialSince">When Easy Notif started tracking, when that is later than the first of
 /// the recap year (the annual total is not a full year yet); null once a full year is covered.</param>
 /// <param name="UserName">The user's Jellyfin username for the salutation; null when unknown.</param>
+/// <param name="Resume">The started, unfinished items (FEAT-03); null when there are none.</param>
 public sealed record RecapModel(
     IReadOnlyList<WatchedEntry> Watched,
     int YearTotal,
     int YearCompleted,
     DateTime? PartialSince,
-    string? UserName)
+    string? UserName,
+    ResumeSection? Resume = null)
 {
+    /// <summary>Gets the resume section (never null).</summary>
+    public ResumeSection ResumeOrEmpty => Resume ?? ResumeSection.Empty;
+
     /// <summary>Gets a value indicating whether the user watched nothing significant this week.</summary>
     public bool QuietWeek => Watched.Count == 0;
 

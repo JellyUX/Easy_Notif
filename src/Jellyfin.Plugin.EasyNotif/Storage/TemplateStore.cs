@@ -119,7 +119,8 @@ public sealed class TemplateStore : ITemplateStore
     {
         "greeting", "heading", "quietWeek", "hasWatched", "watched",
         "yearTotal", "yearCompleted", "partialSince",
-        "title", "seriesTitle", "isSeries", "isSingle", "episodeCount", "when", "completed", "unsubscribeUrl"
+        "title", "seriesTitle", "isSeries", "isSingle", "episodeCount", "when", "completed", "unsubscribeUrl",
+        "hasResume", "resume", "episodeLabel", "remainingLabel", "posterUrl", "detailUrl", "noLink"
     };
 
     private static readonly IReadOnlySet<string> SeriesKeys = new HashSet<string>(StringComparer.Ordinal)

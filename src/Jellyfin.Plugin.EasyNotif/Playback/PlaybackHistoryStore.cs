@@ -32,6 +32,21 @@ public interface IPlaybackHistoryStore
     /// <returns>The totals and the date history tracking started.</returns>
     YearToDate GetYearToDate(Guid userId, int year);
 
+    /// <summary>Gets when tracking started and when the yearly total was seeded (FEAT-08), if it was.</summary>
+    /// <returns>The seed state.</returns>
+    YearSeedState GetSeedState();
+
+    /// <summary>
+    /// Records, once, the views made before tracking started (FEAT-08): one completed view per date,
+    /// counted in <paramref name="year"/> next to the tracked rollup and kept apart from it, so a rollup
+    /// rebuild never erases it. Does nothing once a seed was applied.
+    /// </summary>
+    /// <param name="year">The calendar year the dates belong to.</param>
+    /// <param name="playedDates">The last-played dates (UTC) of the items each user has watched.</param>
+    /// <param name="nowUtc">The instant recorded as the seed date.</param>
+    /// <returns>True when the seed was applied; false when one already was.</returns>
+    bool ApplyYearSeed(int year, IReadOnlyDictionary<Guid, IReadOnlyList<DateTime>> playedDates, DateTime nowUtc);
+
     /// <summary>
     /// Removes every event and rollup entry for a user. Called when the Jellyfin account is deleted.
     /// </summary>
@@ -55,6 +70,11 @@ public interface IPlaybackHistoryStore
 /// <param name="TrackingSinceUtc">When Easy Notif started recording history.</param>
 public sealed record YearToDate(int Total, int Completed, DateTime TrackingSinceUtc);
 
+/// <summary>The state behind the one-time seed of the yearly total (FEAT-08).</summary>
+/// <param name="TrackingSinceUtc">When Easy Notif started recording history.</param>
+/// <param name="SeededUtc">When the seed was applied, or null when it has not run yet.</param>
+public sealed record YearSeedState(DateTime TrackingSinceUtc, DateTime? SeededUtc);
+
 /// <summary>On-disk shape of <c>playback-history.json</c>.</summary>
 public sealed class PlaybackHistoryFile
 {
@@ -69,6 +89,20 @@ public sealed class PlaybackHistoryFile
 
     /// <summary>Gets or sets when history tracking started (first run).</summary>
     public DateTime TrackingSinceUtc { get; set; }
+
+    /// <summary>
+    /// Gets the views made before tracking started, read once from Jellyfin's played state (FEAT-08),
+    /// keyed like <see cref="Rollup"/>. Kept apart from it so a rollup rebuild never erases it.
+    /// </summary>
+    /// <remarks>
+    /// A 1.1.1 drops both seed properties on its next write; the seed then runs again after an
+    /// upgrade and yields the same values (it reads the same dates before <see cref="TrackingSinceUtc"/>),
+    /// so nothing is counted twice.
+    /// </remarks>
+    public Dictionary<string, RollupYear> Seed { get; init; } = [];
+
+    /// <summary>Gets or sets when <see cref="Seed"/> was filled, or null when the seed has not run.</summary>
+    public DateTime? YearSeededUtc { get; set; }
 }
 
 /// <summary>Rollup for one user and one year.</summary>
@@ -168,9 +202,45 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
     public YearToDate GetYearToDate(Guid userId, int year)
         => Read(file =>
         {
-            file.Rollup.TryGetValue(RollupKey(userId, year), out var y);
-            return new YearToDate(y?.Total ?? 0, y?.Completed ?? 0, file.TrackingSinceUtc);
+            var key = RollupKey(userId, year);
+            file.Rollup.TryGetValue(key, out var y);
+            file.Seed.TryGetValue(key, out var seed);
+            return new YearToDate(
+                (y?.Total ?? 0) + (seed?.Total ?? 0),
+                (y?.Completed ?? 0) + (seed?.Completed ?? 0),
+                file.TrackingSinceUtc);
         });
+
+    /// <inheritdoc/>
+    public YearSeedState GetSeedState()
+        => Read(file => new YearSeedState(file.TrackingSinceUtc, file.YearSeededUtc));
+
+    /// <inheritdoc/>
+    public bool ApplyYearSeed(int year, IReadOnlyDictionary<Guid, IReadOnlyList<DateTime>> playedDates, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(playedDates);
+        var applied = false;
+        Mutate(file =>
+        {
+            if (file.YearSeededUtc is not null)
+            {
+                return false;
+            }
+
+            foreach (var (userId, dates) in playedDates)
+            {
+                foreach (var date in dates)
+                {
+                    AddTo(file.Seed, userId, year, date.ToString("MM", CultureInfo.InvariantCulture));
+                }
+            }
+
+            file.YearSeededUtc = nowUtc;
+            applied = true;
+            return true;
+        });
+        return applied;
+    }
 
     /// <inheritdoc/>
     public void Purge(Guid userId)
@@ -179,10 +249,13 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
         Mutate(file =>
         {
             var changed = file.Events.RemoveAll(e => e.UserId == userId) > 0;
-            foreach (var key in file.Rollup.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+            foreach (var rollup in new[] { file.Rollup, file.Seed })
             {
-                file.Rollup.Remove(key);
-                changed = true;
+                foreach (var key in rollup.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+                {
+                    rollup.Remove(key);
+                    changed = true;
+                }
             }
 
             return changed;
@@ -406,6 +479,28 @@ public sealed class PlaybackHistoryStore : JsonFileStore<PlaybackHistoryFile>, I
         {
             monthStats.Completed++;
         }
+    }
+
+    // One completed view in a seed year and month.
+    private static void AddTo(Dictionary<string, RollupYear> rollup, Guid userId, int year, string month)
+    {
+        var key = RollupKey(userId, year);
+        if (!rollup.TryGetValue(key, out var stats))
+        {
+            stats = new RollupYear();
+            rollup[key] = stats;
+        }
+
+        stats.Total++;
+        stats.Completed++;
+        if (!stats.ByMonth.TryGetValue(month, out var monthStats))
+        {
+            monthStats = new RollupMonth();
+            stats.ByMonth[month] = monthStats;
+        }
+
+        monthStats.Total++;
+        monthStats.Completed++;
     }
 
     private static void RebuildRollup(PlaybackHistoryFile file)

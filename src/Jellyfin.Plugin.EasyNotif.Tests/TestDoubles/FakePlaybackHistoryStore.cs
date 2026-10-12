@@ -50,6 +50,28 @@ public sealed class FakePlaybackHistoryStore : IPlaybackHistoryStore
     /// <inheritdoc/>
     public YearToDate GetYearToDate(Guid userId, int year) => YearToDate;
 
+    /// <summary>Gets or sets the state returned by <see cref="GetSeedState"/>; set by <see cref="ApplyYearSeed"/>.</summary>
+    public YearSeedState SeedState { get; set; } = new(default, null);
+
+    /// <summary>Gets the seeds passed to <see cref="ApplyYearSeed"/> while none was applied, in order.</summary>
+    public List<(int Year, IReadOnlyDictionary<Guid, IReadOnlyList<DateTime>> Dates)> AppliedSeeds { get; } = [];
+
+    /// <inheritdoc/>
+    public YearSeedState GetSeedState() => SeedState;
+
+    /// <inheritdoc/>
+    public bool ApplyYearSeed(int year, IReadOnlyDictionary<Guid, IReadOnlyList<DateTime>> playedDates, DateTime nowUtc)
+    {
+        if (SeedState.SeededUtc is not null)
+        {
+            return false;
+        }
+
+        AppliedSeeds.Add((year, playedDates));
+        SeedState = SeedState with { SeededUtc = nowUtc };
+        return true;
+    }
+
     /// <summary>Gets the user ids passed to <see cref="Purge"/>, in order.</summary>
     public List<Guid> Purged { get; } = [];
 

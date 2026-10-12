@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Alerts;
+using Jellyfin.Plugin.EasyNotif.Playback;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -22,6 +23,7 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     private readonly ISeriesNotifier _series;
     private readonly IScheduledAnnouncementRunner _announcements;
     private readonly IAdminAlertService _alerts;
+    private readonly IYearTotalSeeder _yearSeed;
     private readonly ILogger<EasyNotifDispatchTask> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="EasyNotifDispatchTask"/> class.</summary>
@@ -29,18 +31,21 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     /// <param name="series">The series notifier, flushed after the campaigns.</param>
     /// <param name="announcements">The scheduled announcements, sent after the series.</param>
     /// <param name="alerts">The incident digest, sent last.</param>
+    /// <param name="yearSeed">The one-time seed of the yearly total, run before the campaigns.</param>
     /// <param name="logger">Logger.</param>
     public EasyNotifDispatchTask(
         IDispatchService dispatch,
         ISeriesNotifier series,
         IScheduledAnnouncementRunner announcements,
         IAdminAlertService alerts,
+        IYearTotalSeeder yearSeed,
         ILogger<EasyNotifDispatchTask> logger)
     {
         _dispatch = dispatch;
         _series = series;
         _announcements = announcements;
         _alerts = alerts;
+        _yearSeed = yearSeed;
         _logger = logger;
     }
 
@@ -60,6 +65,17 @@ public sealed class EasyNotifDispatchTask : IScheduledTask
     public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(progress);
+
+        // Once, before the campaigns so a recap sent this tick already counts it (FEAT-08). The
+        // library is loaded by the time a scheduled task runs. A failure is retried next tick.
+        try
+        {
+            _yearSeed.RunOnce(DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EasyNotif] Seeding the yearly total failed; it runs again on the next tick.");
+        }
 
         await _dispatch.RunDueAsync(cancellationToken).ConfigureAwait(false);
 

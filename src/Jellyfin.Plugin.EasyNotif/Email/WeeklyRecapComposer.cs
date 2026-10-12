@@ -170,8 +170,8 @@ public sealed class WeeklyRecapComposer
         if (partialSince is not null)
         {
             sb.AppendLine(fr
-                ? $"Total tenu depuis l'installation d'Easy Notif le {partialSince}."
-                : $"Counted since Easy Notif was installed on {partialSince}.");
+                ? $"Estimation : avant l'installation d'Easy Notif le {partialSince}, chaque titre marqué vu compte une fois."
+                : $"Estimate: before Easy Notif was installed on {partialSince}, each title marked as watched counts once.");
         }
 
         if (unsubscribeUrl is not null)

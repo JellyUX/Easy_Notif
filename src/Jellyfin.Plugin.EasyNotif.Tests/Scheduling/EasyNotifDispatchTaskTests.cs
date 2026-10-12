@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.EasyNotif.Alerts;
+using Jellyfin.Plugin.EasyNotif.Playback;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -17,7 +18,7 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void GetDefaultTriggers_IsStartupPlusFifteenMinuteInterval()
     {
-        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
+        var triggers = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), Mock.Of<IYearTotalSeeder>(), NullLogger<EasyNotifDispatchTask>.Instance).GetDefaultTriggers().ToList();
 
         Assert.Equal(2, triggers.Count);
         Assert.Contains(triggers, t => t.Type == TaskTriggerInfoType.StartupTrigger);
@@ -32,7 +33,7 @@ public sealed class EasyNotifDispatchTaskTests
         var dispatch = new Mock<IDispatchService>();
         var progress = new Mock<IProgress<double>>();
 
-        await new EasyNotifDispatchTask(dispatch.Object, Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
+        await new EasyNotifDispatchTask(dispatch.Object, Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), Mock.Of<IYearTotalSeeder>(), NullLogger<EasyNotifDispatchTask>.Instance).ExecuteAsync(progress.Object, CancellationToken.None);
 
         dispatch.Verify(d => d.RunDueAsync(It.IsAny<CancellationToken>()), Times.Once);
         progress.Verify(p => p.Report(100), Times.Once);
@@ -48,7 +49,7 @@ public sealed class EasyNotifDispatchTaskTests
         series.Setup(s => s.FlushAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("series")).ThrowsAsync(new IOException("disk"));
         var progress = new Mock<IProgress<double>>();
 
-        await new EasyNotifDispatchTask(dispatch.Object, series.Object, Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance)
+        await new EasyNotifDispatchTask(dispatch.Object, series.Object, Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), Mock.Of<IYearTotalSeeder>(), NullLogger<EasyNotifDispatchTask>.Instance)
             .ExecuteAsync(progress.Object, CancellationToken.None);
 
         Assert.Equal(["dispatch", "series"], calls);
@@ -66,7 +67,7 @@ public sealed class EasyNotifDispatchTaskTests
         var alerts = new Mock<IAdminAlertService>();
         alerts.Setup(a => a.RunAsync(It.IsAny<CancellationToken>())).Callback(() => calls.Add("alerts")).ReturnsAsync(false);
 
-        await new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), series.Object, announcements.Object, alerts.Object, NullLogger<EasyNotifDispatchTask>.Instance)
+        await new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), series.Object, announcements.Object, alerts.Object, Mock.Of<IYearTotalSeeder>(), NullLogger<EasyNotifDispatchTask>.Instance)
             .ExecuteAsync(Mock.Of<IProgress<double>>(), CancellationToken.None);
 
         Assert.Equal(["series", "announcements", "alerts"], calls);
@@ -75,11 +76,26 @@ public sealed class EasyNotifDispatchTaskTests
     [Fact]
     public void Identity_IsStable()
     {
-        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), NullLogger<EasyNotifDispatchTask>.Instance);
+        var task = new EasyNotifDispatchTask(Mock.Of<IDispatchService>(), Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), Mock.Of<IYearTotalSeeder>(), NullLogger<EasyNotifDispatchTask>.Instance);
 
         Assert.Equal("EasyNotifDispatch", task.Key);
         Assert.False(string.IsNullOrWhiteSpace(task.Name));
         Assert.False(string.IsNullOrWhiteSpace(task.Category));
         Assert.False(string.IsNullOrWhiteSpace(task.Description));
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SeedsTheYearlyTotalFirst_AndAFailureDoesNotStopTheCampaigns()
+    {
+        var order = new List<string>();
+        var seeder = new Mock<IYearTotalSeeder>();
+        seeder.Setup(s => s.RunOnce(It.IsAny<DateTime>())).Callback(() => order.Add("seed")).Throws(new InvalidOperationException("boom"));
+        var dispatch = new Mock<IDispatchService>();
+        dispatch.Setup(d => d.RunDueAsync(It.IsAny<CancellationToken>())).Callback(() => order.Add("dispatch")).Returns(Task.CompletedTask);
+
+        await new EasyNotifDispatchTask(dispatch.Object, Mock.Of<ISeriesNotifier>(), Mock.Of<IScheduledAnnouncementRunner>(), Mock.Of<IAdminAlertService>(), seeder.Object, NullLogger<EasyNotifDispatchTask>.Instance)
+            .ExecuteAsync(new Mock<IProgress<double>>().Object, CancellationToken.None);
+
+        Assert.Equal(["seed", "dispatch"], order);
     }
 }

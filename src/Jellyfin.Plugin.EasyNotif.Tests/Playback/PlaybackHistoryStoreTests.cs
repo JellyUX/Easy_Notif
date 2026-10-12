@@ -433,4 +433,77 @@ public sealed class PlaybackHistoryStoreTests : IDisposable
 
         public IEnumerable<string> EnumerateFiles(string path, string searchPattern) => _inner.EnumerateFiles(path, searchPattern);
     }
+
+    // -------------------------------------------------------------------------
+    // Yearly total seed (FEAT-08)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ApplyYearSeed_AddsToTheYearTotal_Once()
+    {
+        var store = Build();
+        store.Start();
+        var user = Guid.NewGuid();
+        store.Record(Event(user, Guid.NewGuid(), _now, completed: false));
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 1);
+        var dates = new Dictionary<Guid, IReadOnlyList<DateTime>> { [user] = [_now.AddMonths(-3), _now.AddMonths(-2)] };
+
+        Assert.True(store.ApplyYearSeed(2026, dates, _now));
+        Assert.False(store.ApplyYearSeed(2026, dates, _now.AddHours(1)));
+
+        var ytd = store.GetYearToDate(user, 2026);
+        Assert.Equal(3, ytd.Total);
+        Assert.Equal(2, ytd.Completed);
+        Assert.Equal(_now, store.GetSeedState().SeededUtc);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Seed_SurvivesARollupRebuild_AndARestart()
+    {
+        var user = Guid.NewGuid();
+        Directory.CreateDirectory(DataDir);
+        var ts = _now.ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ");
+        File.WriteAllText(
+            Path.Combine(DataDir, "playback-history.json"),
+            $$"""
+            { "Schema": 1, "Rollup": {}, "TrackingSinceUtc": "{{ts}}", "YearSeededUtc": "{{ts}}",
+              "Seed": { "{{user:N}}:2026": { "Total": 4, "Completed": 4, "ByMonth": { "02": { "Total": 4, "Completed": 4 } } } },
+              "Events": [ { "Ts": "{{ts}}", "UserId": "{{user}}", "ItemId": "{{Guid.NewGuid()}}",
+                            "Kind": "Movie", "Name": "x", "PositionTicks": 0, "RuntimeTicks": 0, "Completed": true } ] }
+            """);
+
+        var store = Build();
+        store.Start();
+
+        await WaitFor(() => store.GetYearToDate(user, 2026).Total == 5);
+        Assert.Equal(5, store.GetYearToDate(user, 2026).Completed);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task Purge_RemovesTheUsersSeedToo()
+    {
+        var store = Build();
+        store.Start();
+        var (alice, bob) = (Guid.NewGuid(), Guid.NewGuid());
+        store.ApplyYearSeed(2026, new Dictionary<Guid, IReadOnlyList<DateTime>> { [alice] = [_now.AddMonths(-1)], [bob] = [_now.AddMonths(-1)] }, _now);
+
+        store.Purge(alice);
+
+        Assert.Equal(0, store.GetYearToDate(alice, 2026).Total);
+        Assert.Equal(1, store.GetYearToDate(bob, 2026).Total);
+        await store.StopAsync();
+    }
+
+    [Fact]
+    public async Task FileWithoutSeed_FromAnEarlierVersion_HasNoSeedState()
+    {
+        var store = Build();
+        store.Start();
+
+        Assert.Null(store.GetSeedState().SeededUtc);
+        Assert.Equal(_now, store.GetSeedState().TrackingSinceUtc);
+        await store.StopAsync();
+    }
 }

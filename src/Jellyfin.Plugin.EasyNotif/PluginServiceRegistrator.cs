@@ -64,6 +64,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IFollowedSeriesService, FollowedSeriesService>();
         serviceCollection.AddSingleton<INewsletterDigestService, NewsletterDigestService>();
         serviceCollection.AddSingleton<IResumeLookup, ResumeLookup>();
+        serviceCollection.AddSingleton<IYearTotalSeeder, YearTotalSeeder>();
         serviceCollection.AddSingleton<IWeeklyRecapService, WeeklyRecapService>();
         serviceCollection.AddSingleton<ITemplateStore, TemplateStore>();
         serviceCollection.AddSingleton<NewsletterComposer>();

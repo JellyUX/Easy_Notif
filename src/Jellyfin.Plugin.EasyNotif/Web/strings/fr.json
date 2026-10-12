@@ -22,6 +22,8 @@
   "settings.injectWebUi": "Ajouter les réglages de notification à Jellyfin Web",
   "settings.injectWebUi.help": "À désactiver si une mise à jour de Jellyfin Web casse la page. Les utilisateurs gèrent alors leurs emails par les liens de désabonnement seulement.",
   "settings.injectSeriesBell": "Afficher la cloche de suivi sur les pages de séries",
+  "settings.inviteWithoutEmail": "Inviter les utilisateurs sans adresse de contact",
+  "settings.inviteWithoutEmail.help": "Un bandeau sur la page d'accueil, jusqu'à ce que l'utilisateur le ferme. Prend effet au redémarrage de Jellyfin.",
   "settings.inject.restart": "Pris en compte au redémarrage de Jellyfin.",
   "settings.apiKey": "Clé API Resend",
   "settings.webhookSecret": "Secret de signature du webhook",

@@ -487,6 +487,7 @@ public class EasyNotifController : ControllerBase
             quotaMonthlyLimit = cfg.QuotaMonthlyLimit,
             injectWebUi = cfg.InjectWebUi,
             injectSeriesBell = cfg.InjectSeriesBell,
+            inviteWithoutEmail = cfg.InviteWithoutEmail,
             alertEmail = cfg.AlertEmail,
             alertLanguage = cfg.AlertLanguage,
             resendApiKeySet = !string.IsNullOrEmpty(secrets.ResendApiKey),
@@ -564,6 +565,7 @@ public class EasyNotifController : ControllerBase
             cfg.QuotaMonthlyLimit = body.QuotaMonthlyLimit ?? cfg.QuotaMonthlyLimit;
             cfg.InjectWebUi = body.InjectWebUi ?? cfg.InjectWebUi;
             cfg.InjectSeriesBell = body.InjectSeriesBell ?? cfg.InjectSeriesBell;
+            cfg.InviteWithoutEmail = body.InviteWithoutEmail ?? cfg.InviteWithoutEmail;
             cfg.AlertLanguage = body.AlertLanguage ?? cfg.AlertLanguage;
             if (body.AlertEmail is not null)
             {
@@ -1834,6 +1836,9 @@ public sealed class SettingsUpdate
 
     /// <summary>Gets or sets whether the series bell is shown (null = unchanged; takes effect after a restart).</summary>
     public bool? InjectSeriesBell { get; set; }
+
+    /// <summary>Gets or sets whether users without an address are invited (null = unchanged; takes effect after a restart).</summary>
+    public bool? InviteWithoutEmail { get; set; }
 
     /// <summary>Gets or sets the incident digest address. Null leaves it unchanged; blank turns the digest off.</summary>
     public string? AlertEmail { get; set; }

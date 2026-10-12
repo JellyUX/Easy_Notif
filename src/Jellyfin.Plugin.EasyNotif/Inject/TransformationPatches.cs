@@ -19,7 +19,8 @@ public static class TransformationPatches
     public static string IndexHtml(PatchRequestPayload content)
     {
         var raw = content.Contents ?? string.Empty;
-        return Inject(raw, VersionQuery(), Plugin.Instance?.Configuration.InjectSeriesBell ?? true);
+        var config = Plugin.Instance?.Configuration;
+        return Inject(raw, VersionQuery(), config?.InjectSeriesBell ?? true, config?.InviteWithoutEmail ?? true);
     }
 
     /// <summary>
@@ -28,12 +29,14 @@ public static class TransformationPatches
     /// <param name="raw">The raw index.html contents.</param>
     /// <param name="cacheParam">The <c>?v=...</c> cache-busting query string.</param>
     /// <param name="seriesBell">False to tell the script not to show the series bell (<c>data-series-bell="false"</c>).</param>
+    /// <param name="invite">False to tell the script not to show the invitation banner (<c>data-invite="false"</c>).</param>
     /// <returns>The transformed content, or the input unchanged when an anchor is missing.</returns>
-    internal static string Inject(string raw, string cacheParam, bool seriesBell = true)
+    internal static string Inject(string raw, string cacheParam, bool seriesBell = true, bool invite = true)
     {
         var linkTag = $"<link rel=\"stylesheet\" href=\"/EasyNotif/enotif-user.css{cacheParam}\" />";
         var bellFlag = seriesBell ? string.Empty : " data-series-bell=\"false\"";
-        var scriptTag = $"<script src=\"/EasyNotif/enotif-user.js{cacheParam}\"{bellFlag} defer></script>";
+        var inviteFlag = invite ? string.Empty : " data-invite=\"false\"";
+        var scriptTag = $"<script src=\"/EasyNotif/enotif-user.js{cacheParam}\"{bellFlag}{inviteFlag} defer></script>";
 
         var result = raw;
         if (result.Contains("</head>", StringComparison.OrdinalIgnoreCase))

@@ -371,9 +371,10 @@ public sealed class EasyNotifControllerTests
         var config = new FakeConfig();
         var controller = BuildController(config: config);
 
-        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { InjectWebUi = false, InjectSeriesBell = false }));
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { InjectWebUi = false, InjectSeriesBell = false, InviteWithoutEmail = false }));
         Assert.False(config.Config.InjectWebUi);
         Assert.False(config.Config.InjectSeriesBell);
+        Assert.False(config.Config.InviteWithoutEmail);
 
         controller.PutSettings(new SettingsUpdate());
         Assert.False(config.Config.InjectWebUi);
@@ -382,6 +383,7 @@ public sealed class EasyNotifControllerTests
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
         Assert.False(json.RootElement.GetProperty("injectWebUi").GetBoolean());
         Assert.False(json.RootElement.GetProperty("injectSeriesBell").GetBoolean());
+        Assert.False(json.RootElement.GetProperty("inviteWithoutEmail").GetBoolean());
     }
 
     [Fact]
@@ -391,6 +393,7 @@ public sealed class EasyNotifControllerTests
 
         Assert.True(cfg.InjectWebUi);
         Assert.True(cfg.InjectSeriesBell);
+        Assert.True(cfg.InviteWithoutEmail);
     }
 
     // -------------------------------------------------------------------------

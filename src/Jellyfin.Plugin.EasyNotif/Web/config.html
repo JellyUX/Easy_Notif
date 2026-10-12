@@ -146,6 +146,13 @@
                     </label>
                     <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inject.restart">Takes effect after Jellyfin restarts.</div>
                 </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input is="emby-checkbox" type="checkbox" id="enotifInviteWithoutEmail" />
+                        <span data-i18n="settings.inviteWithoutEmail">Invite users without a contact email</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inviteWithoutEmail.help">A banner on the home page, until the user closes it. Takes effect after Jellyfin restarts.</div>
+                </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
                     <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />

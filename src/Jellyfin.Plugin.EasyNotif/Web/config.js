@@ -654,9 +654,11 @@
         });
     }
 
-    // The bell lives in the injected script: without the injection it cannot show.
+    // The bell and the invitation live in the injected script: without the injection they cannot show.
     function _syncBellToggle() {
-        _el('enotifInjectSeriesBell').disabled = !_el('enotifInjectWebUi').checked;
+        var off = !_el('enotifInjectWebUi').checked;
+        _el('enotifInjectSeriesBell').disabled = off;
+        _el('enotifInviteWithoutEmail').disabled = off;
     }
 
     function _loadSettings() {
@@ -672,6 +674,7 @@
             _el('enotifQuotaMonthly').value = s.quotaMonthlyLimit || 3000;
             _el('enotifInjectWebUi').checked = s.injectWebUi !== false;
             _el('enotifInjectSeriesBell').checked = s.injectSeriesBell !== false;
+            _el('enotifInviteWithoutEmail').checked = s.inviteWithoutEmail !== false;
             _el('enotifAlertEmail').value = s.alertEmail || '';
             _el('enotifAlertLanguage').value = s.alertLanguage === 'en' ? 'en' : 'fr';
             _syncBellToggle();
@@ -714,6 +717,7 @@
             QuotaMonthlyLimit: parseInt(_el('enotifQuotaMonthly').value, 10),
             InjectWebUi: _el('enotifInjectWebUi').checked,
             InjectSeriesBell: _el('enotifInjectSeriesBell').checked,
+            InviteWithoutEmail: _el('enotifInviteWithoutEmail').checked,
             AlertEmail: _el('enotifAlertEmail').value.trim(),
             AlertLanguage: _el('enotifAlertLanguage').value
         };

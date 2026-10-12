@@ -3,7 +3,9 @@
  * Injected into Jellyfin's Settings screen (#/mypreferencesmenu): a contact address, one checkbox
  * per email category, the followed series, and a short data-handling notice. On a series detail page (#/details), a bell
  * in the action bar follows or stops following the series' new episodes, unless the script tag
- * carries data-series-bell="false". Talks to /EasyNotif/me/*.
+ * carries data-series-bell="false". On the home page (#/home), a user without a contact address is
+ * invited to add one, until they close the banner or open the settings (remembered in localStorage),
+ * unless the script tag carries data-invite="false". Talks to /EasyNotif/me/*.
  *
  * Design constraints (Synthese.md sections 4, 10):
  *  - Defensive and silent: a missing anchor -> skip. Never throw into Jellyfin Web; failures are
@@ -55,7 +57,10 @@
             'bell.unfollow': 'Following new episodes. Click to stop.',
             'bell.noEmail': 'No email will be sent: set a contact address in Settings, Email notifications.',
             'bell.optedOut': 'No email will be sent: New episodes is unticked in Settings, Email notifications.',
-            'bell.rejected': 'No email will be sent: your contact address was rejected, correct it in Settings, Email notifications.'
+            'bell.rejected': 'No email will be sent: your contact address was rejected, correct it in Settings, Email notifications.',
+            'invite.text': 'Get new media and your weekly recap by email?',
+            'invite.setup': 'Set up',
+            'invite.close': 'Close'
         },
         fr: {
             'panel.title': 'Notifications par email',
@@ -83,7 +88,10 @@
             'bell.unfollow': 'Nouveaux épisodes suivis. Cliquez pour arrêter.',
             'bell.noEmail': 'Aucun mail ne sera envoyé : renseignez une adresse de contact dans Paramètres, Notifications par email.',
             'bell.optedOut': 'Aucun mail ne sera envoyé : « Nouveaux épisodes » est décoché dans Paramètres, Notifications par email.',
-            'bell.rejected': 'Aucun mail ne sera envoyé : votre adresse de contact a été rejetée, corrigez-la dans Paramètres, Notifications par email.'
+            'bell.rejected': 'Aucun mail ne sera envoyé : votre adresse de contact a été rejetée, corrigez-la dans Paramètres, Notifications par email.',
+            'invite.text': 'Recevoir les nouveautés et votre résumé de la semaine par email ?',
+            'invite.setup': 'Configurer',
+            'invite.close': 'Fermer'
         }
     };
 
@@ -105,6 +113,57 @@
             }
         });
         return id && /^([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(id) ? id : null;
+    }
+
+    function _isHome(hash) {
+        return /^#\/home(\.html)?([/?]|$)/i.test(hash || '');
+    }
+
+    // The invitation is on unless the injected script tag says data-invite="false" (DEC-84).
+    function _inviteEnabled(scriptEl) {
+        return !(scriptEl && scriptEl.getAttribute && scriptEl.getAttribute('data-invite') === 'false');
+    }
+
+    // localStorage key remembering, per user and per browser, that the invitation was closed (DEC-83).
+    function _inviteKey(userId) {
+        return 'enotif-invite-dismissed:' + userId;
+    }
+
+    // Only for a user with no contact address who has not closed the banner yet.
+    function _shouldInvite(data, dismissed) {
+        return !!data && !data.email && !dismissed;
+    }
+
+    function _buildInvite(locale) {
+        var banner = document.createElement('div');
+        banner.className = 'enotif-invite';
+        banner.setAttribute('role', 'status');
+
+        var text = document.createElement('span');
+        text.className = 'enotif-invite-text';
+        text.textContent = _t(locale, 'invite.text');
+        banner.appendChild(text);
+
+        var setup = document.createElement('a');
+        setup.setAttribute('is', 'emby-linkbutton');
+        setup.className = 'button-link enotif-invite-setup';
+        setup.href = '#/mypreferencesmenu';
+        setup.textContent = _t(locale, 'invite.setup');
+        banner.appendChild(setup);
+
+        var close = document.createElement('button');
+        close.setAttribute('is', 'paper-icon-button-light');
+        close.type = 'button';
+        close.className = 'paper-icon-button-light enotif-invite-close';
+        close.title = _t(locale, 'invite.close');
+        close.setAttribute('aria-label', _t(locale, 'invite.close'));
+        var icon = document.createElement('span');
+        icon.className = 'material-icons close';
+        icon.setAttribute('aria-hidden', 'true');
+        close.appendChild(icon);
+        banner.appendChild(close);
+
+        return banner;
     }
 
     // The bell is on unless the injected script tag says data-series-bell="false" (DEC-43).
@@ -390,6 +449,11 @@
 
     var api = {
         _isPrefsMenu: _isPrefsMenu,
+        _isHome: _isHome,
+        _inviteEnabled: _inviteEnabled,
+        _inviteKey: _inviteKey,
+        _shouldInvite: _shouldInvite,
+        _buildInvite: _buildInvite,
         _pickLocale: _pickLocale,
         _t: _t,
         _escHtml: _escHtml,
@@ -424,6 +488,9 @@
     // Per detail page id: { following, busy, ready } once me/series/{id} answered 200, null when it
     // answered 404 (not a series, or not visible) or failed: no bell for that id this session.
     var bell = { enabled: _bellEnabled(SCRIPT_EL), byId: {} };
+
+    // done: nothing more to do this session (closed, address set, or load failed for good).
+    var invite = { enabled: _inviteEnabled(SCRIPT_EL), done: false, pending: false };
 
     function _retry(probe, attemptsLeft, delayMs) {
         var value = probe();
@@ -750,9 +817,83 @@
     // Cheap and idempotent: a route check, one querySelector, and an early return when the panel is
     // already there. Safe to run on every DOM mutation (the settings menu is a React page that
     // renders Loading first, then the real menu, and may re-render and drop our node).
+    function _inviteStorageKey() {
+        var userId = window.ApiClient.getCurrentUserId && window.ApiClient.getCurrentUserId();
+        return userId ? _inviteKey(userId) : null;
+    }
+
+    // Storage can throw (private window, blocked site data): treat it as not closed, never fail.
+    function _inviteDismissed(key) {
+        try {
+            return window.localStorage.getItem(key) === '1';
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function _dismissInvite(key, banner) {
+        invite.done = true;
+        try {
+            window.localStorage.setItem(key, '1');
+        } catch (err) {
+            console.warn('[EasyNotif] could not remember the closed invitation:', err);
+        }
+        if (banner.parentNode) {
+            banner.parentNode.removeChild(banner);
+        }
+    }
+
+    // On the home page: read me/* only while the banner has not been closed (DEC-82).
+    function _tickInvite() {
+        if (!invite.enabled || invite.done || invite.pending) {
+            return;
+        }
+        var anchor = document.querySelector('#indexPage #homeTab');
+        if (!anchor) {
+            return;
+        }
+        // Jellyfin keeps the home view alive: drop a banner shown before the address was saved.
+        var shown = anchor.querySelector('.enotif-invite');
+        if (shown) {
+            if (state.data && state.data.email) {
+                invite.done = true;
+                shown.parentNode.removeChild(shown);
+            }
+            return;
+        }
+        var key = _inviteStorageKey();
+        if (!key || _inviteDismissed(key)) {
+            invite.done = !!key;
+            return;
+        }
+        invite.pending = true;
+        _load().then(function (data) {
+            invite.pending = false;
+            if (!_shouldInvite(data, _inviteDismissed(key))) {
+                invite.done = !!data || state.errCount >= 3;
+                return;
+            }
+            if (!anchor.isConnected || anchor.querySelector('.enotif-invite')) {
+                return;
+            }
+            var banner = _buildInvite(_locale());
+            banner.querySelector('.enotif-invite-close').addEventListener('click', function () {
+                _dismissInvite(key, banner);
+            });
+            banner.querySelector('.enotif-invite-setup').addEventListener('click', function () {
+                _dismissInvite(key, banner);
+            });
+            anchor.insertBefore(banner, anchor.firstChild);
+        });
+    }
+
     function _tick() {
         try {
             if (typeof location === 'undefined') {
+                return;
+            }
+            if (_isHome(location.hash)) {
+                _tickInvite();
                 return;
             }
             if (!_isPrefsMenu(location.hash)) {

@@ -5,7 +5,8 @@ namespace Jellyfin.Plugin.EasyNotif.Tests.Inject;
 
 /// <summary>
 /// Covers the pure splice in <see cref="TransformationPatches.Inject"/>: both tags land before the
-/// closing anchors, the script carries <c>data-series-bell="false"</c> when the bell is off, and
+/// closing anchors, the script carries <c>data-series-bell="false"</c> when the bell is off and
+/// <c>data-invite="false"</c> when the invitation is off, and
 /// content with no anchors is returned untouched (R10).
 /// </summary>
 public class TransformationPatchesTests
@@ -35,6 +36,22 @@ public class TransformationPatchesTests
             TransformationPatches.Inject(Html, "?v=1", seriesBell: false),
             StringComparison.Ordinal);
         Assert.DoesNotContain("data-series-bell", TransformationPatches.Inject(Html, "?v=1"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Inject_FlagsTheScript_WhenTheInvitationIsOff()
+    {
+        const string Html = "<html><head></head><body></body></html>";
+
+        Assert.Contains(
+            "<script src=\"/EasyNotif/enotif-user.js?v=1\" data-invite=\"false\" defer></script>",
+            TransformationPatches.Inject(Html, "?v=1", invite: false),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "data-series-bell=\"false\" data-invite=\"false\" defer",
+            TransformationPatches.Inject(Html, "?v=1", seriesBell: false, invite: false),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("data-invite", TransformationPatches.Inject(Html, "?v=1"), StringComparison.Ordinal);
     }
 
     [Fact]

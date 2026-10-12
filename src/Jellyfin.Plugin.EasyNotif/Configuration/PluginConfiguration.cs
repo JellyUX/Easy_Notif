@@ -122,6 +122,13 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool InjectSeriesBell { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets a value indicating whether the injected script invites users without a contact
+    /// address to add one, with a dismissible banner on the home page. Ignored when
+    /// <see cref="InjectWebUi"/> is off; takes effect after a restart.
+    /// </summary>
+    public bool InviteWithoutEmail { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets the address that receives the daily incident digest (FEAT-04), or null to send
     /// none. The admin page banner shows the incidents either way.
     /// </summary>

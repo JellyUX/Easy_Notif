@@ -4,7 +4,8 @@ import enotifUser from '../src/Jellyfin.Plugin.EasyNotif/Web/enotif-user.js';
 const {
     _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel, _buildSeriesList,
     _buildLibraries, _lockLastLibrary,
-    _detailsItemId, _bellEnabled, _bellView, _buildBell, DICT, PLUGIN_ID
+    _detailsItemId, _bellEnabled, _bellView, _buildBell,
+    _isHome, _inviteEnabled, _inviteKey, _shouldInvite, _buildInvite, DICT, PLUGIN_ID
 } = enotifUser;
 
 describe('_isPrefsMenu', () => {
@@ -335,5 +336,60 @@ describe('module import', () => {
         expect(enotifUser._tick).toBeUndefined();
         expect(enotifUser._load).toBeUndefined();
         expect(enotifUser._bind).toBeUndefined();
+    });
+});
+
+describe('_isHome', () => {
+    it('matches the home route, with or without a query', () => {
+        expect(_isHome('#/home')).toBe(true);
+        expect(_isHome('#/home.html')).toBe(true);
+        expect(_isHome('#/home?tab=1')).toBe(true);
+    });
+
+    it('does not match other routes', () => {
+        expect(_isHome('#/homeextra')).toBe(false);
+        expect(_isHome('#/mypreferencesmenu')).toBe(false);
+        expect(_isHome('')).toBe(false);
+        expect(_isHome(null)).toBe(false);
+    });
+});
+
+describe('invitation', () => {
+    it('is off only when the script tag says data-invite="false"', () => {
+        const tag = document.createElement('script');
+        expect(_inviteEnabled(tag)).toBe(true);
+        tag.setAttribute('data-invite', 'false');
+        expect(_inviteEnabled(tag)).toBe(false);
+        expect(_inviteEnabled(null)).toBe(true);
+    });
+
+    it('keys the closed state by user', () => {
+        expect(_inviteKey('u1')).toBe('enotif-invite-dismissed:u1');
+        expect(_inviteKey('u1')).not.toBe(_inviteKey('u2'));
+    });
+
+    it('shows only to a user without an address who has not closed it', () => {
+        expect(_shouldInvite({ email: null }, false)).toBe(true);
+        expect(_shouldInvite({ email: null }, true)).toBe(false);
+        expect(_shouldInvite({ email: 'a@example.com' }, false)).toBe(false);
+        expect(_shouldInvite(null, false)).toBe(false);
+    });
+
+    it('builds a banner with a settings link and a labelled close button', () => {
+        const banner = _buildInvite('fr');
+
+        expect(banner.classList.contains('enotif-invite')).toBe(true);
+        expect(banner.querySelector('.enotif-invite-text').textContent).toBe(DICT.fr['invite.text']);
+        expect(banner.querySelector('.enotif-invite-setup').getAttribute('href')).toBe('#/mypreferencesmenu');
+        const close = banner.querySelector('.enotif-invite-close');
+        expect(close.type).toBe('button');
+        expect(close.getAttribute('aria-label')).toBe(DICT.fr['invite.close']);
+    });
+
+    it('has every string in both languages', () => {
+        ['invite.text', 'invite.setup', 'invite.close'].forEach((key) => {
+            expect(DICT.en[key]).toBeTruthy();
+            expect(DICT.fr[key]).toBeTruthy();
+        });
     });
 });

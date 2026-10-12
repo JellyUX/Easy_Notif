@@ -22,6 +22,8 @@
   "settings.injectWebUi": "Add the notification settings to Jellyfin Web",
   "settings.injectWebUi.help": "Turn off if a Jellyfin Web update breaks the page. Users then manage their emails from the unsubscribe links only.",
   "settings.injectSeriesBell": "Show the follow bell on series pages",
+  "settings.inviteWithoutEmail": "Invite users without a contact email",
+  "settings.inviteWithoutEmail.help": "A banner on the home page, until the user closes it. Takes effect after Jellyfin restarts.",
   "settings.inject.restart": "Takes effect after Jellyfin restarts.",
   "settings.apiKey": "Resend API key",
   "settings.webhookSecret": "Webhook signing secret",

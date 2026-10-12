@@ -108,6 +108,34 @@
     margin: 0;
 }
 
+/* Home page invitation for users without a contact address. */
+.enotif-invite {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5em 1em;
+    margin: 0.5em 3.3% 1em;
+    padding: 0.5em 0.5em 0.5em 1em;
+    border-left: 3px solid var(--jf-palette-primary-main, #00a4dc);
+    border-radius: 0.2em;
+    background: var(--jf-palette-action-hover, rgba(255, 255, 255, 0.08));
+}
+
+.enotif-invite-text {
+    flex: 1 1 14em;
+    min-width: 0;
+}
+
+.enotif-invite-setup {
+    margin: 0;
+    color: var(--jf-palette-primary-main, #00a4dc);
+    font-weight: 600;
+}
+
+.enotif-invite-close {
+    margin: 0;
+}
+
 /* On a phone the native action bar already fills the width: let it wrap rather than push the
    bell and the More button off screen. No effect while the buttons fit on one line. */
 .mainDetailButtons:has(> .enotif-series-bell) {

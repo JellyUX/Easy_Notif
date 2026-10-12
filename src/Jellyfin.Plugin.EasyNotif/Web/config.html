@@ -18,6 +18,8 @@
         .fieldDescription.enotif-status-error { color: var(--jf-palette-error-main, #c62828); }
         .enotif-progress { width: 100%; max-width: 32em; accent-color: var(--jf-palette-primary-main, #00a4dc); }
         .enotif-hint { font-weight: 600; }
+        .enotif-group { margin-bottom: 1.5em; }
+        .enotif-group > .sectionTitle { margin-bottom: 0.4em; }
         .enotif-status-block { margin-top: 2em; }
         .enotif-status-block table { width: 100%; border-collapse: collapse; margin-top: 0.6em; }
         .enotif-status-block th, .enotif-status-block td { text-align: left; padding: 0.35em 0.6em; }
@@ -68,100 +70,118 @@
 
         <div class="enotif-panel" data-panel="settings">
             <form id="enotifSettingsForm">
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifFromEmail" data-i18n="settings.fromEmail">Sender address</label>
-                    <input is="emby-input" type="text" id="enotifFromEmail" />
-                    <div class="fieldDescription" data-i18n="settings.fromEmail.help">Must be on your verified Resend sending domain.</div>
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.sending">Sending</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifFromEmail" data-i18n="settings.fromEmail">Sender address</label>
+                        <input is="emby-input" type="text" id="enotifFromEmail" />
+                        <div class="fieldDescription" data-i18n="settings.fromEmail.help">Must be on your verified Resend sending domain.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifFromName" data-i18n="settings.fromName">Sender name</label>
+                        <input is="emby-input" type="text" id="enotifFromName" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifReplyTo" data-i18n="settings.replyTo">Reply-To address</label>
+                        <input is="emby-input" type="text" id="enotifReplyTo" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
+                        <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />
+                        <div class="fieldDescription enotif-hint" id="enotifApiKeyHint"></div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifWebhookSecret" data-i18n="settings.webhookSecret">Webhook signing secret</label>
+                        <input is="emby-input" type="password" id="enotifWebhookSecret" autocomplete="off" />
+                        <div class="fieldDescription enotif-hint" id="enotifWebhookSecretHint"></div>
+                    </div>
                 </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifFromName" data-i18n="settings.fromName">Sender name</label>
-                    <input is="emby-input" type="text" id="enotifFromName" />
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.server">Server</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifPublicUrl" data-i18n="settings.publicUrl">Public server URL</label>
+                        <input is="emby-input" type="text" id="enotifPublicUrl" placeholder="https://media.example.org" />
+                        <div class="fieldDescription" data-i18n="settings.publicUrl.help">Used to build poster images and deep links in emails. Leave blank to attach posters instead.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="selectLabel" for="enotifTimeZone" data-i18n="settings.timeZone">Schedule time zone</label>
+                        <select is="emby-select" id="enotifTimeZone" class="emby-select">
+                            <option value="Europe/Paris">Europe/Paris</option>
+                            <option value="Europe/London">Europe/London</option>
+                            <option value="Europe/Berlin">Europe/Berlin</option>
+                            <option value="Europe/Madrid">Europe/Madrid</option>
+                            <option value="Europe/Rome">Europe/Rome</option>
+                            <option value="Europe/Lisbon">Europe/Lisbon</option>
+                            <option value="UTC">UTC</option>
+                            <option value="America/New_York">America/New_York</option>
+                            <option value="America/Chicago">America/Chicago</option>
+                            <option value="America/Los_Angeles">America/Los_Angeles</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifReplyTo" data-i18n="settings.replyTo">Reply-To address</label>
-                    <input is="emby-input" type="text" id="enotifReplyTo" />
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.newsletter">Newsletter</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifMaxMovies" data-i18n="settings.maxMovies">Newsletter: movies listed</label>
+                        <input is="emby-input" type="number" id="enotifMaxMovies" min="1" max="200" step="1" required />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifMaxSeries" data-i18n="settings.maxSeries">Newsletter: series listed</label>
+                        <input is="emby-input" type="number" id="enotifMaxSeries" min="1" max="200" step="1" required />
+                        <div class="fieldDescription" data-i18n="settings.cap.help">From 1 to 200. Beyond that, the newsletter ends each section with "and N more".</div>
+                    </div>
                 </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifPublicUrl" data-i18n="settings.publicUrl">Public server URL</label>
-                    <input is="emby-input" type="text" id="enotifPublicUrl" placeholder="https://media.example.org" />
-                    <div class="fieldDescription" data-i18n="settings.publicUrl.help">Used to build poster images and deep links in emails. Leave blank to attach posters instead.</div>
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.quota">Sending limits</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifQuotaDaily" data-i18n="settings.quotaDaily">Sending limit per day</label>
+                        <input is="emby-input" type="number" id="enotifQuotaDaily" min="0" max="100000" step="1" required />
+                        <div class="fieldDescription" data-i18n="settings.quotaDaily.help">Your Resend plan's daily quota (100 on the free plan). 0 if your plan has no daily limit.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifQuotaMonthly" data-i18n="settings.quotaMonthly">Sending limit over 30 days</label>
+                        <input is="emby-input" type="number" id="enotifQuotaMonthly" min="1" max="1000000" step="1" required />
+                        <div class="fieldDescription" data-i18n="settings.quotaMonthly.help">Your Resend plan's monthly quota (3000 on the free plan).</div>
+                    </div>
                 </div>
-                <div class="inputContainer">
-                    <label class="selectLabel" for="enotifTimeZone" data-i18n="settings.timeZone">Schedule time zone</label>
-                    <select is="emby-select" id="enotifTimeZone" class="emby-select">
-                        <option value="Europe/Paris">Europe/Paris</option>
-                        <option value="Europe/London">Europe/London</option>
-                        <option value="Europe/Berlin">Europe/Berlin</option>
-                        <option value="Europe/Madrid">Europe/Madrid</option>
-                        <option value="Europe/Rome">Europe/Rome</option>
-                        <option value="Europe/Lisbon">Europe/Lisbon</option>
-                        <option value="UTC">UTC</option>
-                        <option value="America/New_York">America/New_York</option>
-                        <option value="America/Chicago">America/Chicago</option>
-                        <option value="America/Los_Angeles">America/Los_Angeles</option>
-                    </select>
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.alerts">Incident alerts</h3>
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="enotifAlertEmail" data-i18n="settings.alertEmail">Incident alert address</label>
+                        <input is="emby-input" type="email" id="enotifAlertEmail" autocomplete="off" />
+                        <div class="fieldDescription" data-i18n="settings.alertEmail.help">At most one digest a day when something went wrong (failed sends, quota, campaign error, bounce, lost data). Leave empty to rely on the banner of this page only.</div>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="selectLabel" for="enotifAlertLanguage" data-i18n="settings.alertLanguage">Alert language</label>
+                        <select is="emby-select" id="enotifAlertLanguage" class="emby-select">
+                            <option value="fr">Français</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifMaxMovies" data-i18n="settings.maxMovies">Newsletter: movies listed</label>
-                    <input is="emby-input" type="number" id="enotifMaxMovies" min="1" max="200" step="1" required />
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifMaxSeries" data-i18n="settings.maxSeries">Newsletter: series listed</label>
-                    <input is="emby-input" type="number" id="enotifMaxSeries" min="1" max="200" step="1" required />
-                    <div class="fieldDescription" data-i18n="settings.cap.help">From 1 to 200. Beyond that, the newsletter ends each section with "and N more".</div>
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifQuotaDaily" data-i18n="settings.quotaDaily">Sending limit per day</label>
-                    <input is="emby-input" type="number" id="enotifQuotaDaily" min="0" max="100000" step="1" required />
-                    <div class="fieldDescription" data-i18n="settings.quotaDaily.help">Your Resend plan's daily quota (100 on the free plan). 0 if your plan has no daily limit.</div>
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifQuotaMonthly" data-i18n="settings.quotaMonthly">Sending limit over 30 days</label>
-                    <input is="emby-input" type="number" id="enotifQuotaMonthly" min="1" max="1000000" step="1" required />
-                    <div class="fieldDescription" data-i18n="settings.quotaMonthly.help">Your Resend plan's monthly quota (3000 on the free plan).</div>
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifAlertEmail" data-i18n="settings.alertEmail">Incident alert address</label>
-                    <input is="emby-input" type="email" id="enotifAlertEmail" autocomplete="off" />
-                    <div class="fieldDescription" data-i18n="settings.alertEmail.help">At most one digest a day when something went wrong (failed sends, quota, campaign error, bounce, lost data). Leave empty to rely on the banner of this page only.</div>
-                </div>
-                <div class="inputContainer">
-                    <label class="selectLabel" for="enotifAlertLanguage" data-i18n="settings.alertLanguage">Alert language</label>
-                    <select is="emby-select" id="enotifAlertLanguage" class="emby-select">
-                        <option value="fr">Français</option>
-                        <option value="en">English</option>
-                    </select>
-                </div>
-                <div class="checkboxContainer checkboxContainer-withDescription">
-                    <label class="emby-checkbox-label">
-                        <input is="emby-checkbox" type="checkbox" id="enotifInjectWebUi" />
-                        <span data-i18n="settings.injectWebUi">Add the notification settings to Jellyfin Web</span>
-                    </label>
-                    <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.injectWebUi.help">Turn off if a Jellyfin Web update breaks the page. Users then manage their emails from the unsubscribe links only.</div>
-                </div>
-                <div class="checkboxContainer checkboxContainer-withDescription">
-                    <label class="emby-checkbox-label">
-                        <input is="emby-checkbox" type="checkbox" id="enotifInjectSeriesBell" />
-                        <span data-i18n="settings.injectSeriesBell">Show the follow bell on series pages</span>
-                    </label>
-                    <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inject.restart">Takes effect after Jellyfin restarts.</div>
-                </div>
-                <div class="checkboxContainer checkboxContainer-withDescription">
-                    <label class="emby-checkbox-label">
-                        <input is="emby-checkbox" type="checkbox" id="enotifInviteWithoutEmail" />
-                        <span data-i18n="settings.inviteWithoutEmail">Invite users without a contact email</span>
-                    </label>
-                    <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inviteWithoutEmail.help">A banner on the home page, until the user closes it. Takes effect after Jellyfin restarts.</div>
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifApiKey" data-i18n="settings.apiKey">Resend API key</label>
-                    <input is="emby-input" type="password" id="enotifApiKey" autocomplete="off" />
-                    <div class="fieldDescription enotif-hint" id="enotifApiKeyHint"></div>
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="enotifWebhookSecret" data-i18n="settings.webhookSecret">Webhook signing secret</label>
-                    <input is="emby-input" type="password" id="enotifWebhookSecret" autocomplete="off" />
-                    <div class="fieldDescription enotif-hint" id="enotifWebhookSecretHint"></div>
+                <div class="verticalSection enotif-group">
+                    <h3 class="sectionTitle" data-i18n="settings.group.web">Web interface</h3>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="enotifInjectWebUi" />
+                            <span data-i18n="settings.injectWebUi">Add the notification settings to Jellyfin Web</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.injectWebUi.help">Turn off if a Jellyfin Web update breaks the page. Users then manage their emails from the unsubscribe links only.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="enotifInjectSeriesBell" />
+                            <span data-i18n="settings.injectSeriesBell">Show the follow bell on series pages</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inject.restart">Takes effect after Jellyfin restarts.</div>
+                    </div>
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input is="emby-checkbox" type="checkbox" id="enotifInviteWithoutEmail" />
+                            <span data-i18n="settings.inviteWithoutEmail">Invite users without a contact email</span>
+                        </label>
+                        <div class="fieldDescription checkboxFieldDescription" data-i18n="settings.inviteWithoutEmail.help">A banner on the home page, until the user closes it. Takes effect after Jellyfin restarts.</div>
+                    </div>
                 </div>
                 <button is="emby-button" type="submit" class="raised button-submit block" data-i18n="common.save">Save</button>
             </form>

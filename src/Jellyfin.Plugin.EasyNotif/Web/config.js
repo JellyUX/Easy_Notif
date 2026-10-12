@@ -58,6 +58,9 @@
             + '<td>' + emailCell + '</td>'
             + '<td>' + box('news', row.news) + '</td>'
             + '<td>' + box('recap', row.recap) + '</td>'
+            + '<td>' + _escHtml(_t(dict, row.announcements === false ? 'common.no' : 'common.yes')) + '</td>'
+            + '<td>' + _escHtml(_t(dict, row.episodes === false ? 'common.no' : 'common.yes')) + '</td>'
+            + '<td>' + _escHtml(String(row.followedSeries || 0)) + '</td>'
             + '<td>' + (row.updatedAt ? _escHtml(String(row.updatedAt).slice(0, 10)) : '-') + '</td>'
             + '</tr>';
     }

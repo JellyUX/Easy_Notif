@@ -215,7 +215,9 @@ public sealed class PreferenceService : IPreferenceService
                     EmailMasker.Mask(pref?.ContactEmail),
                     hasEmail,
                     categories,
-                    pref?.UpdatedAt);
+                    pref?.UpdatedAt,
+                    !(pref?.AnnouncementsOptOut ?? false),
+                    !(pref?.EpisodesOptOut ?? false));
             })
             .ToList();
     }

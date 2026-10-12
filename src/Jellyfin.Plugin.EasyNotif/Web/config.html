@@ -11,6 +11,7 @@
         .enotif-tab { background: none; border: none; border-bottom: 0.15em solid transparent; padding: 0.6em 0.9em; cursor: pointer; font: inherit; color: inherit; opacity: 0.65; }
         .enotif-tab.enotif-active { border-bottom-color: var(--jf-palette-primary-main, #00a4dc); opacity: 1; }
         .enotif-pref-table { width: 100%; border-collapse: collapse; }
+        .enotif-table-scroll { overflow-x: auto; }
         .enotif-pref-table th, .enotif-pref-table td { text-align: left; padding: 0.45em 0.6em; }
         .enotif-warn { color: var(--jf-palette-warning-main, #ffa726); font-weight: 600; }
         .fieldDescription.enotif-warn { color: var(--jf-palette-warning-main, #ffa726); }
@@ -302,6 +303,7 @@
                 Each user chooses what they receive from their own settings. You can override it here.
                 A user with no contact address is skipped at send time.
             </p>
+            <div class="enotif-table-scroll">
             <table class="enotif-pref-table detailTable">
                 <thead>
                     <tr>
@@ -309,11 +311,16 @@
                         <th data-i18n="pref.col.email">Contact email</th>
                         <th data-i18n="pref.col.news">New media</th>
                         <th data-i18n="pref.col.recap">Weekly recap</th>
+                        <th data-i18n="pref.col.announcements">Announcements</th>
+                        <th data-i18n="pref.col.episodes">New episodes</th>
+                        <th data-i18n="pref.col.series">Followed series</th>
                         <th data-i18n="pref.col.updated">Updated</th>
                     </tr>
                 </thead>
                 <tbody id="enotifPrefBody"></tbody>
             </table>
+            </div>
+            <p class="fieldDescription" data-i18n="pref.readOnly.help">Announcements, new episodes and followed series are set by each user from their own settings.</p>
         </div>
 
         <div class="enotif-panel" data-panel="logs" hidden>

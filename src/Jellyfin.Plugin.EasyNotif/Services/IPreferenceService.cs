@@ -19,13 +19,17 @@ public readonly record struct Recipient(Guid UserId, string Email, IReadOnlyList
 /// <param name="HasEmail">True when the user has a valid contact address.</param>
 /// <param name="Categories">The opt-in state for every category (missing entries are false).</param>
 /// <param name="UpdatedAt">When the user's preference was last changed, or null if never.</param>
+/// <param name="Announcements">False when the user opted out of announcements (opt-out, DEC-16).</param>
+/// <param name="Episodes">False when the user opted out of new episode emails (opt-out, DEC-40).</param>
 public sealed record AdminPreferenceRow(
     Guid UserId,
     string UserName,
     string MaskedEmail,
     bool HasEmail,
     IReadOnlyDictionary<EmailCategory, bool> Categories,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    bool Announcements = true,
+    bool Episodes = true);
 
 /// <summary>
 /// Business logic for user email preferences. See <see cref="PreferenceService"/>.

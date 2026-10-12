@@ -315,6 +315,19 @@ public sealed class PreferenceServiceTests
         Assert.Null(bobRow.UpdatedAt);
         Assert.False(bobRow.Categories[EmailCategory.News]);
         Assert.False(bobRow.Categories[EmailCategory.Recap]);
+        Assert.True(bobRow.Announcements);
+        Assert.True(bobRow.Episodes);
+    }
+
+    [Fact]
+    public void GetAllForAdmin_ReportsTheOptOutCategories()
+    {
+        _service.SetCategories(_alice, new Dictionary<EmailCategory, bool>(), announcementsOptOut: true, episodesOptOut: true);
+
+        var alice = Assert.Single(_service.GetAllForAdmin(), r => r.UserId == _alice);
+
+        Assert.False(alice.Announcements);
+        Assert.False(alice.Episodes);
     }
 
     [Fact]

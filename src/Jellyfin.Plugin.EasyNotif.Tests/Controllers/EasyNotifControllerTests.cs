@@ -637,6 +637,27 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void GetAllPreferences_ExposesEveryCategoryAndTheFollowedSeriesCount()
+    {
+        var userId = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetAllForAdmin()).Returns(
+        [
+            new AdminPreferenceRow(userId, "alice", "a***e@example.org", true, new Dictionary<EmailCategory, bool>(), null, Announcements: false, Episodes: true)
+        ]);
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.CountFollowed(userId)).Returns(3);
+
+        var ok = Assert.IsType<OkObjectResult>(BuildController(service: service, followedSeries: followed).GetAllPreferences());
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var row = Assert.Single(json.RootElement.EnumerateArray());
+
+        Assert.False(row.GetProperty("announcements").GetBoolean());
+        Assert.True(row.GetProperty("episodes").GetBoolean());
+        Assert.Equal(3, row.GetProperty("followedSeries").GetInt32());
+    }
+
+    [Fact]
     public void GetStrings_ForAnUnknownLanguage_Returns404()
     {
         Assert.IsType<NotFoundResult>(BuildController().GetStrings("de"));

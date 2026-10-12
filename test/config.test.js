@@ -84,6 +84,24 @@ describe('_buildPrefRow', () => {
         expect(html).toContain('<td>2026-09-04</td>');
     });
 
+    it('shows the opt-out categories and the followed series count as read-only cells', () => {
+        const html = _buildPrefRow({ 'common.yes': 'Yes', 'common.no': 'No' }, {
+            userId: 'u-4',
+            userName: 'Carol',
+            maskedEmail: 'c***l@example.org',
+            hasEmail: true,
+            news: true,
+            recap: true,
+            announcements: false,
+            episodes: true,
+            followedSeries: 2,
+            updatedAt: null
+        });
+
+        expect(html).toContain('<td>No</td><td>Yes</td><td>2</td>');
+        expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    });
+
     it('shows the no-address warning and no date when the user has no email', () => {
         const html = _buildPrefRow(dict, {
             userId: 'u-2',

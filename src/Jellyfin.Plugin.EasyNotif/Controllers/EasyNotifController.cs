@@ -422,6 +422,9 @@ public class EasyNotifController : ControllerBase
             hasEmail = r.HasEmail,
             news = r.Categories.GetValueOrDefault(EmailCategory.News),
             recap = r.Categories.GetValueOrDefault(EmailCategory.Recap),
+            announcements = r.Announcements,
+            episodes = r.Episodes,
+            followedSeries = _followedSeries.CountFollowed(r.UserId),
             updatedAt = r.UpdatedAt
         });
         return Ok(rows);

@@ -32,6 +32,11 @@ public interface IFollowedSeriesService
     /// <returns>The state, or null when the series does not exist or is not visible to the user.</returns>
     bool? IsFollowing(Guid userId, Guid seriesId);
 
+    /// <summary>Counts the series the user follows, visible or not (admin table, no library lookup).</summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <returns>The number of subscriptions.</returns>
+    int CountFollowed(Guid userId);
+
     /// <summary>Follows the series; idempotent.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="seriesId">The series id.</param>
@@ -111,6 +116,10 @@ public sealed class FollowedSeriesService : IFollowedSeriesService
         _store.Unsubscribe(userId, seriesId);
         return true;
     }
+
+    /// <inheritdoc/>
+    public int CountFollowed(Guid userId)
+        => _store.Subscriptions().Count(s => s.UserId == userId);
 
     private List<Guid> Followed(Guid userId)
         => [.. _store.Subscriptions().Where(s => s.UserId == userId).Select(s => s.SeriesId)];

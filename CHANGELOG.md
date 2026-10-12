@@ -1,3 +1,29 @@
+## [1.2.0](https://github.com/JellyUX/Easy_Notif/compare/v1.1.1...v1.2.0) (2026-10-12)
+
+### Features
+
+* add a generic template for manual emails ([a05e42f](https://github.com/JellyUX/Easy_Notif/commit/a05e42fec1ebc834b264f1ff5362f498cf30e1bf))
+* add a resume section to the weekly recap ([07d6986](https://github.com/JellyUX/Easy_Notif/commit/07d698664a6b2090aae13c8c51c7a32ac47d56c5))
+* email a daily incident digest to the admin ([4a2280b](https://github.com/JellyUX/Easy_Notif/commit/4a2280be1ec582ad8b71a7ed41df0b1665667964))
+* expose drain health in the admin status ([693544b](https://github.com/JellyUX/Easy_Notif/commit/693544bac81de2bb6563a124cb459bb07a8971de))
+* invite users without a contact email ([bb62787](https://github.com/JellyUX/Easy_Notif/commit/bb627873bfbb8cebab5864305b4551323cb0f6d5))
+* let users pick newsletter libraries ([4fa708f](https://github.com/JellyUX/Easy_Notif/commit/4fa708f9a0b4afd6c62ce35d2142be1bf26ca362))
+* move the transport status to its own admin tab ([98b2983](https://github.com/JellyUX/Easy_Notif/commit/98b298324a2810fb2d245e48d57890aadbbe0f59))
+* preview the weekly recap with your own data ([fb3de98](https://github.com/JellyUX/Easy_Notif/commit/fb3de9872bc6c6a03e73d02a451aff9fd45c5cd2))
+* schedule manual announcements ([2e17a54](https://github.com/JellyUX/Easy_Notif/commit/2e17a54684a94f32e7969e42933dcc97515c8e75))
+* seed the yearly total from existing play data ([8aeed34](https://github.com/JellyUX/Easy_Notif/commit/8aeed344843504e397af1b771b4d881199b68223))
+* show every category in the admin preferences ([ceecab0](https://github.com/JellyUX/Easy_Notif/commit/ceecab039e8b50c61381cee6bd0225c6248e683f))
+
+### Bug Fixes
+
+* describe the announcement opt-out on the manual email tab ([fbb974d](https://github.com/JellyUX/Easy_Notif/commit/fbb974d97c0b15d9b1961cb6891ae42e251dad72))
+* escape apostrophes in web helpers ([0291261](https://github.com/JellyUX/Easy_Notif/commit/0291261ef53c62b1720c382c9def863c81f77655))
+* follow the Jellyfin language on the admin page ([ff66d2d](https://github.com/JellyUX/Easy_Notif/commit/ff66d2d7495090d5f074eb3d0cf00f168fd0fe13))
+* keep omitted sender settings unchanged ([6feaa9e](https://github.com/JellyUX/Easy_Notif/commit/6feaa9ef24956fda9ae4f15b8cd5fa05cff41e49))
+* keep the invitation actions together on phones ([abfcd6f](https://github.com/JellyUX/Easy_Notif/commit/abfcd6f3ff61d498bc781eb42bad896e8cad5e82))
+* show why scheduling is off when attachments are added ([fe11118](https://github.com/JellyUX/Easy_Notif/commit/fe111188e9a9448ac96fee2c7f2f128e8537d60c))
+* version the admin page assets ([85a4b45](https://github.com/JellyUX/Easy_Notif/commit/85a4b451e8f9ef7021ee28f056d23516afeb75a5))
+
 ## [1.1.1](https://github.com/JellyUX/Easy_Notif/compare/v1.1.0...v1.1.1) (2026-10-09)
 
 ### Bug Fixes

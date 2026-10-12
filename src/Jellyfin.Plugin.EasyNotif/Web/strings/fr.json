@@ -1,6 +1,7 @@
 {
   "page.intro": "Configurez le service d'email et gérez les préférences de notification de chaque utilisateur.",
   "tab.settings": "Réglages",
+  "tab.status": "État",
   "tab.preferences": "Préférences utilisateurs",
   "settings.group.sending": "Envoi",
   "settings.group.server": "Serveur",
@@ -80,7 +81,7 @@
   "status.drain.episodes": "Nouveaux épisodes",
   "status.drainNoFlush": "Aucune pour l'instant",
   "status.drainLost": "{b} lot(s), {n} élément(s)",
-  "status.banner": "{n} incident(s) ces dernières 24 heures. Voir « État du transport » dans l'onglet Réglages.",
+  "status.banner": "{n} incident(s) ces dernières 24 heures. Ouvrir l'onglet État.",
   "status.alertOff": "Alertes d'incident : aucune adresse, bandeau de cette page seulement.",
   "status.alertNone": "Alertes d'incident : aucun résumé envoyé pour l'instant.",
   "status.alertLast": "Alertes d'incident : dernier résumé envoyé le {date} UTC.",

@@ -1,6 +1,7 @@
 {
   "page.intro": "Configure the email service and manage each user's notification preferences.",
   "tab.settings": "Settings",
+  "tab.status": "Status",
   "tab.preferences": "User preferences",
   "settings.group.sending": "Sending",
   "settings.group.server": "Server",
@@ -80,7 +81,7 @@
   "status.drain.episodes": "New episodes",
   "status.drainNoFlush": "None yet",
   "status.drainLost": "{b} batch(es), {n} item(s)",
-  "status.banner": "{n} incident(s) in the last 24 hours. See Transport status in the Settings tab.",
+  "status.banner": "{n} incident(s) in the last 24 hours. Open the Status tab.",
   "status.alertOff": "Incident alerts: no address set, the banner of this page only.",
   "status.alertNone": "Incident alerts: no digest sent yet.",
   "status.alertLast": "Incident alerts: last digest sent on {date} UTC.",

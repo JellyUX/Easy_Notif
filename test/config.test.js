@@ -125,7 +125,7 @@ describe('_incidentBanner', () => {
 
         const text = _incidentBanner(dict, { banner: true, incidents: [{ ts: recent }, { ts: recent }, { ts: old }] });
 
-        expect(text).toBe('2 incident(s) in the last 24 hours. See Transport status in the Settings tab.');
+        expect(text).toBe('2 incident(s) in the last 24 hours. Open the Status tab.');
     });
 
     it('is empty without the banner flag or a payload', () => {

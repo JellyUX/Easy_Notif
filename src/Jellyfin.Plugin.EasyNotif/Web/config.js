@@ -1540,6 +1540,7 @@
             t.addEventListener('click', function () { _selectTab(t.getAttribute('data-tab')); });
         });
         _el('enotifSettingsForm').addEventListener('submit', _saveSettings);
+        _el('enotifIncidentBanner').addEventListener('click', function () { _selectTab('status'); });
         _el('enotifInjectWebUi').addEventListener('change', _syncBellToggle);
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
         _bindManual();

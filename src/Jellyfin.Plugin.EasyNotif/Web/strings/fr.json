@@ -115,7 +115,7 @@
   "incident.drain.lost": "Lot perdu à l'écriture",
   "incident.drain.dropped": "Éléments écartés (file pleine)",
   "manual.tab": "Email manuel",
-  "manual.intro": "Rédigez un email ponctuel. Il part vers tous les utilisateurs ayant une adresse de contact (ou une sélection), sans tenir compte de leurs préférences par catégorie.",
+  "manual.intro": "Rédigez un email ponctuel. Tous les utilisateurs : chaque utilisateur ayant une adresse de contact, sauf ceux qui ont désactivé les annonces. Utilisateurs sélectionnés : ceux que vous cochez, même s'ils ont désactivé les annonces.",
   "manual.subject": "Sujet",
   "manual.mode.text": "Texte brut",
   "manual.mode.html": "HTML",

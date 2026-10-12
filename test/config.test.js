@@ -5,7 +5,7 @@ import enStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/en.json';
 import frStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/fr.json';
 
 const {
-    _escHtml, _pickLang, _t, _secretHint, _buildPrefRow, _buildStatus, _incidentBanner,
+    _escHtml, _pickLocale, _t, _secretHint, _buildPrefRow, _buildStatus, _incidentBanner,
     _manualBody, _manualRecipients, _validateManual, _manualPayload, _validateAnnouncement, _announcementView, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
@@ -24,18 +24,21 @@ describe('_escHtml', () => {
     });
 });
 
-describe('_pickLang', () => {
-    it('picks fr when the locale starts with fr', () => {
-        expect(_pickLang('fr')).toBe('fr');
-        expect(_pickLang('fr-FR')).toBe('fr');
-        expect(_pickLang('FR-ca')).toBe('fr');
+describe('_pickLocale', () => {
+    it('follows the Jellyfin language over the browser locale', () => {
+        expect(_pickLocale('fr', 'en-US')).toBe('fr');
+        expect(_pickLocale('fr-FR', null)).toBe('fr');
+    });
+
+    it('falls back to the browser locale', () => {
+        expect(_pickLocale(null, 'FR-ca')).toBe('fr');
+        expect(_pickLocale('', 'fr')).toBe('fr');
     });
 
     it('defaults to en for anything else', () => {
-        expect(_pickLang('en-US')).toBe('en');
-        expect(_pickLang('de')).toBe('en');
-        expect(_pickLang('')).toBe('en');
-        expect(_pickLang(undefined)).toBe('en');
+        expect(_pickLocale('en-US', 'en')).toBe('en');
+        expect(_pickLocale('de', 'de-DE')).toBe('en');
+        expect(_pickLocale(undefined, undefined)).toBe('en');
     });
 });
 

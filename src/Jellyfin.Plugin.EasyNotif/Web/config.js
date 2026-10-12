@@ -24,9 +24,11 @@
             .replace(/"/g, '&quot;');
     }
 
-    // Language for the UI strings: 'fr' when the browser locale starts with fr, else 'en' (default).
-    function _pickLang(navLang) {
-        return String(navLang || '').toLowerCase().indexOf('fr') === 0 ? 'fr' : 'en';
+    // Language for the UI strings, as in the user panel: 'fr' when either the Jellyfin language
+    // (<html lang>) or the browser locale starts with fr, else 'en' (default).
+    function _pickLocale(htmlLang, navLang) {
+        var starts = function (v) { return String(v || '').toLowerCase().indexOf('fr') === 0; };
+        return (starts(htmlLang) || starts(navLang)) ? 'fr' : 'en';
     }
 
     // Translate a key against a loaded dictionary; fall back to the key itself so a missing string
@@ -585,7 +587,7 @@
 
     var api = {
         _escHtml: _escHtml,
-        _pickLang: _pickLang,
+        _pickLocale: _pickLocale,
         _t: _t,
         _secretHint: _secretHint,
         _buildPrefRow: _buildPrefRow,
@@ -1499,7 +1501,8 @@
     function _onShow() {
         var page = _el('easyNotifConfigPage');
         dict = {};
-        window.ApiClient.getJSON(_url('strings/' + _pickLang(window.navigator.language) + '.json'))
+        window.ApiClient.getJSON(_url('strings/'
+            + _pickLocale(document.documentElement.getAttribute('lang'), window.navigator.language) + '.json'))
             .catch(function () { return {}; })
             .then(function (loaded) {
                 dict = loaded || {};

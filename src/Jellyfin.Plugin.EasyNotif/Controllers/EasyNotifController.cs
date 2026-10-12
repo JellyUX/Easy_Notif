@@ -560,10 +560,11 @@ public class EasyNotifController : ControllerBase
         return Wrap(() =>
         {
             var cfg = _config.Get();
-            cfg.FromEmail = Trimmed(body.FromEmail);
-            cfg.FromName = Trimmed(body.FromName);
-            cfg.ReplyTo = Trimmed(body.ReplyTo);
-            cfg.PublicServerUrl = Trimmed(body.PublicServerUrl);
+            // Omitted (null) leaves a field unchanged, blank clears it, as for every other setting.
+            cfg.FromEmail = body.FromEmail is null ? cfg.FromEmail : Trimmed(body.FromEmail);
+            cfg.FromName = body.FromName is null ? cfg.FromName : Trimmed(body.FromName);
+            cfg.ReplyTo = body.ReplyTo is null ? cfg.ReplyTo : Trimmed(body.ReplyTo);
+            cfg.PublicServerUrl = body.PublicServerUrl is null ? cfg.PublicServerUrl : Trimmed(body.PublicServerUrl);
             cfg.NewsletterMaxMovies = body.NewsletterMaxMovies ?? cfg.NewsletterMaxMovies;
             cfg.NewsletterMaxSeries = body.NewsletterMaxSeries ?? cfg.NewsletterMaxSeries;
             cfg.QuotaDailyLimit = body.QuotaDailyLimit ?? cfg.QuotaDailyLimit;
@@ -1819,16 +1820,16 @@ public sealed class TemplatePreviewRequest
 /// <summary>Request body for <c>PUT /EasyNotif/admin/settings</c>. A blank secret is ignored.</summary>
 public sealed class SettingsUpdate
 {
-    /// <summary>Gets or sets the sender address.</summary>
+    /// <summary>Gets or sets the sender address. Null leaves it unchanged; blank clears it.</summary>
     public string? FromEmail { get; set; }
 
-    /// <summary>Gets or sets the sender display name.</summary>
+    /// <summary>Gets or sets the sender display name. Null leaves it unchanged; blank clears it.</summary>
     public string? FromName { get; set; }
 
-    /// <summary>Gets or sets the Reply-To address.</summary>
+    /// <summary>Gets or sets the Reply-To address. Null leaves it unchanged; blank clears it.</summary>
     public string? ReplyTo { get; set; }
 
-    /// <summary>Gets or sets the public base URL of this server.</summary>
+    /// <summary>Gets or sets the public base URL of this server. Null leaves it unchanged; blank clears it.</summary>
     public string? PublicServerUrl { get; set; }
 
     /// <summary>Gets or sets the IANA scheduler time zone.</summary>

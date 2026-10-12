@@ -358,6 +358,29 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void PutSettings_KeepsOmittedSenderFields_AndClearsBlankOnes()
+    {
+        var config = new FakeConfig();
+        config.Config.FromEmail = "news@example.com";
+        config.Config.FromName = "Server";
+        config.Config.ReplyTo = "owner@example.com";
+        config.Config.PublicServerUrl = "https://media.example.com";
+        var controller = BuildController(config: config);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { InviteWithoutEmail = true }));
+        Assert.Equal("news@example.com", config.Config.FromEmail);
+        Assert.Equal("Server", config.Config.FromName);
+        Assert.Equal("owner@example.com", config.Config.ReplyTo);
+        Assert.Equal("https://media.example.com", config.Config.PublicServerUrl);
+
+        Assert.IsType<NoContentResult>(controller.PutSettings(new SettingsUpdate { FromName = " ", ReplyTo = "", PublicServerUrl = "" }));
+        Assert.Equal("news@example.com", config.Config.FromEmail);
+        Assert.Null(config.Config.FromName);
+        Assert.Null(config.Config.ReplyTo);
+        Assert.Null(config.Config.PublicServerUrl);
+    }
+
+    [Fact]
     public void PutSettings_WithABlankPublicServerUrl_Returns204()
     {
         var result = BuildController().PutSettings(new SettingsUpdate { PublicServerUrl = "  " });

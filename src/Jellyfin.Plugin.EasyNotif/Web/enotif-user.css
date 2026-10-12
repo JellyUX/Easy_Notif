@@ -126,6 +126,13 @@
     min-width: 0;
 }
 
+.enotif-invite-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-left: auto;
+}
+
 .enotif-invite-setup {
     margin: 0;
     color: var(--jf-palette-primary-main, #00a4dc);

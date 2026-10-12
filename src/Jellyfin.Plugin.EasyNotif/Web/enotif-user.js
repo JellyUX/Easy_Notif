@@ -144,12 +144,17 @@
         text.textContent = _t(locale, 'invite.text');
         banner.appendChild(text);
 
+        // Kept together so that, wrapped on a phone, both stay on the right.
+        var actions = document.createElement('span');
+        actions.className = 'enotif-invite-actions';
+        banner.appendChild(actions);
+
         var setup = document.createElement('a');
         setup.setAttribute('is', 'emby-linkbutton');
         setup.className = 'button-link enotif-invite-setup';
         setup.href = '#/mypreferencesmenu';
         setup.textContent = _t(locale, 'invite.setup');
-        banner.appendChild(setup);
+        actions.appendChild(setup);
 
         var close = document.createElement('button');
         close.setAttribute('is', 'paper-icon-button-light');
@@ -161,7 +166,7 @@
         icon.className = 'material-icons close';
         icon.setAttribute('aria-hidden', 'true');
         close.appendChild(icon);
-        banner.appendChild(close);
+        actions.appendChild(close);
 
         return banner;
     }

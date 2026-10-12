@@ -586,6 +586,34 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void AdminPageAssets_AreRevalidatedAgainstTheBuildTag()
+    {
+        var controller = BuildController();
+        var strings = Assert.IsType<FileStreamResult>(controller.GetStrings("fr"));
+        Assert.Equal("no-cache", controller.Response.Headers.CacheControl.ToString());
+        Assert.NotNull(strings.EntityTag);
+
+        var other = BuildController();
+        var script = Assert.IsType<FileStreamResult>(other.GetConfigScript());
+        Assert.Equal("no-cache", other.Response.Headers.CacheControl.ToString());
+        Assert.Equal(strings.EntityTag, script.EntityTag);
+        Assert.Contains(
+            typeof(EasyNotifController).Assembly.GetName().Version!.ToString(),
+            script.EntityTag!.Tag.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InjectedUserAssets_KeepTheOneHourCache()
+    {
+        var controller = BuildController();
+        var css = Assert.IsType<FileStreamResult>(controller.GetUserStylesheet());
+
+        Assert.Equal("public, max-age=3600", controller.Response.Headers.CacheControl.ToString());
+        Assert.Null(css.EntityTag);
+    }
+
+    [Fact]
     public void GetStrings_ForAnUnknownLanguage_Returns404()
     {
         Assert.IsType<NotFoundResult>(BuildController().GetStrings("de"));

@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Microsoft.Net.Http.Headers;
 
 namespace Jellyfin.Plugin.EasyNotif.Controllers;
 
@@ -44,6 +45,10 @@ namespace Jellyfin.Plugin.EasyNotif.Controllers;
 public class EasyNotifController : ControllerBase
 {
     private static readonly Assembly PluginAssembly = typeof(EasyNotifController).Assembly;
+
+    // Changes with every build of the plugin, release or local (the module id follows the content).
+    private static readonly EntityTagHeaderValue AssetTag = new(
+        $"\"{PluginAssembly.GetName().Version}-{PluginAssembly.ManifestModule.ModuleVersionId:N}\"");
 
     // The admin banner shows while an incident is younger than this (DEC-64).
     private static readonly TimeSpan BannerWindow = TimeSpan.FromHours(24);
@@ -1456,7 +1461,7 @@ public class EasyNotifController : ControllerBase
     [Produces("application/javascript")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult GetConfigScript() => Asset("Web.config.js", "application/javascript");
+    public IActionResult GetConfigScript() => Asset("Web.config.js", "application/javascript", revalidate: true);
 
     /// <summary>Serves the embedded user settings panel script (injected into the web client).</summary>
     /// <returns>The JavaScript file.</returns>
@@ -1486,7 +1491,7 @@ public class EasyNotifController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public IActionResult GetStrings([FromRoute] string lang)
         => lang is "en" or "fr"
-            ? Asset($"Web.strings.{lang}.json", "application/json")
+            ? Asset($"Web.strings.{lang}.json", "application/json", revalidate: true)
             : NotFound();
 
     // -------------------------------------------------------------------------
@@ -1595,7 +1600,10 @@ public class EasyNotifController : ControllerBase
         }
     }
 
-    private IActionResult Asset(string suffix, string contentType)
+    // The admin page loads config.js and its strings without a version in the URL (config.html is
+    // served as is by Jellyfin): those are revalidated on every load against an ETag of the build,
+    // a 304 when unchanged. The injected user assets carry ?v= and keep the one-hour cache.
+    private IActionResult Asset(string suffix, string contentType, bool revalidate = false)
     {
         var name = PluginAssembly.GetManifestResourceNames()
             .FirstOrDefault(n => n.EndsWith(suffix, StringComparison.OrdinalIgnoreCase));
@@ -1604,8 +1612,15 @@ public class EasyNotifController : ControllerBase
             return NotFound();
         }
 
+        var stream = PluginAssembly.GetManifestResourceStream(name)!;
+        if (revalidate)
+        {
+            Response.Headers.CacheControl = "no-cache";
+            return File(stream, contentType, lastModified: null, entityTag: AssetTag);
+        }
+
         Response.Headers.CacheControl = "public, max-age=3600";
-        return File(PluginAssembly.GetManifestResourceStream(name)!, contentType);
+        return File(stream, contentType);
     }
 }
 

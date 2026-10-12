@@ -1214,7 +1214,24 @@ public sealed class EasyNotifControllerTests
 
         var result = BuildController(campaigns: SeededCampaigns()).PutCampaign("newsletter", body);
 
-        Assert.IsType<BadRequestObjectResult>(result);
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("invalid-interval-days", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(32)]
+    public void PutCampaign_DayOfMonthOutOfRange_Returns400(int dayOfMonth)
+    {
+        var body = new CampaignUpdate
+        {
+            Schedule = new ScheduleUpdate { Kind = "Monthly", Time = "09:00", DayOfMonth = dayOfMonth }
+        };
+
+        var result = BuildController(campaigns: SeededCampaigns()).PutCampaign("newsletter", body);
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("invalid-day-of-month", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
     }
 
     [Fact]

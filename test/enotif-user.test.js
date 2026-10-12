@@ -52,6 +52,7 @@ describe('_t', () => {
 describe('_escHtml', () => {
     it('escapes HTML special characters and handles nullish', () => {
         expect(_escHtml('<b>& "x"</b>')).toBe('&lt;b&gt;&amp; &quot;x&quot;&lt;/b&gt;');
+        expect(_escHtml("a'b")).toBe('a&#39;b');
         expect(_escHtml(null)).toBe('');
     });
 });

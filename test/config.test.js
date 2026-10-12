@@ -19,6 +19,7 @@ describe('_escHtml', () => {
     });
 
     it('returns an empty string for nullish input', () => {
+        expect(_escHtml("a'b")).toBe('a&#39;b');
         expect(_escHtml(null)).toBe('');
         expect(_escHtml(undefined)).toBe('');
     });

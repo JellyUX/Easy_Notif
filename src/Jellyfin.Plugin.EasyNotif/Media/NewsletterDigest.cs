@@ -44,6 +44,36 @@ public sealed record NewsletterDigest(
         => [.. Movies.Select(m => m.Id), .. Series.SelectMany(s => s.EpisodeList.Select(e => e.Id))];
 
     /// <summary>
+    /// Gets the libraries of each movie and new episode, by item id, for the per-user library choice
+    /// (FEAT-02). An item missing here, or with no library, is never excluded. Not carried over by
+    /// <see cref="For"/>.
+    /// </summary>
+    public IReadOnlyDictionary<Guid, IReadOnlyList<Guid>> ItemLibraries { get; init; } = new Dictionary<Guid, IReadOnlyList<Guid>>();
+
+    /// <summary>
+    /// Removes from <paramref name="visible"/> the items whose libraries are all in
+    /// <paramref name="excludedLibraries"/>. An item in at least one kept library stays; an
+    /// excluded id that matches no library is ignored (DEC-74).
+    /// </summary>
+    /// <param name="visible">The visible item ids, from <see cref="IAccessFilter"/>.</param>
+    /// <param name="excludedLibraries">The recipient's excluded libraries; null or empty keeps everything.</param>
+    /// <returns>The ids left.</returns>
+    public IReadOnlySet<Guid> InChosenLibraries(IReadOnlySet<Guid> visible, IReadOnlyCollection<Guid>? excludedLibraries)
+    {
+        ArgumentNullException.ThrowIfNull(visible);
+        if (excludedLibraries is null || excludedLibraries.Count == 0)
+        {
+            return visible;
+        }
+
+        return visible
+            .Where(id => !ItemLibraries.TryGetValue(id, out var libraries)
+                || libraries.Count == 0
+                || libraries.Any(l => !excludedLibraries.Contains(l)))
+            .ToHashSet();
+    }
+
+    /// <summary>
     /// Narrows the digest to the items a recipient may see: forbidden movies are dropped, each series
     /// is recounted from its visible episodes (and dropped when none is left), and only the inline
     /// posters still referenced are kept.

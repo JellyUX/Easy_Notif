@@ -13,6 +13,27 @@
     cursor: pointer;
 }
 
+.enotif-libs {
+    margin: 0 0 0.6em 1.8em;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.enotif-libs-title {
+    padding: 0;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.enotif-libs .checkboxContainer {
+    margin: 0.25em 0;
+}
+
+.enotif-libs input:disabled + span {
+    opacity: 0.7;
+}
+
 .enotif-status {
     min-height: 1.2em;
     margin-top: 0.3em;

@@ -352,4 +352,58 @@ public sealed class PreferenceServiceTests
 
         public void Mutate(Func<List<UserPreference>, bool> mutation) => mutation(Rows);
     }
+
+    // -------------------------------------------------------------------------
+    // Newsletter libraries (FEAT-02)
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void SetExcludedLibraries_StoresThemDistinct_AndRecipientsCarryThem()
+    {
+        var films = Guid.NewGuid();
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetCategories(_alice, Cats(news: true));
+
+        _service.SetExcludedLibraries(_alice, [films, films]);
+
+        Assert.Equal([films], _service.GetOrCreate(_alice).ExcludedLibraries);
+        Assert.Equal([films], Assert.Single(_service.GetRecipients(EmailCategory.News)).ExcludedLibraries);
+    }
+
+    [Fact]
+    public void SetExcludedLibraries_Empty_ClearsThem_AndRecipientsGetNull()
+    {
+        _service.SetContactEmail(_alice, "alice@example.org");
+        _service.SetCategories(_alice, Cats(news: true));
+        _service.SetExcludedLibraries(_alice, [Guid.NewGuid()]);
+
+        _service.SetExcludedLibraries(_alice, []);
+
+        Assert.Null(_service.GetOrCreate(_alice).ExcludedLibraries);
+        Assert.Null(Assert.Single(_service.GetRecipients(EmailCategory.News)).ExcludedLibraries);
+    }
+
+    [Fact]
+    public void SetExcludedLibraries_SameSetInAnotherOrder_DoesNotTouchTheRow()
+    {
+        var (a, b) = (Guid.NewGuid(), Guid.NewGuid());
+        _service.SetExcludedLibraries(_alice, [a, b]);
+        var before = _service.GetOrCreate(_alice).UpdatedAt;
+
+        _service.SetExcludedLibraries(_alice, [b, a]);
+
+        Assert.Equal(before, _service.GetOrCreate(_alice).UpdatedAt);
+    }
+
+    [Fact]
+    public void Clone_CopiesTheExcludedLibraries_Detached()
+    {
+        var original = new UserPreference { UserId = _alice, ExcludedLibraries = [Guid.NewGuid()] };
+
+        var copy = original.Clone();
+        copy.ExcludedLibraries!.Add(Guid.NewGuid());
+
+        Assert.Single(original.ExcludedLibraries);
+        Assert.Equal(2, copy.ExcludedLibraries.Count);
+    }
 }

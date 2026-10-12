@@ -43,6 +43,14 @@ public sealed class UserPreference
     /// </summary>
     public DateTime? ContactEmailRejectedUtc { get; set; }
 
+    /// <summary>
+    /// Gets or sets the libraries the user left out of the newsletter (FEAT-02, DEC-74). Null or
+    /// empty means every library, so a library created later is received by default; an id that no
+    /// longer matches a library is ignored. Stored as exclusions, an additive property a 1.1.1
+    /// ignores.
+    /// </summary>
+    public List<Guid>? ExcludedLibraries { get; set; }
+
     /// <summary>Gets or sets the UTC time this record was last changed.</summary>
     public DateTime UpdatedAt { get; set; }
 
@@ -56,6 +64,7 @@ public sealed class UserPreference
         AnnouncementsOptOut = AnnouncementsOptOut,
         EpisodesOptOut = EpisodesOptOut,
         ContactEmailRejectedUtc = ContactEmailRejectedUtc,
+        ExcludedLibraries = ExcludedLibraries is null ? null : [.. ExcludedLibraries],
         UpdatedAt = UpdatedAt
     };
 }

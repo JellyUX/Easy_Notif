@@ -331,4 +331,52 @@ public sealed class EmailComposerTests
 
         Assert.DoesNotContain("/EasyNotif/u/", prepared.Render(new Recipient(Guid.NewGuid(), "x@example.org"))!.Html!, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Newsletter_RecipientWithoutTheShowsLibrary_GetsNoSeries()
+    {
+        var h = new Harness();
+        var (films, shows) = (Guid.NewGuid(), Guid.NewGuid());
+        var (movie, other, episode, otherEpisode) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var baseDigest = RestrictedDigest(movie, other, episode, otherEpisode);
+        var digest = baseDigest with
+        {
+            ItemLibraries = new Dictionary<Guid, IReadOnlyList<Guid>>
+            {
+                [movie] = [films],
+                [other] = [films],
+                [episode] = [shows],
+                [otherEpisode] = [shows],
+                [baseDigest.Series[1].EpisodeList[0].Id] = [shows]
+            }
+        };
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(digest);
+        var filmsOnly = new Recipient(Guid.NewGuid(), "films@example.org", [shows]);
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+        var content = prepared.Render(filmsOnly)!;
+        var everything = prepared.Render(Anyone)!;
+
+        Assert.Contains("Dune", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Mixed Show", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Severance", content.Html!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Mixed Show", content.Text!, StringComparison.Ordinal);
+        Assert.Contains("Severance", everything.Html!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Newsletter_RecipientExcludingEveryLibraryOfTheDigest_RendersNull()
+    {
+        var h = new Harness();
+        var lib = Guid.NewGuid();
+        var digest = new NewsletterDigest([new DigestMovie(Guid.NewGuid(), "Dune", 2021, null, [], null, null, null)], []);
+        digest = digest with { ItemLibraries = new Dictionary<Guid, IReadOnlyList<Guid>> { [digest.Movies[0].Id] = [lib] } };
+        h.Digest.Setup(d => d.GetNewSinceAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<int>()))
+            .ReturnsAsync(digest);
+
+        var prepared = await h.Composer.PrepareAsync(Newsletter(), Now, CancellationToken.None);
+
+        Assert.Null(prepared.Render(new Recipient(Guid.NewGuid(), "x@example.org", [lib])));
+    }
 }

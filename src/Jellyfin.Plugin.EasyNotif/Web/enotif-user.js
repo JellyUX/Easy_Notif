@@ -38,6 +38,8 @@
             'panel.cat.recap': 'Weekly recap',
             'panel.cat.announcements': 'Announcements',
             'panel.cat.episodes': 'New episodes',
+            'panel.libs.title': 'Libraries in New media',
+            'panel.libs.help': 'Untick the libraries you do not want in New media. To receive nothing, untick New media.',
             'series.title': 'Followed series',
             'series.empty': 'You follow no series. Use the bell on a series page to get its new episodes.',
             'series.remove': 'Remove',
@@ -64,6 +66,8 @@
             'panel.cat.recap': 'Résumé de la semaine',
             'panel.cat.announcements': 'Annonces',
             'panel.cat.episodes': 'Nouveaux épisodes',
+            'panel.libs.title': 'Bibliothèques des nouveautés',
+            'panel.libs.help': 'Décochez les bibliothèques que vous ne voulez pas dans les nouveautés. Pour ne rien recevoir, décochez Nouveautés.',
             'series.title': 'Mes séries suivies',
             'series.empty': "Vous ne suivez aucune série. Utilisez la cloche sur la page d'une série pour recevoir ses nouveaux épisodes.",
             'series.remove': 'Retirer',
@@ -258,6 +262,13 @@
             label.appendChild(text);
             wrap.appendChild(label);
             section.appendChild(wrap);
+
+            if (spec.cat === 'news') {
+                var libs = _buildLibraries(locale, data && data.libraries);
+                if (libs) {
+                    section.appendChild(libs);
+                }
+            }
         });
 
         // Filled once me/series answers; stays empty if it fails.
@@ -279,6 +290,59 @@
         section.appendChild(notice);
 
         return section;
+    }
+
+    // The newsletter libraries (FEAT-02), shown under New media once there is a choice to make.
+    function _buildLibraries(locale, libraries) {
+        if (!libraries || libraries.length < 2) {
+            return null;
+        }
+
+        var wrap = document.createElement('fieldset');
+        wrap.className = 'enotif-libs';
+
+        var legend = document.createElement('legend');
+        legend.className = 'enotif-libs-title';
+        legend.textContent = _t(locale, 'panel.libs.title');
+        wrap.appendChild(legend);
+
+        libraries.forEach(function (lib) {
+            var row = document.createElement('div');
+            row.className = 'checkboxContainer';
+
+            var label = document.createElement('label');
+
+            var box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'enotif-lib';
+            box.setAttribute('data-id', String(lib.id));
+            box.checked = lib.selected !== false;
+
+            var text = document.createElement('span');
+            text.textContent = String(lib.name == null ? '' : lib.name);
+
+            label.appendChild(box);
+            label.appendChild(text);
+            row.appendChild(label);
+            wrap.appendChild(row);
+        });
+
+        var help = document.createElement('div');
+        help.className = 'fieldDescription';
+        help.textContent = _t(locale, 'panel.libs.help');
+        wrap.appendChild(help);
+
+        _lockLastLibrary(wrap);
+        return wrap;
+    }
+
+    // The last ticked library cannot be unticked (DEC-76): New media is the way to receive nothing.
+    function _lockLastLibrary(container) {
+        var boxes = container.querySelectorAll('.enotif-lib');
+        var checked = Array.prototype.filter.call(boxes, function (b) { return b.checked; });
+        Array.prototype.forEach.call(boxes, function (b) {
+            b.disabled = checked.length === 1 && b.checked;
+        });
     }
 
     // The followed series list (DEC-46): name and a Remove button per series, or an empty hint.
@@ -331,6 +395,8 @@
         _validEmail: _validEmail,
         _buildPanel: _buildPanel,
         _buildSeriesList: _buildSeriesList,
+        _buildLibraries: _buildLibraries,
+        _lockLastLibrary: _lockLastLibrary,
         _detailsItemId: _detailsItemId,
         _bellEnabled: _bellEnabled,
         _bellView: _bellView,
@@ -427,6 +493,7 @@
                 // New episodes are opt-out too (DEC-40).
                 episodes: results[0].episodes !== false,
                 emailRejected: results[0].emailRejected === true,
+                libraries: Array.isArray(results[0].libraries) ? results[0].libraries : [],
                 email: results[1].email || null
             };
             state.loadPromise = null;
@@ -510,6 +577,34 @@
                 });
             });
         });
+
+        var libs = panel.querySelector('.enotif-libs');
+        if (libs) {
+            var libBoxes = libs.querySelectorAll('.enotif-lib');
+            var _syncLibraries = function () {
+                _lockLastLibrary(libs);
+                if (state.data && state.data.libraries) {
+                    state.data.libraries.forEach(function (lib) {
+                        var match = libs.querySelector('.enotif-lib[data-id="' + String(lib.id) + '"]');
+                        if (match) {
+                            lib.selected = match.checked;
+                        }
+                    });
+                }
+            };
+            Array.prototype.forEach.call(libBoxes, function (box) {
+                box.addEventListener('change', function () {
+                    var kept = Array.prototype.filter.call(libBoxes, function (b) { return b.checked; })
+                        .map(function (b) { return b.getAttribute('data-id'); });
+                    _syncLibraries();
+                    _putJson('me/preferences', { Libraries: kept }).catch(function (err) {
+                        console.warn('[EasyNotif] could not save the libraries:', err);
+                        box.checked = !box.checked;
+                        _syncLibraries();
+                    });
+                });
+            });
+        }
     }
 
     // A removed row is hidden at once and comes back if the call fails.

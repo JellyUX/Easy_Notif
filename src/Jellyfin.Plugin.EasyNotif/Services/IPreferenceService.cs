@@ -5,7 +5,9 @@ namespace Jellyfin.Plugin.EasyNotif.Services;
 /// <summary>A user who should receive a given category of email.</summary>
 /// <param name="UserId">The Jellyfin user id.</param>
 /// <param name="Email">The validated contact address.</param>
-public readonly record struct Recipient(Guid UserId, string Email);
+/// <param name="ExcludedLibraries">The libraries left out of the newsletter (FEAT-02), set by
+/// <see cref="IPreferenceService.GetRecipients"/>; null means every library.</param>
+public readonly record struct Recipient(Guid UserId, string Email, IReadOnlyList<Guid>? ExcludedLibraries = null);
 
 /// <summary>
 /// One row of the admin preferences table: a Jellyfin user, whether or not they have set any
@@ -72,6 +74,14 @@ public interface IPreferenceService
     /// <param name="announcementsOptOut">The new announcements opt-out, or null to leave it unchanged.</param>
     /// <param name="episodesOptOut">The new new-episodes opt-out, or null to leave it unchanged.</param>
     void SetCategories(Guid userId, IReadOnlyDictionary<EmailCategory, bool> categories, bool? announcementsOptOut = null, bool? episodesOptOut = null);
+
+    /// <summary>
+    /// Replaces the libraries a user left out of the newsletter (FEAT-02, DEC-74). An empty list
+    /// clears the exclusions (every library).
+    /// </summary>
+    /// <param name="userId">The Jellyfin user id.</param>
+    /// <param name="excludedLibraries">The excluded library ids.</param>
+    void SetExcludedLibraries(Guid userId, IReadOnlyCollection<Guid> excludedLibraries);
 
     /// <summary>
     /// Returns every user who has opted in to a category and has a valid contact address.

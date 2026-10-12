@@ -80,6 +80,7 @@ public sealed class DowngradeCompatibilityTests : IDisposable
                     ContactEmail = "a@b.co",
                     Categories = { [EmailCategory.News] = true, [EmailCategory.Recap] = false },
                     AnnouncementsOptOut = true,
+                    ExcludedLibraries = [Guid.NewGuid()],
                     UpdatedAt = updated
                 });
                 return true;

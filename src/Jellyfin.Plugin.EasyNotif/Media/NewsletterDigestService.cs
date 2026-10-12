@@ -39,6 +39,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     private readonly IAddedItemsStore _addedItems;
     private readonly IPosterCache _posterCache;
     private readonly IAnnouncedStore _announced;
+    private readonly ILibraryCatalog _libraries;
     private readonly Logging.IEasyNotifLog _log;
 
     /// <summary>Initializes a new instance of the <see cref="NewsletterDigestService"/> class.</summary>
@@ -48,6 +49,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
     /// <param name="addedItems">The server-time added-items store.</param>
     /// <param name="posterCache">The inline poster cache (used only when no public URL is set).</param>
     /// <param name="announced">The registry of keys already announced.</param>
+    /// <param name="libraries">The library lookup behind the per-user library choice.</param>
     /// <param name="log">The plugin's dedicated log.</param>
     public NewsletterDigestService(
         ILibraryManager libraryManager,
@@ -56,6 +58,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
         IAddedItemsStore addedItems,
         IPosterCache posterCache,
         IAnnouncedStore announced,
+        ILibraryCatalog libraries,
         Logging.IEasyNotifLog log)
     {
         _libraryManager = libraryManager;
@@ -64,6 +67,7 @@ public sealed class NewsletterDigestService : INewsletterDigestService
         _addedItems = addedItems;
         _posterCache = posterCache;
         _announced = announced;
+        _libraries = libraries;
         _log = log;
     }
 
@@ -184,7 +188,15 @@ public sealed class NewsletterDigestService : INewsletterDigestService
             .Select(x => x.Series)
             .ToList();
 
-        return new NewsletterDigest(movies, series, [.. inlinePosters.Values]) { Keys = [.. kept.Select(kv => kv.Key)] };
+        var itemLibraries = movieItems
+            .Concat<BaseItem>(groups.SelectMany(g => g))
+            .ToDictionary(i => i.Id, _libraries.LibrariesOf);
+
+        return new NewsletterDigest(movies, series, [.. inlinePosters.Values])
+        {
+            Keys = [.. kept.Select(kv => kv.Key)],
+            ItemLibraries = itemLibraries
+        };
     }
 
     /// <inheritdoc/>

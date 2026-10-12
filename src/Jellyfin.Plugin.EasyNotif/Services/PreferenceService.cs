@@ -150,6 +150,25 @@ public sealed class PreferenceService : IPreferenceService
     }
 
     /// <inheritdoc/>
+    public void SetExcludedLibraries(Guid userId, IReadOnlyCollection<Guid> excludedLibraries)
+    {
+        ArgumentNullException.ThrowIfNull(excludedLibraries);
+        var next = excludedLibraries.Distinct().Order().ToList();
+        _store.Mutate(users =>
+        {
+            var row = Upsert(users, userId);
+            if (next.SequenceEqual((row.ExcludedLibraries ?? []).Order()))
+            {
+                return false;
+            }
+
+            row.ExcludedLibraries = next.Count == 0 ? null : next;
+            row.UpdatedAt = DateTime.UtcNow;
+            return true;
+        });
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyList<Recipient> GetRecipients(EmailCategory category)
     {
         var live = LiveUserIds();
@@ -158,7 +177,7 @@ public sealed class PreferenceService : IPreferenceService
                 && p.Categories.GetValueOrDefault(category)
                 && p.ContactEmailRejectedUtc is null
                 && MailAddress.TryCreate(p.ContactEmail, out _))
-            .Select(p => new Recipient(p.UserId, p.ContactEmail!))
+            .Select(p => new Recipient(p.UserId, p.ContactEmail!, p.ExcludedLibraries is { Count: > 0 } excluded ? excluded : null))
             .ToList();
     }
 

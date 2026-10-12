@@ -3,6 +3,7 @@ import enotifUser from '../src/Jellyfin.Plugin.EasyNotif/Web/enotif-user.js';
 
 const {
     _isPrefsMenu, _pickLocale, _t, _escHtml, _validEmail, _buildPanel, _buildSeriesList,
+    _buildLibraries, _lockLastLibrary,
     _detailsItemId, _bellEnabled, _bellView, _buildBell, DICT, PLUGIN_ID
 } = enotifUser;
 
@@ -137,6 +138,57 @@ describe('_buildPanel', () => {
 
         expect(panel.querySelector('.enotif-user-email').value).toBe('<img src=x onerror=alert(1)>');
         expect(panel.innerHTML).not.toContain('<img');
+    });
+});
+
+describe('_buildLibraries', () => {
+    const libs = [
+        { id: 'aaa', name: 'Films', selected: true },
+        { id: 'bbb', name: 'Séries', selected: false }
+    ];
+
+    it('is omitted while there is no choice to make', () => {
+        expect(_buildLibraries('en', null)).toBeNull();
+        expect(_buildLibraries('en', [{ id: 'aaa', name: 'Films', selected: true }])).toBeNull();
+    });
+
+    it('renders one checkbox per library with its selection, FR and EN', () => {
+        const fr = _buildLibraries('fr', libs);
+        const boxes = fr.querySelectorAll('.enotif-lib');
+
+        expect(boxes.length).toBe(2);
+        expect(boxes[0].getAttribute('data-id')).toBe('aaa');
+        expect(boxes[0].checked).toBe(true);
+        expect(boxes[1].checked).toBe(false);
+        expect(fr.textContent).toContain('Bibliothèques des nouveautés');
+        expect(fr.textContent).toContain('Séries');
+        expect(_buildLibraries('en', libs).textContent).toContain('Libraries in New media');
+    });
+
+    it('locks the last ticked library (DEC-76)', () => {
+        const wrap = _buildLibraries('en', libs);
+        const boxes = wrap.querySelectorAll('.enotif-lib');
+
+        expect(boxes[0].disabled).toBe(true);
+        expect(boxes[1].disabled).toBe(false);
+
+        boxes[1].checked = true;
+        _lockLastLibrary(wrap);
+        expect(boxes[0].disabled).toBe(false);
+        expect(boxes[1].disabled).toBe(false);
+    });
+
+    it('treats a library name as text, never markup', () => {
+        const wrap = _buildLibraries('en', [{ id: 'x', name: '<img src=x onerror=alert(1)>' }, { id: 'y', name: 'B' }]);
+
+        expect(wrap.querySelector('img')).toBeNull();
+    });
+
+    it('sits right under New media in the panel', () => {
+        const panel = _buildPanel('en', { news: true, libraries: libs });
+        const news = panel.querySelector('.enotif-cat[data-cat="news"]').closest('.checkboxContainer');
+
+        expect(news.nextElementSibling.classList.contains('enotif-libs')).toBe(true);
     });
 });
 

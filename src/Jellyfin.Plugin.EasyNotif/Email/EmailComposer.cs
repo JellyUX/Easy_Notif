@@ -115,10 +115,13 @@ public sealed class EmailComposer : IEmailComposer
                 Render = recipient =>
                 {
                     // The admin preview (no account) sees the whole digest; an empty digest has
-                    // nothing to leak. Anyone else gets only what Jellyfin lets them see.
+                    // nothing to leak. Anyone else gets only what Jellyfin lets them see, from the
+                    // libraries they kept (FEAT-02).
                     var scoped = recipient.UserId == Guid.Empty || digest.IsEmpty
                         ? digest
-                        : digest.For(_access.VisibleTo(recipient.UserId, digest.ItemIds));
+                        : digest.For(digest.InChosenLibraries(
+                            _access.VisibleTo(recipient.UserId, digest.ItemIds),
+                            recipient.ExcludedLibraries));
                     return scoped.IsEmpty && !digest.IsEmpty
                         ? null
                         : _newsletter.Compose(campaign, scoped.Capped(maxMovies, maxSeries), _links.ServerName, templateId, UnsubscribeUrl(recipient), libraryUrl);

@@ -5,6 +5,7 @@ using Jellyfin.Plugin.EasyNotif.Configuration;
 using Jellyfin.Plugin.EasyNotif.Email;
 using Jellyfin.Plugin.EasyNotif.Inject;
 using Jellyfin.Plugin.EasyNotif.Logging;
+using Jellyfin.Plugin.EasyNotif.Media;
 using Jellyfin.Plugin.EasyNotif.Models;
 using Jellyfin.Plugin.EasyNotif.Scheduling;
 using Jellyfin.Plugin.EasyNotif.Services;
@@ -49,6 +50,7 @@ public class EasyNotifController : ControllerBase
 
     private readonly IPreferenceService _preferences;
     private readonly IFollowedSeriesService _followedSeries;
+    private readonly ILibraryCatalog _libraries;
     private readonly IConfigAccessor _config;
     private readonly ISecretStore _secrets;
     private readonly IAuthorizationContext _authContext;
@@ -73,6 +75,7 @@ public class EasyNotifController : ControllerBase
     /// </summary>
     /// <param name="preferences">The preference service.</param>
     /// <param name="followedSeries">The followed-series service.</param>
+    /// <param name="libraries">The libraries behind the newsletter library choice.</param>
     /// <param name="config">The plugin configuration accessor.</param>
     /// <param name="secrets">The transport secret store.</param>
     /// <param name="authContext">Jellyfin request authorization context.</param>
@@ -94,6 +97,7 @@ public class EasyNotifController : ControllerBase
     public EasyNotifController(
         IPreferenceService preferences,
         IFollowedSeriesService followedSeries,
+        ILibraryCatalog libraries,
         IConfigAccessor config,
         ISecretStore secrets,
         IAuthorizationContext authContext,
@@ -115,6 +119,7 @@ public class EasyNotifController : ControllerBase
     {
         _preferences = preferences;
         _followedSeries = followedSeries;
+        _libraries = libraries;
         _config = config;
         _secrets = secrets;
         _authContext = authContext;
@@ -151,29 +156,55 @@ public class EasyNotifController : ControllerBase
         return Wrap(() =>
         {
             var pref = _preferences.GetOrCreate(userId);
+            var excluded = pref.ExcludedLibraries ?? [];
             return Ok(new
             {
                 news = pref.Categories.GetValueOrDefault(EmailCategory.News),
                 recap = pref.Categories.GetValueOrDefault(EmailCategory.Recap),
                 announcements = !pref.AnnouncementsOptOut,
                 episodes = !pref.EpisodesOptOut,
-                emailRejected = pref.ContactEmailRejectedUtc is not null
+                emailRejected = pref.ContactEmailRejectedUtc is not null,
+                libraries = _libraries.NewsletterLibrariesFor(userId)
+                    .Select(l => new { id = l.Id, name = l.Name, selected = !excluded.Contains(l.Id) })
+                    .ToList()
             });
         });
     }
 
-    /// <summary>Sets the caller's category opt-in state. Omitted categories are left unchanged.</summary>
+    /// <summary>
+    /// Sets the caller's category opt-in state and newsletter libraries. Omitted fields are left
+    /// unchanged.
+    /// </summary>
     /// <param name="body">The categories to change.</param>
-    /// <returns>204 on success; 503 when storage is unavailable.</returns>
+    /// <returns>204 on success; 400 <c>no-library</c> when <c>libraries</c> keeps none of the caller's
+    /// libraries (DEC-76); 503 when storage is unavailable.</returns>
     [HttpPut("me/preferences")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult> PutMyPreferences([FromBody] CategoryUpdate body)
     {
         var userId = await CurrentUserIdAsync().ConfigureAwait(false);
         return Wrap(() =>
         {
+            if (body?.Libraries is { } selected)
+            {
+                // Stored as exclusions so a library created later is received (DEC-74); the
+                // libraries the caller cannot see are dropped from the stored list. An empty list
+                // (unknown user, lookup error) leaves the stored choice untouched.
+                var visible = _libraries.NewsletterLibrariesFor(userId).Select(l => l.Id).ToList();
+                if (visible.Count > 0 && !visible.Any(selected.Contains))
+                {
+                    return BadRequest(new { error = "no-library" });
+                }
+
+                if (visible.Count > 0)
+                {
+                    _preferences.SetExcludedLibraries(userId, visible.Where(id => !selected.Contains(id)).ToList());
+                }
+            }
+
             _preferences.SetCategories(
                 userId,
                 BuildCategoryMap(body),
@@ -1595,6 +1626,12 @@ public class CategoryUpdate
     /// Honoured on <c>PUT me/preferences</c> only.
     /// </summary>
     public bool? Episodes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the newsletter libraries the caller keeps (FEAT-02), as library ids; null leaves
+    /// the choice unchanged. Honoured on <c>PUT me/preferences</c> only.
+    /// </summary>
+    public IReadOnlyList<Guid>? Libraries { get; set; }
 }
 
 /// <summary>Admin change to another user's preferences.</summary>

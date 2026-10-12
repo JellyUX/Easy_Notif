@@ -1587,7 +1587,8 @@ public sealed class EasyNotifControllerTests
         Mock<IFollowedSeriesService>? followedSeries = null,
         IDrainStatus? drains = null,
         IIncidentStore? incidents = null,
-        IScheduledAnnouncementStore? announcements = null)
+        IScheduledAnnouncementStore? announcements = null,
+        Mock<ILibraryCatalog>? libraries = null)
     {
         var effectiveConfig = config ?? new FakeConfig();
         var cfgValues = effectiveConfig.Get();
@@ -1610,6 +1611,7 @@ public sealed class EasyNotifControllerTests
         var controller = new EasyNotifController(
             (service ?? new Mock<IPreferenceService>()).Object,
             (followedSeries ?? new Mock<IFollowedSeriesService>()).Object,
+            libraries?.Object ?? Mock.Of<ILibraryCatalog>(c => c.NewsletterLibrariesFor(It.IsAny<Guid>()) == new List<LibraryInfo>()),
             effectiveConfig,
             effectiveSecrets,
             (auth ?? AuthReturning(DefaultUserId)).Object,
@@ -1668,5 +1670,94 @@ public sealed class EasyNotifControllerTests
         public PluginConfiguration Get() => Config;
 
         public void Save() => SaveCount++;
+    }
+
+    // -------------------------------------------------------------------------
+    // Newsletter libraries (FEAT-02)
+    // -------------------------------------------------------------------------
+
+    private static Mock<ILibraryCatalog> Catalog(Guid userId, params LibraryInfo[] libraries)
+    {
+        var mock = new Mock<ILibraryCatalog>();
+        mock.Setup(c => c.NewsletterLibrariesFor(userId)).Returns(libraries);
+        return mock;
+    }
+
+    [Fact]
+    public async Task GetMyPreferences_ListsTheCallersLibraries_WithTheirSelection()
+    {
+        var userId = Guid.NewGuid();
+        var (films, shows) = (new LibraryInfo(Guid.NewGuid(), "Films"), new LibraryInfo(Guid.NewGuid(), "Séries"));
+        var service = new Mock<IPreferenceService>();
+        service.Setup(s => s.GetOrCreate(userId)).Returns(new UserPreference { UserId = userId, ExcludedLibraries = [shows.Id] });
+        var controller = BuildController(service, auth: AuthReturning(userId), libraries: Catalog(userId, films, shows));
+
+        var ok = Assert.IsType<OkObjectResult>(await controller.GetMyPreferences());
+
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(ok.Value));
+        var libs = json.RootElement.GetProperty("libraries").EnumerateArray().ToList();
+        Assert.Equal(2, libs.Count);
+        Assert.Equal(films.Id, libs[0].GetProperty("id").GetGuid());
+        Assert.Equal("Films", libs[0].GetProperty("name").GetString());
+        Assert.True(libs[0].GetProperty("selected").GetBoolean());
+        Assert.False(libs[1].GetProperty("selected").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PutMyPreferences_Libraries_StoresTheUntickedOnesAsExclusions()
+    {
+        var userId = Guid.NewGuid();
+        var (films, shows, kids) = (new LibraryInfo(Guid.NewGuid(), "Films"), new LibraryInfo(Guid.NewGuid(), "Séries"), new LibraryInfo(Guid.NewGuid(), "Kids"));
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service, auth: AuthReturning(userId), libraries: Catalog(userId, films, shows, kids));
+
+        // A library the caller cannot see is ignored, not stored.
+        var result = await controller.PutMyPreferences(new CategoryUpdate { Libraries = [films.Id, Guid.NewGuid()] });
+
+        Assert.IsType<NoContentResult>(result);
+        service.Verify(s => s.SetExcludedLibraries(userId, It.Is<IReadOnlyCollection<Guid>>(e => e.Count == 2 && e.Contains(shows.Id) && e.Contains(kids.Id))), Times.Once);
+    }
+
+    [Fact]
+    public async Task PutMyPreferences_NoLibraryKept_Is400_AndWritesNothing()
+    {
+        var userId = Guid.NewGuid();
+        var films = new LibraryInfo(Guid.NewGuid(), "Films");
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service, auth: AuthReturning(userId), libraries: Catalog(userId, films, new LibraryInfo(Guid.NewGuid(), "Séries")));
+
+        var result = await controller.PutMyPreferences(new CategoryUpdate { Libraries = [], News = true });
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("no-library", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+        service.Verify(s => s.SetExcludedLibraries(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()), Times.Never);
+        service.Verify(s => s.SetCategories(It.IsAny<Guid>(), It.IsAny<IReadOnlyDictionary<EmailCategory, bool>>(), It.IsAny<bool?>(), It.IsAny<bool?>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PutMyPreferences_LibrariesUnknown_LeavesTheStoredChoiceUntouched()
+    {
+        var userId = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        var controller = BuildController(service, auth: AuthReturning(userId), libraries: Catalog(userId));
+
+        var result = await controller.PutMyPreferences(new CategoryUpdate { Libraries = [Guid.NewGuid()] });
+
+        Assert.IsType<NoContentResult>(result);
+        service.Verify(s => s.SetExcludedLibraries(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task PutMyPreferences_WithoutLibraries_DoesNotTouchThem()
+    {
+        var userId = Guid.NewGuid();
+        var service = new Mock<IPreferenceService>();
+        var libraries = Catalog(userId, new LibraryInfo(Guid.NewGuid(), "Films"));
+        var controller = BuildController(service, auth: AuthReturning(userId), libraries: libraries);
+
+        await controller.PutMyPreferences(new CategoryUpdate { News = true });
+
+        service.Verify(s => s.SetExcludedLibraries(It.IsAny<Guid>(), It.IsAny<IReadOnlyCollection<Guid>>()), Times.Never);
+        libraries.Verify(c => c.NewsletterLibrariesFor(It.IsAny<Guid>()), Times.Never);
     }
 }

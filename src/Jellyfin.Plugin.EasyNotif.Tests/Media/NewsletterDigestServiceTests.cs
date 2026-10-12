@@ -41,6 +41,9 @@ public sealed class NewsletterDigestServiceTests
 
         public FakeAnnouncedStore Announced { get; } = new();
 
+        /// <summary>The library lookup; every item has no library unless a test maps it.</summary>
+        public Mock<ILibraryCatalog> Libraries { get; } = new();
+
         /// <summary>Every real item of the library, answering the "same key under another id" queries.</summary>
         public List<BaseItem> Existing { get; } = [];
 
@@ -78,8 +81,9 @@ public sealed class NewsletterDigestServiceTests
             PosterCache
                 .Setup(p => p.GetInlineAsync(It.IsAny<BaseItem>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((EmailAttachment?)null);
+            Libraries.Setup(l => l.LibrariesOf(It.IsAny<BaseItem>())).Returns([]);
             Service = new NewsletterDigestService(
-                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, PosterCache.Object, Announced, new FakeEasyNotifLog());
+                Library.Object, Config, new ServerLinkContext("srv-1", "Home"), AddedItems, PosterCache.Object, Announced, Libraries.Object, new FakeEasyNotifLog());
         }
 
         public List<BaseItem> SeriesItems => ById;
@@ -444,5 +448,26 @@ public sealed class NewsletterDigestServiceTests
         h.Existing.Add(copy);
 
         Assert.True(h.Digest(W0).IsEmpty);
+    }
+
+    [Fact]
+    public void RecordsTheLibrariesOfEveryMovieAndEpisode()
+    {
+        var h = new Harness();
+        var films = Guid.NewGuid();
+        var shows = Guid.NewGuid();
+        var movie = Movie("Arrival");
+        var episode = Episode(SeriesAId, "Series A", 1, DateTime.UtcNow);
+        h.MainItems.Add(movie);
+        h.MainItems.Add(episode);
+        h.SeriesItems.Add(new Series { Id = SeriesAId, Name = "Series A" });
+        h.Libraries.Setup(l => l.LibrariesOf(movie)).Returns([films]);
+        h.Libraries.Setup(l => l.LibrariesOf(episode)).Returns([shows]);
+
+        var digest = h.Digest(DateTime.UtcNow.AddDays(-1));
+
+        Assert.Equal([films], digest.ItemLibraries[movie.Id]);
+        Assert.Equal([shows], digest.ItemLibraries[episode.Id]);
+        Assert.Equal(2, digest.ItemLibraries.Count);
     }
 }

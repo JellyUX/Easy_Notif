@@ -110,4 +110,70 @@ public sealed class NewsletterDigestTests
         Assert.Same(digest, digest.Capped(30, 30));
         Assert.Equal(0, digest.MoreMovies);
     }
+
+    // -------------------------------------------------------------------------
+    // Per-user libraries (FEAT-02)
+    // -------------------------------------------------------------------------
+
+    private static readonly Guid FilmsLib = Guid.NewGuid();
+    private static readonly Guid ShowsLib = Guid.NewGuid();
+    private static readonly Guid KidsLib = Guid.NewGuid();
+
+    private static NewsletterDigest WithLibraries() => Full() with
+    {
+        ItemLibraries = new Dictionary<Guid, IReadOnlyList<Guid>>
+        {
+            [Dune] = [FilmsLib],
+            [Forbidden] = [FilmsLib, KidsLib],
+            [S1E1] = [ShowsLib],
+            [S2E1] = [ShowsLib],
+            [S2E2] = []
+        }
+    };
+
+    private static readonly HashSet<Guid> Everything = [Dune, Forbidden, S1E1, S2E1, S2E2, AdultEpisode];
+
+    [Fact]
+    public void NoExclusion_KeepsEverything()
+    {
+        Assert.Same(Everything, WithLibraries().InChosenLibraries(Everything, null));
+        Assert.Same(Everything, WithLibraries().InChosenLibraries(Everything, []));
+    }
+
+    [Fact]
+    public void ExcludedShowsLibrary_DropsItsEpisodes_ButKeepsUnknownOnes()
+    {
+        var kept = WithLibraries().InChosenLibraries(Everything, [ShowsLib]);
+
+        // S2E2 has no library and AdultEpisode is not mapped: neither can be excluded.
+        Assert.Equal(new HashSet<Guid> { Dune, Forbidden, S2E2, AdultEpisode }, kept);
+    }
+
+    [Fact]
+    public void ItemInAKeptLibrary_Stays_EvenWhenAnotherOfItsLibrariesIsExcluded()
+    {
+        var kept = WithLibraries().InChosenLibraries(Everything, [FilmsLib]);
+
+        Assert.DoesNotContain(Dune, kept);
+        Assert.Contains(Forbidden, kept);
+    }
+
+    [Fact]
+    public void ExcludedIdMatchingNoLibrary_IsIgnored()
+    {
+        var kept = WithLibraries().InChosenLibraries(Everything, [Guid.NewGuid()]);
+
+        Assert.Equal(Everything, kept);
+    }
+
+    [Fact]
+    public void ExcludedFilmsLibrary_ThroughFor_LeavesOnlySeries()
+    {
+        var digest = WithLibraries();
+
+        var scoped = digest.For(digest.InChosenLibraries(Everything, [FilmsLib, KidsLib]));
+
+        Assert.Empty(scoped.Movies);
+        Assert.Equal(["Mixed", "Severance"], scoped.Series.Select(s => s.Title));
+    }
 }

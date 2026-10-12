@@ -165,7 +165,9 @@ describe('_buildStatus', () => {
         });
 
         expect(el.querySelector('.enotif-warn')).toBeNull();
-        expect(el.textContent).toContain('configured');
+        expect(el.querySelector('.enotif-kv .enotif-pill-ok').textContent).toBe(dict['status.transport.on']);
+        expect(el.textContent).toContain('3 / 3000');
+        expect(el.textContent).toContain('1 / 100');
     });
 
     it('renders the campaigns table and flags a missing FileTransformation', () => {
@@ -202,8 +204,8 @@ describe('_buildStatus', () => {
             recent: []
         });
 
-        expect(el.querySelector('.enotif-warn').textContent).toContain('2026-06-16 00:00');
-        expect(el.textContent).toContain('12 today (no daily limit)');
+        expect(el.querySelector('p.enotif-warn').textContent).toContain('2026-06-16 00:00');
+        expect(el.textContent).toContain('12 (no daily limit)');
     });
 
     it('shows the campaign reserve and where the series emails stop', () => {
@@ -290,7 +292,51 @@ describe('_buildStatus', () => {
     it('says no webhook when lastWebhookUtc is null', () => {
         const el = _buildStatus(dict, { configured: true, quota: {}, lastWebhookUtc: null, recent: [] });
 
-        expect(el.textContent).toContain(dict['status.lastWebhookNone']);
+        expect(el.textContent).toContain(dict['status.kv.webhookNone']);
+    });
+
+    it('splits the tab into titled sections, recent sends included', () => {
+        const el = _buildStatus(dict, {
+            configured: false,
+            fileTransformation: true,
+            quota: {},
+            lastWebhookUtc: null,
+            alertEmailSet: true,
+            campaigns: [{ id: 'newsletter', enabled: false }],
+            drains: { newItems: { lastFlushUtc: null, lostBatches: 0, lostItems: 0, dropped: 0, depth: 3 } },
+            recent: [{ ts: '2026-09-04T10:00:00Z', context: 'test', toMasked: 'a***e@example.com', status: 'sent' }]
+        });
+
+        expect(Array.from(el.querySelectorAll('section > h3')).map((h) => h.textContent)).toEqual([
+            dict['status.section.transport'], dict['status.campaigns'], dict['status.drains'],
+            dict['status.section.alerts'], dict['status.section.recent']
+        ]);
+        expect(el.querySelector('.enotif-kv .enotif-pill-err').textContent).toBe(dict['status.transport.off']);
+        expect(el.textContent).toContain(dict['status.noIncidents']);
+        expect(el.querySelectorAll('.enotif-table-scroll > table.enotif-status-table').length).toBe(3);
+    });
+
+    it('marks states with pills and right-aligns the counters', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            quota: {},
+            lastWebhookUtc: null,
+            campaigns: [{ id: 'newsletter', enabled: true }, { id: 'weekly-recap', enabled: false }],
+            drains: { playback: { lastFlushUtc: null, lostBatches: 0, lostItems: 0, dropped: 1, depth: 2 } },
+            recent: [
+                { ts: '2026-09-04', context: 'newsletter', toMasked: 'x', status: 'sent' },
+                { ts: '2026-09-04', context: 'test', toMasked: 'y', status: 'failed' },
+                { ts: '2026-09-04', context: 'test', toMasked: 'z', status: 'deduplicated' }
+            ]
+        });
+
+        const campaignPills = Array.from(el.querySelectorAll('section:nth-of-type(2) .enotif-pill')).map((p) => p.className);
+        expect(campaignPills).toEqual(['enotif-pill enotif-pill-ok', 'enotif-pill enotif-pill-off']);
+        const drainRow = el.querySelector('section:nth-of-type(3) tbody tr');
+        expect(drainRow.className).toBe('enotif-warn');
+        expect(Array.from(drainRow.querySelectorAll('td.enotif-num')).map((td) => td.textContent)).toEqual(['1', '2']);
+        const sendPills = Array.from(el.querySelectorAll('section:last-of-type .enotif-pill')).map((p) => p.className.split(' ')[1]);
+        expect(sendPills).toEqual(['enotif-pill-ok', 'enotif-pill-err', 'enotif-pill-off']);
     });
 
     it('renders a recent entry as text, never markup', () => {

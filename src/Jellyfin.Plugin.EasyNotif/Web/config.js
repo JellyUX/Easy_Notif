@@ -77,217 +77,241 @@
         return _t(dict, 'status.banner').replace('{n}', count);
     }
 
-    // Detached DOM built from the /admin/status payload. Every cell is set via textContent, so a
-    // hostile stored value (a masked address, a webhook type) is data, never markup.
+    // Send-log status -> pill tone. Unknown values keep a neutral pill.
+    var STATUS_TONES = {
+        'sent': 'ok', 'email.delivered': 'ok', 'email.opened': 'ok', 'email.clicked': 'ok',
+        'email.delivery_delayed': 'warn',
+        'failed': 'err', 'email.failed': 'err', 'email.bounced': 'err', 'email.complained': 'err', 'email.suppressed': 'err'
+    };
+
+    function _pill(text, tone) {
+        var pill = document.createElement('span');
+        pill.className = 'enotif-pill enotif-pill-' + tone;
+        pill.textContent = text;
+        return pill;
+    }
+
+    // A titled block of the Status tab: <section><h3/><p help/>...</section>.
+    function _statusSection(dict, titleKey, help) {
+        var section = document.createElement('section');
+        section.className = 'enotif-status-section';
+        var title = document.createElement('h3');
+        title.className = 'sectionTitle';
+        title.textContent = _t(dict, titleKey);
+        section.appendChild(title);
+        if (help) {
+            var p = document.createElement('p');
+            p.className = 'fieldDescription enotif-status-help';
+            p.textContent = help;
+            section.appendChild(p);
+        }
+        return section;
+    }
+
+    // A framed table in its own horizontal scroller. A cell is a string, or { text, pill, warn };
+    // every value lands through textContent. numeric lists the right-aligned column indexes.
+    function _statusTable(dict, headKeys, rows, numeric) {
+        numeric = numeric || [];
+        var scroll = document.createElement('div');
+        scroll.className = 'enotif-table-scroll enotif-status-frame';
+        var table = document.createElement('table');
+        table.className = 'enotif-status-table';
+
+        var head = document.createElement('tr');
+        headKeys.forEach(function (key, i) {
+            var th = document.createElement('th');
+            th.textContent = _t(dict, key);
+            if (numeric.indexOf(i) >= 0) {
+                th.className = 'enotif-num';
+            }
+            head.appendChild(th);
+        });
+        var thead = document.createElement('thead');
+        thead.appendChild(head);
+        table.appendChild(thead);
+
+        var tbody = document.createElement('tbody');
+        rows.forEach(function (row) {
+            var tr = document.createElement('tr');
+            if (row.warn) {
+                tr.className = 'enotif-warn';
+            }
+            row.cells.forEach(function (cell, i) {
+                var td = document.createElement('td');
+                var c = (cell !== null && typeof cell === 'object') ? cell : { text: cell };
+                if (c.pill) {
+                    td.appendChild(_pill(c.text, c.pill));
+                } else {
+                    td.textContent = c.text;
+                }
+                var classes = [];
+                if (numeric.indexOf(i) >= 0) {
+                    classes.push('enotif-num');
+                }
+                if (c.warn) {
+                    classes.push('enotif-warn');
+                }
+                td.className = classes.join(' ');
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scroll.appendChild(table);
+        return scroll;
+    }
+
+    // Label / value list of the Transport section. A value is a string or a DOM node.
+    function _statusKv(pairs) {
+        var dl = document.createElement('dl');
+        dl.className = 'enotif-kv';
+        pairs.forEach(function (pair) {
+            var dt = document.createElement('dt');
+            dt.textContent = pair[0];
+            var dd = document.createElement('dd');
+            if (typeof pair[1] === 'string') {
+                dd.textContent = pair[1];
+            } else {
+                dd.appendChild(pair[1]);
+            }
+            if (pair[2]) {
+                dd.className = 'enotif-warn';
+            }
+            dl.appendChild(dt);
+            dl.appendChild(dd);
+        });
+        return dl;
+    }
+
+    function _statusNote(text) {
+        var p = document.createElement('p');
+        p.className = 'enotif-warn';
+        p.textContent = text;
+        return p;
+    }
+
+    // Detached DOM built from the /admin/status payload: five titled sections (DEC-89). Every
+    // value is set via textContent, so a hostile stored value (a masked address, a webhook type)
+    // is data, never markup.
     function _buildStatus(dict, status) {
         var root = document.createElement('div');
         if (!status) {
             return root;
         }
 
-        var configured = document.createElement('p');
-        configured.textContent = _t(dict, status.configured ? 'status.configured' : 'status.notConfigured');
-        root.appendChild(configured);
-
         var q = status.quota || {};
-        var quota = document.createElement('p');
-        quota.textContent = _t(dict, q.dailyLimit === 0 ? 'status.quotaNoDaily' : 'status.quota')
-            .replace('{m30}', q.last30d != null ? q.last30d : 0)
-            .replace('{mLimit}', q.monthlyLimit != null ? q.monthlyLimit : 0)
-            .replace('{d}', q.dailyToday != null ? q.dailyToday : 0)
-            .replace('{dLimit}', q.dailyLimit != null ? q.dailyLimit : 0);
-        root.appendChild(quota);
-
+        var n = function (v) { return v != null ? v : 0; };
+        var transport = _statusSection(dict, 'status.section.transport', _t(dict, 'status.help.transport'));
+        transport.appendChild(_statusKv([
+            [_t(dict, 'status.kv.transport'), status.configured
+                ? _pill(_t(dict, 'status.transport.on'), 'ok')
+                : _pill(_t(dict, 'status.transport.off'), 'err')],
+            [_t(dict, 'status.kv.month'), n(q.last30d) + ' / ' + n(q.monthlyLimit)],
+            [_t(dict, 'status.kv.today'), q.dailyLimit === 0
+                ? _t(dict, 'status.kv.todayNoLimit').replace('{d}', n(q.dailyToday))
+                : n(q.dailyToday) + ' / ' + n(q.dailyLimit)],
+            [_t(dict, 'status.kv.webhook'), status.lastWebhookUtc
+                ? _t(dict, 'status.kv.webhookValue')
+                    .replace('{type}', status.lastWebhookType || '')
+                    .replace('{date}', String(status.lastWebhookUtc).slice(0, 19).replace('T', ' '))
+                : _t(dict, 'status.kv.webhookNone')],
+            [_t(dict, 'status.kv.fileTransformation'),
+                _t(dict, status.fileTransformation ? 'status.kv.ftOn' : 'status.kv.ftOff'),
+                !status.fileTransformation]
+        ]));
         if (q.reserve > 0) {
             var reserve = document.createElement('p');
             reserve.textContent = _t(dict, 'status.reserve')
                 .replace('{n}', q.reserve)
                 .replace('{max}', q.dailyLimit - q.reserve);
-            root.appendChild(reserve);
+            transport.appendChild(reserve);
         }
-
         if (q.suspendedUntilUtc) {
-            var suspended = document.createElement('p');
-            suspended.className = 'enotif-warn';
-            suspended.textContent = _t(dict, 'status.suspended')
-                .replace('{date}', String(q.suspendedUntilUtc).slice(0, 16).replace('T', ' '));
-            root.appendChild(suspended);
+            transport.appendChild(_statusNote(_t(dict, 'status.suspended')
+                .replace('{date}', String(q.suspendedUntilUtc).slice(0, 16).replace('T', ' '))));
         }
-
         if (q.warn80) {
-            var warn = document.createElement('p');
-            warn.className = 'enotif-warn';
-            warn.textContent = _t(dict, 'status.warn');
-            root.appendChild(warn);
+            transport.appendChild(_statusNote(_t(dict, 'status.warn')));
         }
-
-        var webhook = document.createElement('p');
-        webhook.textContent = status.lastWebhookUtc
-            ? _t(dict, 'status.lastWebhook')
-                .replace('{type}', status.lastWebhookType || '')
-                .replace('{date}', String(status.lastWebhookUtc).slice(0, 19).replace('T', ' '))
-            : _t(dict, 'status.lastWebhookNone');
-        root.appendChild(webhook);
-
-        var ft = document.createElement('p');
-        ft.textContent = _t(dict, status.fileTransformation ? 'status.fileTransformation' : 'status.fileTransformationMissing');
-        if (!status.fileTransformation) {
-            ft.className = 'enotif-warn';
-        }
-        root.appendChild(ft);
+        root.appendChild(transport);
 
         var campaigns = status.campaigns || [];
         if (campaigns.length) {
-            var campaignsTitle = document.createElement('p');
-            campaignsTitle.textContent = _t(dict, 'status.campaigns');
-            root.appendChild(campaignsTitle);
-
-            var cTable = document.createElement('table');
-            var cHead = document.createElement('tr');
-            ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent', 'status.col.lastError'].forEach(function (key) {
-                var th = document.createElement('th');
-                th.textContent = _t(dict, key);
-                cHead.appendChild(th);
-            });
-            var cThead = document.createElement('thead');
-            cThead.appendChild(cHead);
-            cTable.appendChild(cThead);
-
-            var cBody = document.createElement('tbody');
-            campaigns.forEach(function (c) {
-                var tr = document.createElement('tr');
-                [
-                    c.id || '',
-                    c.enabled ? _t(dict, 'common.yes') : _t(dict, 'common.no'),
-                    c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never'),
-                    c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never'),
-                    c.lastError ? ((_fmtDateTime(c.lastErrorUtc) || '') + ' UTC ' + c.lastError) : '-'
-                ].forEach(function (value, i) {
-                    var td = document.createElement('td');
-                    td.textContent = value;
-                    if (i === 4 && c.lastError) {
-                        td.className = 'enotif-warn';
-                    }
-                    tr.appendChild(td);
-                });
-                cBody.appendChild(tr);
-            });
-            cTable.appendChild(cBody);
-            root.appendChild(cTable);
+            var cSection = _statusSection(dict, 'status.campaigns', _t(dict, 'status.help.campaigns'));
+            cSection.appendChild(_statusTable(dict,
+                ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent', 'status.col.lastError'],
+                campaigns.map(function (c) {
+                    return { cells: [
+                        c.id || '',
+                        c.enabled ? { text: _t(dict, 'common.yes'), pill: 'ok' } : { text: _t(dict, 'common.no'), pill: 'off' },
+                        c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never'),
+                        c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never'),
+                        c.lastError
+                            ? { text: (_fmtDateTime(c.lastErrorUtc) || '') + ' UTC ' + c.lastError, warn: true }
+                            : '-'
+                    ] };
+                })));
+            root.appendChild(cSection);
         }
 
         var drains = status.drains || {};
         var drainNames = ['newItems', 'playback', 'episodes'].filter(function (name) { return drains[name]; });
         if (drainNames.length) {
-            var drainsTitle = document.createElement('p');
-            drainsTitle.textContent = _t(dict, 'status.drains');
-            root.appendChild(drainsTitle);
-
-            var dTable = document.createElement('table');
-            var dHead = document.createElement('tr');
-            ['status.col.drain', 'status.col.lastFlush', 'status.col.lost', 'status.col.dropped', 'status.col.depth'].forEach(function (key) {
-                var th = document.createElement('th');
-                th.textContent = _t(dict, key);
-                dHead.appendChild(th);
-            });
-            var dThead = document.createElement('thead');
-            dThead.appendChild(dHead);
-            dTable.appendChild(dThead);
-
-            var dBody = document.createElement('tbody');
-            drainNames.forEach(function (name) {
-                var d = drains[name];
-                var tr = document.createElement('tr');
-                if (d.lostBatches > 0 || d.dropped > 0) {
-                    tr.className = 'enotif-warn';
-                }
-                [
-                    _t(dict, 'status.drain.' + name),
-                    _fmtDateTime(d.lastFlushUtc) || _t(dict, 'status.drainNoFlush'),
-                    _t(dict, 'status.drainLost').replace('{b}', d.lostBatches || 0).replace('{n}', d.lostItems || 0),
-                    String(d.dropped || 0),
-                    String(d.depth || 0)
-                ].forEach(function (value) {
-                    var td = document.createElement('td');
-                    td.textContent = value;
-                    tr.appendChild(td);
-                });
-                dBody.appendChild(tr);
-            });
-            dTable.appendChild(dBody);
-            root.appendChild(dTable);
+            var dSection = _statusSection(dict, 'status.drains', _t(dict, 'status.help.drains'));
+            dSection.appendChild(_statusTable(dict,
+                ['status.col.drain', 'status.col.lastFlush', 'status.col.lost', 'status.col.dropped', 'status.col.depth'],
+                drainNames.map(function (name) {
+                    var d = drains[name];
+                    return {
+                        warn: d.lostBatches > 0 || d.dropped > 0,
+                        cells: [
+                            _t(dict, 'status.drain.' + name),
+                            _fmtDateTime(d.lastFlushUtc) || _t(dict, 'status.drainNoFlush'),
+                            _t(dict, 'status.drainLost').replace('{b}', d.lostBatches || 0).replace('{n}', d.lostItems || 0),
+                            String(d.dropped || 0),
+                            String(d.depth || 0)
+                        ]
+                    };
+                }), [3, 4]));
+            root.appendChild(dSection);
         }
 
-        var alert = document.createElement('p');
-        alert.textContent = !status.alertEmailSet
+        var alertText = !status.alertEmailSet
             ? _t(dict, 'status.alertOff')
             : (status.lastDigestUtc
                 ? _t(dict, 'status.alertLast').replace('{date}', _fmtDateTime(status.lastDigestUtc))
                 : _t(dict, 'status.alertNone'));
-        root.appendChild(alert);
-
+        var aSection = _statusSection(dict, 'status.section.alerts', alertText);
         var incidents = status.incidents || [];
+        var iLabel = document.createElement('p');
+        iLabel.className = 'enotif-status-label';
+        iLabel.textContent = _t(dict, incidents.length ? 'status.incidents' : 'status.noIncidents');
+        aSection.appendChild(iLabel);
         if (incidents.length) {
-            var incidentsTitle = document.createElement('p');
-            incidentsTitle.textContent = _t(dict, 'status.incidents');
-            root.appendChild(incidentsTitle);
-
-            var iTable = document.createElement('table');
-            var iHead = document.createElement('tr');
-            ['status.col.date', 'status.col.incident', 'status.col.detail'].forEach(function (key) {
-                var th = document.createElement('th');
-                th.textContent = _t(dict, key);
-                iHead.appendChild(th);
-            });
-            var iThead = document.createElement('thead');
-            iThead.appendChild(iHead);
-            iTable.appendChild(iThead);
-
-            var iBody = document.createElement('tbody');
-            incidents.forEach(function (incident) {
-                var tr = document.createElement('tr');
-                var label = dict['incident.' + incident.type] ? _t(dict, 'incident.' + incident.type) : (incident.type || '');
-                [_fmtDateTime(incident.ts) || '', label, incident.detail || '-'].forEach(function (value) {
-                    var td = document.createElement('td');
-                    td.textContent = value;
-                    tr.appendChild(td);
-                });
-                iBody.appendChild(tr);
-            });
-            iTable.appendChild(iBody);
-            root.appendChild(iTable);
+            aSection.appendChild(_statusTable(dict,
+                ['status.col.date', 'status.col.incident', 'status.col.detail'],
+                incidents.map(function (incident) {
+                    var label = dict['incident.' + incident.type] ? _t(dict, 'incident.' + incident.type) : (incident.type || '');
+                    return { cells: [_fmtDateTime(incident.ts) || '', label, incident.detail || '-'] };
+                })));
         }
+        root.appendChild(aSection);
 
         var recent = status.recent || [];
         if (recent.length) {
-            var table = document.createElement('table');
-            var head = document.createElement('tr');
-            ['status.col.date', 'status.col.context', 'status.col.recipient', 'status.col.status'].forEach(function (key) {
-                var th = document.createElement('th');
-                th.textContent = _t(dict, key);
-                head.appendChild(th);
-            });
-            var thead = document.createElement('thead');
-            thead.appendChild(head);
-            table.appendChild(thead);
-
-            var tbody = document.createElement('tbody');
-            recent.forEach(function (entry) {
-                var tr = document.createElement('tr');
-                [
-                    String(entry.ts || '').slice(0, 10),
-                    entry.context || '',
-                    entry.toMasked || '',
-                    entry.status || ''
-                ].forEach(function (value) {
-                    var td = document.createElement('td');
-                    td.textContent = value;
-                    tr.appendChild(td);
-                });
-                tbody.appendChild(tr);
-            });
-            table.appendChild(tbody);
-            root.appendChild(table);
+            var rSection = _statusSection(dict, 'status.section.recent', _t(dict, 'status.help.recent'));
+            rSection.appendChild(_statusTable(dict,
+                ['status.col.date', 'status.col.context', 'status.col.recipient', 'status.col.status'],
+                recent.map(function (entry) {
+                    var value = entry.status || '';
+                    return { cells: [
+                        String(entry.ts || '').slice(0, 10),
+                        entry.context || '',
+                        entry.toMasked || '',
+                        value ? { text: value, pill: STATUS_TONES[value] || 'off' } : ''
+                    ] };
+                })));
+            root.appendChild(rSection);
         }
 
         return root;

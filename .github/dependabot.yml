@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
     # The semantic-release chain is pinned to known-good versions (see TODO_V1.md).
     # A broken toolchain bump would only surface at release time, so upgrades are handled
     # deliberately, not by Dependabot.
@@ -18,17 +20,27 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    # The Jellyfin.* packages are pinned to 10.11.10, the declared minimum ABI (build.yaml
-    # targetAbi 10.11.10.0). Compiling against the lowest supported patch is deliberate: an API
-    # present in 10.11.10 is present in every later 10.11.x, not the reverse. Any pin change is a
-    # manual chore:/fix: commit with a written reason, never a Dependabot bump.
+    commit-message:
+      prefix: "chore(deps)"
     ignore:
+      # The Jellyfin.* packages are pinned to 10.11.10, the declared minimum ABI (build.yaml
+      # targetAbi 10.11.10.0). Compiling against the lowest supported patch is deliberate: an API
+      # present in 10.11.10 is present in every later 10.11.x, not the reverse. Any pin change is a
+      # manual chore:/fix: commit with a written reason, never a Dependabot bump.
       - dependency-name: "Jellyfin.Controller"
       - dependency-name: "Jellyfin.Model"
       - dependency-name: "Jellyfin.Extensions"
+      # Microsoft.Extensions.* assemblies are supplied by the Jellyfin host at runtime
+      # (ExcludeAssets="runtime"): 9.0.x on 10.11 (.NET 9). Compiling against a 10.x assembly would
+      # request a version the 10.11 host does not load, and the plugin would fail to register.
+      # Major bumps wait for the net10.0 target (Jellyfin 12 line); minor and patch stay allowed.
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"

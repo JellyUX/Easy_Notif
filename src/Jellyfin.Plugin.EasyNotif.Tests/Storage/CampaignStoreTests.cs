@@ -58,6 +58,31 @@ public sealed class CampaignStoreTests : IDisposable
         }
         """;
 
+    // Version 1.2.x is published and breaks on a campaigns.json with a newer Schema (its constructor
+    // writes into a read-only store). Raising this schema would turn a rollback to 1.2.x into a failed
+    // startup, so it stays frozen at the 1.2.0 value (CurrentSchema => 1, Schema = 1, read on tag
+    // v1.2.0) while such a rollback is possible. See RT1-003.
+    [Fact]
+    public void CampaignsJsonSchema_StaysAtThe120Value_WhileARollbackTo12xIsPossible()
+    {
+        const string Reason = "RT1-003: the campaigns.json schema is frozen at 1 while a rollback to 1.2.x is possible.";
+
+        if (new CampaignFile().Schema != 1)
+        {
+            Assert.Fail(Reason);
+        }
+
+        Build().Update("newsletter", c => c.MailLanguage = "en");
+        if (!File.ReadAllText(FilePath).Contains("\"Schema\": 1,", StringComparison.Ordinal))
+        {
+            Assert.Fail(Reason);
+        }
+
+        // A file one schema above is newer than this build: the supported schema is still 1.
+        SeedFile("""{ "Schema": 2, "Campaigns": [] }""");
+        Assert.True(Build().IsReadOnly, Reason);
+    }
+
     [Fact]
     public void NewerSchema_ConstructionDoesNotThrow_AndNeverTouchesTheFile()
     {

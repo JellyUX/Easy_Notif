@@ -72,6 +72,30 @@ jobs:
       - name: Run Vitest
         run: npm test
 
+  # Throwaway copy compiled against Jellyfin 12 (net10.0, derived from JellyfinVersion in
+  # Directory.Build.props). It publishes nothing and the release job does not wait for it. The
+  # committed lock files pin 10.11.10 / net9.0, so this job restores into a lock file under obj/.
+  compat-12:
+    name: Build & Test (Jellyfin 12)
+    runs-on: ubuntu-latest
+    env:
+      JELLYFIN_PROPS: -p:JellyfinVersion=12.4.0 -p:NuGetLockFilePath=obj/packages.compat.lock.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore $JELLYFIN_PROPS
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore $JELLYFIN_PROPS
+
+      - name: Test
+        run: dotnet test --no-build --configuration Release $JELLYFIN_PROPS
+
   release:
     name: Release
     needs: build-test

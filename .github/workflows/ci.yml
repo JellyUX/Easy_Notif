@@ -25,7 +25,7 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       # dotnet list exits 0 even when it finds vulnerable packages, so the JSON report is checked.
       - name: Audit NuGet packages
@@ -61,7 +61,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
 
       - name: Install Node dependencies
         run: npm ci
@@ -93,17 +93,17 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.x'
+          python-version: '3.13'
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: lts/*
+          node-version-file: .nvmrc
 
-      # jprm builds the published zip and the MD5 recorded in manifest.json, so its version is
-      # pinned deliberately. Bump it in a dedicated ci: commit with a reason - same policy as the
-      # semantic-release chain (see dependabot.yml).
+      # jprm builds the published zip and the MD5 recorded in manifest.json, so it and its
+      # dependencies are pinned by hash in requirements-jprm.txt. Bump them in a dedicated ci:
+      # commit with a reason - same policy as the semantic-release chain (see dependabot.yml).
       - name: Install JPRM
-        run: pip install jprm==1.1.0
+        run: pip install --require-hashes -r .github/requirements-jprm.txt
 
       - name: Install semantic-release dependencies
         run: npm ci

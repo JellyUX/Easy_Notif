@@ -25,13 +25,85 @@ public sealed class CampaignStoreTests : IDisposable
 
     private string FilePath => Path.Combine(DataDir, "campaigns.json");
 
-    private CampaignStore Build(ILogger<CampaignStore>? logger = null)
+    private CampaignStore Build(ILogger<CampaignStore>? logger = null, IFileSystem? fileSystem = null)
     {
         var paths = new Mock<IApplicationPaths>();
         paths.Setup(p => p.DataPath).Returns(_tempDir);
-        var store = new CampaignStore(paths.Object, new FileSystem(), logger ?? NullLogger<CampaignStore>.Instance);
+        var store = new CampaignStore(paths.Object, fileSystem ?? new FileSystem(), logger ?? NullLogger<CampaignStore>.Instance);
         _stores.Add(store);
         return store;
+    }
+
+    private void SeedFile(string json)
+    {
+        Directory.CreateDirectory(DataDir);
+        File.WriteAllText(FilePath, json);
+    }
+
+    private const string NewerSchemaFile = """
+        {
+          "Schema": 99,
+          "Campaigns": [
+            {
+              "Id": "newsletter",
+              "Type": "Newsletter",
+              "Category": "News",
+              "TemplateId": "newsletter",
+              "Schedule": { "Kind": "EveryNDays", "Time": "09:00:00", "IntervalDays": 0 },
+              "MailLanguage": "fr",
+              "Enabled": true
+            }
+          ],
+          "FutureProperty": [1, 2]
+        }
+        """;
+
+    [Fact]
+    public void NewerSchema_ConstructionDoesNotThrow_AndNeverTouchesTheFile()
+    {
+        SeedFile(NewerSchemaFile);
+
+        var store = Build();
+
+        Assert.True(store.IsReadOnly);
+        Assert.Equal(2, store.All().Count);
+        Assert.Throws<StoreReadOnlyException>(() => store.Update("newsletter", c => c.MailLanguage = "en"));
+        Assert.Equal(NewerSchemaFile, File.ReadAllText(FilePath));
+        Assert.Equal(["campaigns.json"], Directory.GetFiles(DataDir).Select(Path.GetFileName));
+    }
+
+    [Fact]
+    public void NewerSchema_EnabledCampaignWithAnInvalidSchedule_IsDisabledInMemoryOnly()
+    {
+        SeedFile(NewerSchemaFile);
+
+        var store = Build();
+
+        Assert.False(store.Get("newsletter")!.Enabled);
+        Assert.Equal(NewerSchemaFile, File.ReadAllText(FilePath));
+    }
+
+    [Fact]
+    public void UnwritableDirectory_FreshInstall_ConstructionDoesNotThrow_AndSeedsInMemory()
+    {
+        var store = Build(fileSystem: new UnwritableFileSystem());
+
+        Assert.False(store.IsReadOnly);
+        Assert.Equal(2, store.All().Count);
+        Assert.False(File.Exists(FilePath));
+    }
+
+    [Fact]
+    public void Construction_NeverWrites_TheRepairIsPersistedByTheNextUpdate()
+    {
+        var store = Build();
+        Assert.False(File.Exists(FilePath));
+
+        store.Update("does-not-exist", c => c.Enabled = true);
+
+        var reloaded = File.ReadAllText(FilePath);
+        Assert.Contains("\"newsletter\"", reloaded, StringComparison.Ordinal);
+        Assert.Contains("\"weekly-recap\"", reloaded, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -71,10 +143,14 @@ public sealed class CampaignStoreTests : IDisposable
         });
 
         var logger = new Mock<ILogger<CampaignStore>>();
-        Assert.False(Build(logger.Object).Get("newsletter")!.Enabled);
+        var repaired = Build(logger.Object);
+        Assert.False(repaired.Get("newsletter")!.Enabled);
         logger.Verify(
             l => l.Log(LogLevel.Warning, It.IsAny<EventId>(), It.IsAny<It.IsAnyType>(), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);
+
+        // Construction never writes: the repair reaches the disk with the next update, of any row.
+        repaired.Update("weekly-recap", c => c.MailLanguage = "en");
 
         // Persisted: a third load reads it disabled without warning again.
         var quiet = new Mock<ILogger<CampaignStore>>();
@@ -154,6 +230,7 @@ public sealed class CampaignStoreTests : IDisposable
     [Fact]
     public void Update_UnknownId_ReturnsFalse_LeavesFileUnchanged()
     {
+        Build().Update("newsletter", c => c.MailLanguage = "en");
         var store = Build();
         var before = File.ReadAllText(FilePath);
 
@@ -208,5 +285,27 @@ public sealed class CampaignStoreTests : IDisposable
         catch (IOException)
         {
         }
+    }
+
+    /// <summary>A data directory the process can read but not write (permissions, read-only mount).</summary>
+    private sealed class UnwritableFileSystem : IFileSystem
+    {
+        private readonly FileSystem _inner = new();
+
+        public bool FileExists(string path) => _inner.FileExists(path);
+
+        public string ReadAllText(string path) => _inner.ReadAllText(path);
+
+        public void WriteAllText(string path, string contents) => throw new UnauthorizedAccessException(path);
+
+        public void Move(string sourceFileName, string destFileName, bool overwrite) => throw new UnauthorizedAccessException(destFileName);
+
+        public void Delete(string path) => throw new UnauthorizedAccessException(path);
+
+        public void CreateDirectory(string path) => _inner.CreateDirectory(path);
+
+        public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+
+        public IEnumerable<string> EnumerateFiles(string path, string searchPattern) => _inner.EnumerateFiles(path, searchPattern);
     }
 }

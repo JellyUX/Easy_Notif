@@ -30,7 +30,10 @@ namespace Jellyfin.Plugin.EasyNotif.Storage;
 /// document.</item>
 /// <item>A file with a <c>Schema</c> above <see cref="CurrentSchema"/> (written by a newer version)
 /// is loaded read-only: every write throws <see cref="StoreReadOnlyException"/> and the file is never
-/// renamed to <c>.corrupt-*</c> nor overwritten.</item>
+/// renamed to <c>.corrupt-*</c> nor overwritten. Load-time repairs go through <see cref="Repair"/>
+/// and stay in memory, so a read-only store still constructs.</item>
+/// <item>Construction never writes the file: repairs are persisted by the next successful
+/// <see cref="Mutate"/>.</item>
 /// </list>
 /// </remarks>
 /// <typeparam name="T">The on-disk document type. Must have a public parameterless constructor
@@ -53,6 +56,7 @@ public abstract class JsonFileStore<T> : IDisposable
     private bool _readOnly;
     private int _loadedSchema;
     private string? _pendingMigrationBackup;
+    private bool _pendingRepair;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="JsonFileStore{T}"/> class and loads the file.
@@ -76,6 +80,10 @@ public abstract class JsonFileStore<T> : IDisposable
 
     /// <summary>Gets the plugin data directory (created at construction).</summary>
     protected string Directory { get; }
+
+    /// <summary>Gets a value indicating whether the file was written by a newer version and every
+    /// write is refused. Set once while loading, before construction returns.</summary>
+    public bool IsReadOnly => _readOnly;
 
     /// <summary>Reads a projection of the in-memory document under a read lock.</summary>
     /// <typeparam name="TResult">The projection result type.</typeparam>
@@ -114,9 +122,35 @@ public abstract class JsonFileStore<T> : IDisposable
                 throw new StoreReadOnlyException(_fileName, _loadedSchema, CurrentSchema);
             }
 
-            if (mutation(_cache))
+            if (mutation(_cache) || _pendingRepair)
             {
                 Write(_cache);
+                _pendingRepair = false;
+            }
+        }
+        finally
+        {
+            _lock.ExitWriteLock();
+        }
+    }
+
+    /// <summary>
+    /// Applies a load-time repair (seeding, sanitizing) to the in-memory document under a write lock,
+    /// without writing the file: construction must never write, so a read-only file or an unwritable
+    /// directory cannot break startup. A repair that changed anything is persisted by the next
+    /// successful <see cref="Mutate"/>; on a read-only store it stays in memory only.
+    /// </summary>
+    /// <param name="repair">The repair to apply; returns true when it modified the document.</param>
+    protected void Repair(Func<T, bool> repair)
+    {
+        ArgumentNullException.ThrowIfNull(repair);
+
+        _lock.EnterWriteLock();
+        try
+        {
+            if (repair(_cache) && !_readOnly)
+            {
+                _pendingRepair = true;
             }
         }
         finally

@@ -11,6 +11,10 @@ namespace Jellyfin.Plugin.EasyNotif.Storage;
 /// </summary>
 public interface ICampaignStore
 {
+    /// <summary>Gets a value indicating whether the file was written by a newer version: campaigns
+    /// can be read, every <see cref="Update"/> throws <see cref="StoreReadOnlyException"/>.</summary>
+    bool IsReadOnly { get; }
+
     /// <summary>Returns every campaign.</summary>
     /// <returns>The campaigns.</returns>
     IReadOnlyList<Campaign> All();
@@ -30,7 +34,9 @@ public interface ICampaignStore
 /// <summary>
 /// Persists the scheduled campaigns to <c>{DataPath}/Jellyfin.Plugin.EasyNotif/campaigns.json</c>.
 /// The two system campaigns are seeded (disabled) at construction if the file does not already
-/// contain them; seeding never overwrites an existing row. Locking, atomic writes, the in-memory
+/// contain them; seeding never overwrites an existing row. Construction only repairs the document in
+/// memory: the repair reaches the disk with the next successful <see cref="Update"/>, never at all
+/// when the file is read-only. Locking, atomic writes, the in-memory
 /// cache and corrupt-file recovery come from <see cref="JsonFileStore{T}"/>.
 /// </summary>
 public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
@@ -83,7 +89,7 @@ public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
 
     private void SeedSystemCampaigns()
     {
-        Mutate(file =>
+        Repair(file =>
         {
             var changed = false;
 
@@ -128,7 +134,7 @@ public sealed class CampaignStore : JsonFileStore<CampaignFile>, ICampaignStore
     /// </summary>
     private void DisableInvalidCampaigns()
     {
-        Mutate(file =>
+        Repair(file =>
         {
             var changed = false;
             foreach (var campaign in file.Campaigns.Where(c => c.Enabled && !c.Schedule.IsValid()))

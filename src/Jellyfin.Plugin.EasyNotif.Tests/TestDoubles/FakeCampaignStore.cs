@@ -19,6 +19,10 @@ public sealed class FakeCampaignStore : ICampaignStore
     /// <summary>Gets the number of <see cref="Update"/> calls that matched a campaign.</summary>
     public int UpdateCount { get; private set; }
 
+    /// <summary>Gets or sets a value indicating whether the store behaves like a file written by a
+    /// newer version: <see cref="Update"/> throws <see cref="StoreReadOnlyException"/>.</summary>
+    public bool IsReadOnly { get; set; }
+
     /// <inheritdoc/>
     public IReadOnlyList<Campaign> All() => [.. Campaigns];
 
@@ -28,6 +32,11 @@ public sealed class FakeCampaignStore : ICampaignStore
     /// <inheritdoc/>
     public bool Update(string id, Action<Campaign> mutate)
     {
+        if (IsReadOnly)
+        {
+            throw new StoreReadOnlyException("campaigns.json", 99, 1);
+        }
+
         var campaign = Campaigns.FirstOrDefault(c => c.Id == id);
         if (campaign is null)
         {

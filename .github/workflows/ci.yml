@@ -59,6 +59,16 @@ jobs:
           path: coverage/**/coverage.cobertura.xml
           if-no-files-found: error
 
+      # A Jellyfin 12 server runs on .NET 10 and loads the published net9.0 DLL as is. LatestMajor
+      # moves the test host to the newest installed runtime; Major would stay on the installed 9.0.
+      # The diagnostic log proves which runtime the test host actually loaded.
+      - name: Test on the .NET 10 runtime
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor
+        run: |
+          dotnet test --no-build --configuration Release --diag diag/test.txt
+          grep -hoE 'Microsoft\.NETCore\.App/10\.[0-9.]+' diag/test.host.*.txt | sort -u | grep . || { echo "test host did not run on .NET 10"; exit 1; }
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc

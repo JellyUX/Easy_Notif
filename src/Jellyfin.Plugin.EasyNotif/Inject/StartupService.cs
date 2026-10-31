@@ -192,6 +192,12 @@ public sealed class StartupService : IHostedService
     /// <param name="cfg">The plugin configuration (for the scheduler time zone).</param>
     private void ScheduleEnabledCampaigns(PluginConfiguration cfg)
     {
+        if (_campaigns.IsReadOnly)
+        {
+            _logger.LogWarning("[EasyNotif] campaigns.json is read-only; scheduled campaigns are paused until the plugin is updated.");
+            return;
+        }
+
         var tz = RecurrenceSchedule.ResolveTimeZone(cfg.SchedulerTimeZone);
         var now = DateTime.UtcNow;
 

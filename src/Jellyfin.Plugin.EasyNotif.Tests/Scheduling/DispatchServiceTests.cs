@@ -153,6 +153,35 @@ public sealed class DispatchServiceTests
     }
 
     [Fact]
+    public async Task RunDueAsync_ReadOnlyCampaigns_PausesScheduling_AndLogsItOnce()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice, Bob);
+        harness.Campaigns.IsReadOnly = true;
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Sent);
+        Assert.Single(harness.Log.Entries, e => e.EventType == "dispatch.skipped"
+            && e.Fields?["reason"] as string == "campaigns-read-only");
+        Assert.DoesNotContain(harness.Log.Entries, e => e.EventType == "dispatch.error");
+    }
+
+    [Fact]
+    public async Task RunCampaignNowAsync_ReadOnlyCampaigns_ThrowsBeforeSending()
+    {
+        var harness = new Harness();
+        harness.Recipients(Alice);
+        harness.Campaigns.IsReadOnly = true;
+
+        await Assert.ThrowsAsync<StoreReadOnlyException>(() => harness.Service.RunCampaignNowAsync("newsletter", CancellationToken.None));
+
+        Assert.Empty(harness.Sent);
+        harness.Composer.Verify(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RunDueAsync_DisabledCampaign_IsNeverRun()
     {
         var harness = new Harness([new Campaign { Id = "newsletter", Enabled = false, NextRunUtc = Now.AddMinutes(-5), Schedule = RecurrenceSchedule.Daily(new TimeOnly(9, 0)) }]);

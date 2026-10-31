@@ -23,6 +23,9 @@ public sealed class FakeCampaignStore : ICampaignStore
     /// newer version: <see cref="Update"/> throws <see cref="StoreReadOnlyException"/>.</summary>
     public bool IsReadOnly { get; set; }
 
+    /// <summary>Gets the number of <see cref="Update"/> calls refused because the store is read-only.</summary>
+    public int RefusedUpdateCount { get; private set; }
+
     /// <inheritdoc/>
     public IReadOnlyList<Campaign> All() => [.. Campaigns];
 
@@ -34,6 +37,7 @@ public sealed class FakeCampaignStore : ICampaignStore
     {
         if (IsReadOnly)
         {
+            RefusedUpdateCount++;
             throw new StoreReadOnlyException("campaigns.json", 99, 1);
         }
 

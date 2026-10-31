@@ -249,6 +249,27 @@ public sealed class StartupServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_ReadOnlyCampaigns_SkipsSchedulingWithoutFailingTheStep()
+    {
+        var campaigns = new FakeCampaignStore(new Campaign
+        {
+            Id = "newsletter",
+            Schedule = RecurrenceSchedule.Daily(new TimeOnly(9, 0)),
+            Enabled = true,
+            NextRunUtc = null
+        })
+        { IsReadOnly = true };
+        var easyNotifLog = new FakeEasyNotifLog();
+
+        await Build(Detector(available: true), new FakeConfigAccessor(new PluginConfiguration { UnsubscribeSecret = "set" }), easyNotifLog, campaigns)
+            .StartAsync(CancellationToken.None);
+
+        Assert.Null(campaigns.Campaigns[0].NextRunUtc);
+        Assert.Equal(0, campaigns.RefusedUpdateCount);
+        Assert.DoesNotContain(easyNotifLog.Entries, e => e.EventType == "campaign.scheduled");
+    }
+
+    [Fact]
     public async Task StartAsync_LeavesAPastNextRunUntouched()
     {
         var past = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);

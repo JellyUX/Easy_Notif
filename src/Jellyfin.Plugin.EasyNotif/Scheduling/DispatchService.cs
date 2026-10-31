@@ -94,6 +94,7 @@ public sealed class DispatchService : IDispatchService
     private readonly ILogger<DispatchService> _logger;
     private readonly Func<DateTime> _now;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private bool _readOnlyPauseLogged;
 
     /// <summary>Initializes a new instance of the <see cref="DispatchService"/> class.</summary>
     /// <param name="campaigns">The campaign store.</param>
@@ -163,9 +164,7 @@ public sealed class DispatchService : IDispatchService
         try
         {
             var now = _now();
-            var due = _campaigns.All()
-                .Where(c => c.Enabled && c.NextRunUtc is { } next && next <= now)
-                .ToList();
+            var due = DueCampaigns(now);
             var retriesDue = _retries.HasDue(now);
             if (due.Count == 0 && !retriesDue)
             {
@@ -209,6 +208,12 @@ public sealed class DispatchService : IDispatchService
             if (campaign is null)
             {
                 return new CampaignRunResult(campaignId, 0, 0, 0, null) { Found = false };
+            }
+
+            if (_campaigns.IsReadOnly)
+            {
+                // The run could not be recorded afterwards: refuse it before anything is sent.
+                throw new StoreReadOnlyException("campaigns.json is read-only; the campaign was not run.");
             }
 
             var now = _now();
@@ -294,6 +299,30 @@ public sealed class DispatchService : IDispatchService
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Returns the enabled campaigns whose slot is due. Nothing is due while campaigns.json is
+    /// read-only (written by a newer version): a run could not record its next slot, so the same
+    /// slot would be sent again on every tick.
+    /// </summary>
+    private List<Campaign> DueCampaigns(DateTime now)
+    {
+        if (_campaigns.IsReadOnly)
+        {
+            if (!_readOnlyPauseLogged)
+            {
+                _readOnlyPauseLogged = true;
+                _logger.LogWarning("[EasyNotif] campaigns.json is read-only; scheduled campaigns are paused until the plugin is updated.");
+                _easyNotifLog.Warn("dispatch.skipped", new Dictionary<string, object?> { ["reason"] = "campaigns-read-only" });
+            }
+
+            return [];
+        }
+
+        return _campaigns.All()
+            .Where(c => c.Enabled && c.NextRunUtc is { } next && next <= now)
+            .ToList();
     }
 
     private void RecordFailure(Campaign campaign, DateTime now, Exception ex)

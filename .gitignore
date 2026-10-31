@@ -21,6 +21,7 @@
 !LICENSE.md
 !build.yaml
 !global.json
+!Directory.Build.props
 !manifest.json
 !.releaserc.json
 !package.json

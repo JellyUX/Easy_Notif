@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- Jellyfin target shared by the plugin and its tests. The defaults are the declared minimum
+       (build.yaml targetAbi 10.11.10.0, framework net9.0): compile against the lowest supported
+       version, an API present there is present in every later 10.11.x patch. CI overrides both to
+       build a throwaway copy against Jellyfin 12:
+       -p:JellyfinVersion=12.4.0 -p:TargetFramework=net10.0 -->
+  <PropertyGroup>
+    <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">10.11.10</JellyfinVersion>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
+  </PropertyGroup>
+
+</Project>

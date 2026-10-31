@@ -2,12 +2,16 @@
 
   <!-- Jellyfin target shared by the plugin and its tests. The defaults are the declared minimum
        (build.yaml targetAbi 10.11.10.0, framework net9.0): compile against the lowest supported
-       version, an API present there is present in every later 10.11.x patch. CI overrides both to
-       build a throwaway copy against Jellyfin 12:
-       -p:JellyfinVersion=12.4.0 -p:TargetFramework=net10.0 -->
+       version, an API present there is present in every later 10.11.x patch. CI overrides the
+       version to build a throwaway copy against Jellyfin 12: -p:JellyfinVersion=12.4.0
+       The framework follows the version (10.11 runs on .NET 9, 12 on .NET 10) and can be forced
+       with -p:JellyfinTargetFramework=... A global -p:TargetFramework would not reach the plugin:
+       MSBuild drops it when the test project builds its project reference. -->
   <PropertyGroup>
     <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">10.11.10</JellyfinVersion>
-    <TargetFramework Condition="'$(TargetFramework)' == ''">net9.0</TargetFramework>
+    <JellyfinTargetFramework Condition="'$(JellyfinTargetFramework)' == '' And $(JellyfinVersion.StartsWith('10.11.'))">net9.0</JellyfinTargetFramework>
+    <JellyfinTargetFramework Condition="'$(JellyfinTargetFramework)' == ''">net10.0</JellyfinTargetFramework>
+    <TargetFramework>$(JellyfinTargetFramework)</TargetFramework>
   </PropertyGroup>
 
 </Project>

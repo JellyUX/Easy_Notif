@@ -570,6 +570,22 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void GetStatus_ReportsOrphanedSeriesSubscriptions()
+    {
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+        var followed = new Mock<IFollowedSeriesService>();
+        followed.Setup(f => f.CountOrphaned()).Returns(4);
+
+        var ok = Assert.IsType<OkObjectResult>(BuildController(quota: quota, sendLog: sendLog, followedSeries: followed).GetStatus());
+
+        Assert.Contains("\"orphanedSeriesSubscriptions\":4", JsonSerializer.Serialize(ok.Value), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GetStatus_ReportsTheReserve_OfACampaignDueToday()
     {
         var quota = new Mock<IQuotaGuard>();

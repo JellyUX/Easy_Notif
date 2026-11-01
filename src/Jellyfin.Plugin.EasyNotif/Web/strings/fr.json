@@ -64,6 +64,7 @@
   "status.col.enabled": "Activée",
   "status.col.nextRun": "Prochaine exécution",
   "status.pausedNextRun": "rien ne sera envoyé",
+  "status.orphanedSeries": "{n} abonnement(s) à des séries introuvables dans la bibliothèque (supprimées ou recréées sous un nouvel identifiant).",
   "status.col.lastSent": "Dernier envoi",
   "status.col.lastError": "Dernière erreur",
   "status.drains": "Écritures en arrière-plan",

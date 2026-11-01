@@ -662,6 +662,7 @@ public class EasyNotifController : ControllerBase
                 lastErrorUtc = c.LastErrorUtc,
                 pauseNextRun = c.PauseNextRun
             }),
+            orphanedSeriesSubscriptions = _followedSeries.CountOrphaned(),
             drains = _drains.Snapshot().ToDictionary(d => d.Key, d => new
             {
                 lastFlushUtc = d.Value.LastFlushUtc,

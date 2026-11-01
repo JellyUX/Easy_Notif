@@ -37,6 +37,13 @@ public interface IFollowedSeriesService
     /// <returns>The number of subscriptions.</returns>
     int CountFollowed(Guid userId);
 
+    /// <summary>
+    /// Counts the subscriptions, all users together, whose series id no longer resolves to a series
+    /// (removed, or re-created under a new id by a migration). Nothing is removed (admin status).
+    /// </summary>
+    /// <returns>The number of orphaned subscriptions.</returns>
+    int CountOrphaned();
+
     /// <summary>Follows the series; idempotent.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
     /// <param name="seriesId">The series id.</param>
@@ -120,6 +127,10 @@ public sealed class FollowedSeriesService : IFollowedSeriesService
     /// <inheritdoc/>
     public int CountFollowed(Guid userId)
         => _store.Subscriptions().Count(s => s.UserId == userId);
+
+    /// <inheritdoc/>
+    public int CountOrphaned()
+        => _store.Subscriptions().Count(s => _libraryManager.GetItemById(s.SeriesId) is not Series);
 
     private List<Guid> Followed(Guid userId)
         => [.. _store.Subscriptions().Where(s => s.UserId == userId).Select(s => s.SeriesId)];

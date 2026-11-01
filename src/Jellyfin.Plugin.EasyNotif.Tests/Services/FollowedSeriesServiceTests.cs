@@ -133,4 +133,22 @@ public sealed class FollowedSeriesServiceTests
         Assert.Equal(["Andor", "Bluey"], list.Select(s => s.Name));
         Assert.Equal(a.Id, list[0].Id);
     }
+
+    // V3-06: a migration that re-creates a series under a new id leaves its subscriptions pointing
+    // at nothing. They are counted per subscription, never removed.
+    [Fact]
+    public void CountOrphaned_CountsSubscriptionsWhoseSeriesNoLongerResolves()
+    {
+        var kept = Add<Series>("Andor", visible: false);
+        var movie = Add<Movie>("A film");
+        var gone = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        _subscriptions.Add(new SeriesSubscription(UserId, kept.Id, Now.UtcDateTime, "bell"));
+        _subscriptions.Add(new SeriesSubscription(UserId, gone, Now.UtcDateTime, "bell"));
+        _subscriptions.Add(new SeriesSubscription(other, gone, Now.UtcDateTime, "panel"));
+        _subscriptions.Add(new SeriesSubscription(other, movie.Id, Now.UtcDateTime, "panel"));
+
+        Assert.Equal(3, Service().CountOrphaned());
+        Assert.Equal(4, _subscriptions.Count);
+    }
 }

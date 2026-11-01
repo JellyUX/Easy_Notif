@@ -204,6 +204,14 @@ describe('_buildStatus', () => {
         expect(el.textContent).toContain('2026-11-03 08:00');
     });
 
+    it('reports orphaned series subscriptions only when there are some', () => {
+        const base = { configured: true, fileTransformation: true, quota: {}, lastWebhookUtc: null, recent: [] };
+
+        expect(_buildStatus(dict, { ...base, orphanedSeriesSubscriptions: 0 }).querySelector('p.enotif-warn')).toBeNull();
+        const note = _buildStatus(dict, { ...base, orphanedSeriesSubscriptions: 3 }).querySelector('p.enotif-warn');
+        expect(note.textContent).toBe(dict['status.orphanedSeries'].replace('{n}', '3'));
+    });
+
     it('shows the warning when warn80 is set', () => {
         const el = _buildStatus(dict, {
             configured: true,

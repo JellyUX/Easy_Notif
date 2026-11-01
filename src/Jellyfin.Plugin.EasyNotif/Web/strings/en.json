@@ -64,6 +64,7 @@
   "status.col.enabled": "Enabled",
   "status.col.nextRun": "Next run",
   "status.pausedNextRun": "nothing will be sent",
+  "status.orphanedSeries": "{n} subscription(s) to series no longer found in the library (removed or re-created under a new id).",
   "status.col.lastSent": "Last sent",
   "status.col.lastError": "Last error",
   "status.drains": "Background writers",

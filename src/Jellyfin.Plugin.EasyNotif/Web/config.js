@@ -257,6 +257,11 @@
             root.appendChild(cSection);
         }
 
+        if (status.orphanedSeriesSubscriptions > 0) {
+            root.appendChild(_statusNote(_t(dict, 'status.orphanedSeries')
+                .replace('{n}', status.orphanedSeriesSubscriptions)));
+        }
+
         var drains = status.drains || {};
         var drainNames = ['newItems', 'playback', 'episodes'].filter(function (name) { return drains[name]; });
         if (drainNames.length) {

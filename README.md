@@ -192,6 +192,29 @@ are masked in the logs.
 To remove everything: uninstall the plugin and delete that directory. The server is then exactly as
 it was before.
 
+## Development
+
+### Smoke test against a real Jellyfin
+
+`docker/scripts/smoke-test.ps1` builds the plugin and checks that it loads in a real, disposable
+Jellyfin container. It needs Docker and Windows PowerShell; run it from the repository root:
+
+```powershell
+powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 10.11.10
+powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 12.4
+```
+
+The script starts `jellyfin/jellyfin:<version>` (pulled if missing) on port 8100 with no host
+mount, completes the startup wizard through the API, installs File Transformation from its
+catalogue (Jellyfin picks the build that matches its version), copies the local Release build in
+and restarts. It then checks that Easy Notif and File Transformation are `Active`, that the
+anonymous `/EasyNotif/*` assets answer 200, that the served `index.html` loads `enotif-user.js`,
+and that the Jellyfin log since the restart has no `[ERR]` line naming EasyNotif.
+
+It prints a PASS/FAIL table and the run time, and exits with code 1 if any check fails. The
+container is removed at the end; `-Keep` leaves it running and prints the admin credentials,
+`-Port` picks another port. No email can be sent: the container has no Resend key.
+
 ## License
 
 GPL-3.0. See [LICENSE.md](LICENSE.md).

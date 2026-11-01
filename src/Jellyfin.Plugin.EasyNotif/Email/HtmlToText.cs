@@ -22,6 +22,7 @@ public static partial class HtmlToText
         }
 
         var text = ScriptOrStyle().Replace(html, " ");
+        text = Link().Replace(text, KeepLinkTarget);
         text = LineBreakTag().Replace(text, "\n");
         text = AnyTag().Replace(text, string.Empty);
         text = WebUtility.HtmlDecode(text);
@@ -38,6 +39,28 @@ public static partial class HtmlToText
 
         return builder.ToString().TrimEnd('\n');
     }
+
+    // "<a href="u">label</a>" becomes "label (u)", so the text part keeps the link target. Mail
+    // links, in-page anchors and links whose label already is the URL keep the label only.
+    private static string KeepLinkTarget(Match match)
+    {
+        var href = match.Groups["href"].Value.Trim();
+        var label = match.Groups["label"].Value;
+        var decodedHref = WebUtility.HtmlDecode(href);
+        var labelText = WebUtility.HtmlDecode(AnyTag().Replace(label, string.Empty)).Trim();
+        if (decodedHref.Length == 0
+            || decodedHref.StartsWith('#')
+            || decodedHref.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(decodedHref, labelText, StringComparison.OrdinalIgnoreCase))
+        {
+            return label;
+        }
+
+        return labelText.Length == 0 ? href : $"{label} ({href})";
+    }
+
+    [GeneratedRegex(@"<a\b[^>]*?\bhref\s*=\s*(?<q>[""'])(?<href>.*?)\k<q>[^>]*>(?<label>.*?)</a\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex Link();
 
     [GeneratedRegex(@"<(script|style)\b[^>]*>.*?</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex ScriptOrStyle();

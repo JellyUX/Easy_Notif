@@ -43,6 +43,26 @@ public class HtmlToTextTests
     }
 
     [Fact]
+    public void Convert_KeepsTheLinkTargetAfterItsLabel()
+    {
+        Assert.Equal(
+            "Read the notes (https://media.example.org/notes?a=1&b=2) today",
+            HtmlToText.Convert("<a href=\"https://media.example.org/notes?a=1&amp;b=2\" style=\"color:x\"><b>Read</b> the notes</a> today"));
+        Assert.Equal("See (https://x.example)", HtmlToText.Convert("<A HREF='https://x.example'>See</A>"));
+    }
+
+    [Theory]
+    [InlineData("<a href=\"mailto:admin@example.org\">Write to us</a>", "Write to us")]
+    [InlineData("<a href=\"#top\">Back to top</a>", "Back to top")]
+    [InlineData("<a href=\"https://x.example\">https://x.example</a>", "https://x.example")]
+    [InlineData("<a href=\"https://x.example\"><img src=\"p.png\"></a>", "https://x.example")]
+    [InlineData("<a name=\"top\">Anchor</a>", "Anchor")]
+    public void Convert_DoesNotRepeatAPointlessTarget(string html, string expected)
+    {
+        Assert.Equal(expected, HtmlToText.Convert(html));
+    }
+
+    [Fact]
     public void Convert_CollapsesWhitespace()
     {
         Assert.Equal("a b c", HtmlToText.Convert("a     b\t\tc"));

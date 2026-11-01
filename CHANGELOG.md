@@ -1,3 +1,21 @@
+## [1.3.0](https://github.com/JellyUX/Easy_Notif/compare/v1.2.0...v1.3.0) (2026-11-01)
+
+### Features
+
+* add the newsletter pause to the admin page ([08526ca](https://github.com/JellyUX/Easy_Notif/commit/08526ca3efe854df3895c99cce938a7e30a72b50))
+* pause the next scheduled newsletter once for the migration ([cf280b2](https://github.com/JellyUX/Easy_Notif/commit/cf280b27e213c76c9b209dd4df181baeff960e2c))
+* report orphaned series subscriptions in the admin status ([335f0f2](https://github.com/JellyUX/Easy_Notif/commit/335f0f2d3b9217ca139595d547d8187ea906eb3b))
+
+### Bug Fixes
+
+* keep link targets in the text part of HTML emails ([ea2919d](https://github.com/JellyUX/Easy_Notif/commit/ea2919d374d758d8ca0da9b681a4dbb68ffd2636))
+* keep the campaign store readable when the data directory is read-only ([3fb1a67](https://github.com/JellyUX/Easy_Notif/commit/3fb1a674c9538defa16b280f4a41e679919dba89))
+* pause scheduling while campaigns.json is read-only ([a599a3f](https://github.com/JellyUX/Easy_Notif/commit/a599a3fb74b233e58057b66e0ef583384447e6a4))
+* send the one-click unsubscribe header only over https ([2de2d85](https://github.com/JellyUX/Easy_Notif/commit/2de2d851021e497ba9f00cc208ab98e663037cb1))
+* state accurately what happens to personal data on uninstall ([783f6d9](https://github.com/JellyUX/Easy_Notif/commit/783f6d9fec546ffd9e3c6a121c54049ba36e0bf7))
+* warn when a custom template drops the unsubscribe link ([fcaa182](https://github.com/JellyUX/Easy_Notif/commit/fcaa1828dcbc4f3360c92fafef34e9a31ef5fd55))
+* warn when no public URL leaves emails without an unsubscribe link ([b06a78e](https://github.com/JellyUX/Easy_Notif/commit/b06a78eaf1fc70829a04cde630934aee7302f6b9))
+
 ## [1.2.0](https://github.com/JellyUX/Easy_Notif/compare/v1.1.1...v1.2.0) (2026-10-12)
 
 ### Features

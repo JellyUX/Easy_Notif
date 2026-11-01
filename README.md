@@ -97,7 +97,7 @@ Fill in the **Settings** tab of the plugin config page. The fields are grouped i
 | | Reply-To address | optional; a real address if you want replies to reach you |
 | | Resend API key | the `re_...` key (stored in the plugin's data directory, masked on read, never logged) |
 | | Webhook signing secret | the `whsec_...` secret |
-| Server | Public server URL | your Jellyfin's public URL, used for poster images and deep links. Leave blank to attach the posters to the email instead |
+| Server | Public server URL | your Jellyfin's public URL, used for poster images, deep links and unsubscribe links. Leave blank to attach the posters to the email instead (emails then carry no unsubscribe link) |
 | | Schedule time zone | the time zone of every schedule (Europe/Paris by default; UTC if the zone is unknown) |
 | Newsletter | Movies listed / Series listed | 1 to 200 each (30 by default); beyond that, a section ends with "and N more" |
 | Sending limits | Per day / Over 30 days | your Resend plan's quotas (100 and 3000 on the free plan; 0 per day if your plan has no daily limit) |
@@ -136,7 +136,8 @@ the last 7 days and the latest sends (with masked addresses).
 - **Invitation banner**: a user with no contact address sees a banner on the home page offering to
   set one up, until they close it or follow it.
 - **Unsubscribe**: every campaign email carries a one-click `List-Unsubscribe` header and a footer
-  link to a small confirmation page. Changes take effect immediately.
+  link to a small confirmation page, as long as the public server URL is set. Without it, emails
+  carry neither, and the Settings tab says so. Changes take effect immediately.
 
 ### The weekly recap
 

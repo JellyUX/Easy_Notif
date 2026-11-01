@@ -43,6 +43,16 @@
         return isSet ? _t(dict, 'settings.secretSet') : _t(dict, 'settings.secretUnset');
     }
 
+    // Warning key under the public URL field: blank means no unsubscribe link or header at all;
+    // http means no one-click button in mail clients (RFC 8058 requires https). Null when fine.
+    function _publicUrlWarning(value) {
+        var url = (value || '').trim();
+        if (!url) {
+            return 'settings.publicUrl.warnNone';
+        }
+        return /^http:\/\//i.test(url) ? 'settings.publicUrl.warnHttp' : null;
+    }
+
     function _buildPrefRow(dict, row) {
         var emailCell = row.hasEmail
             ? _escHtml(row.maskedEmail)
@@ -626,6 +636,7 @@
         _pickLocale: _pickLocale,
         _t: _t,
         _secretHint: _secretHint,
+        _publicUrlWarning: _publicUrlWarning,
         _buildPrefRow: _buildPrefRow,
         _buildStatus: _buildStatus,
         _incidentBanner: _incidentBanner,
@@ -696,6 +707,13 @@
         _el('enotifInviteWithoutEmail').disabled = off;
     }
 
+    function _syncPublicUrlWarning() {
+        var key = _publicUrlWarning(_el('enotifPublicUrl').value);
+        var el = _el('enotifPublicUrlWarning');
+        el.textContent = key ? _t(dict, key) : '';
+        el.hidden = !key;
+    }
+
     function _loadSettings() {
         return window.ApiClient.getJSON(_url('admin/settings')).then(function (s) {
             _el('enotifFromEmail').value = s.fromEmail || '';
@@ -713,6 +731,7 @@
             _el('enotifAlertEmail').value = s.alertEmail || '';
             _el('enotifAlertLanguage').value = s.alertLanguage === 'en' ? 'en' : 'fr';
             _syncBellToggle();
+            _syncPublicUrlWarning();
             _el('enotifApiKey').value = '';
             _el('enotifWebhookSecret').value = '';
             _el('enotifApiKeyHint').textContent = _secretHint(dict, s.resendApiKeySet);
@@ -1598,6 +1617,7 @@
         _el('enotifSettingsForm').addEventListener('submit', _saveSettings);
         _el('enotifIncidentBanner').addEventListener('click', function () { _selectTab('status'); });
         _el('enotifInjectWebUi').addEventListener('change', _syncBellToggle);
+        _el('enotifPublicUrl').addEventListener('input', _syncPublicUrlWarning);
         _el('enotifPrefBody').addEventListener('change', _onCatToggle);
         _bindManual();
         _bindLogs();

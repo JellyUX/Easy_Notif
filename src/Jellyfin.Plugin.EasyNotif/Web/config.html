@@ -123,7 +123,8 @@
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="enotifPublicUrl" data-i18n="settings.publicUrl">Public server URL</label>
                         <input is="emby-input" type="text" id="enotifPublicUrl" placeholder="https://media.example.org" />
-                        <div class="fieldDescription" data-i18n="settings.publicUrl.help">Used to build poster images and deep links in emails. Leave blank to attach posters instead.</div>
+                        <div class="fieldDescription" data-i18n="settings.publicUrl.help">Used to build poster images, deep links and the unsubscribe link in emails. Leave blank to attach posters instead.</div>
+                        <div class="fieldDescription enotif-warn" id="enotifPublicUrlWarning" hidden></div>
                     </div>
                     <div class="inputContainer">
                         <label class="selectLabel" for="enotifTimeZone" data-i18n="settings.timeZone">Schedule time zone</label>

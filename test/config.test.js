@@ -9,7 +9,7 @@ const {
     _manualBody, _manualRecipients, _validateManual, _manualPayload, _validateAnnouncement, _announcementView, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
-    _previewResult, _tplOptions, _campaignTemplateBaseId,
+    _previewResult, _tplOptions, _campaignTemplateBaseId, _publicUrlWarning,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -51,6 +51,30 @@ describe('_t', () => {
     it('falls back to the key itself when missing', () => {
         expect(_t({}, 'tab.settings')).toBe('tab.settings');
         expect(_t(null, 'x')).toBe('x');
+    });
+});
+
+describe('_publicUrlWarning', () => {
+    it('warns that a blank URL leaves emails without any unsubscribe link', () => {
+        expect(_publicUrlWarning('')).toBe('settings.publicUrl.warnNone');
+        expect(_publicUrlWarning('   ')).toBe('settings.publicUrl.warnNone');
+        expect(_publicUrlWarning(null)).toBe('settings.publicUrl.warnNone');
+    });
+
+    it('warns that an http URL gets no one-click unsubscribe button', () => {
+        expect(_publicUrlWarning('http://localhost:8099')).toBe('settings.publicUrl.warnHttp');
+        expect(_publicUrlWarning(' HTTP://media.example.org ')).toBe('settings.publicUrl.warnHttp');
+    });
+
+    it('stays silent for an https URL', () => {
+        expect(_publicUrlWarning('https://media.example.org')).toBeNull();
+    });
+
+    it('has both warnings translated', () => {
+        ['settings.publicUrl.warnNone', 'settings.publicUrl.warnHttp'].forEach((key) => {
+            expect(enStrings[key]).toBeTruthy();
+            expect(frStrings[key]).toBeTruthy();
+        });
     });
 });
 

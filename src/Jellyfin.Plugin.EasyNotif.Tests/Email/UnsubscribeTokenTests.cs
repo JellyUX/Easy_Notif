@@ -112,6 +112,27 @@ public class UnsubscribeTokenTests
         Assert.False(UnsubscribeToken.TryVerify(Secret, legacy, UnsubscribeToken.LegacyAcceptedUntil.AddSeconds(1), out _, out _));
     }
 
+    [Fact]
+    public void ListUnsubscribeHeaders_OverHttps_OfferOneClick()
+    {
+        var headers = UnsubscribeToken.BuildListUnsubscribeHeaders("https://media.example.org/", Secret, UserId, "news");
+
+        Assert.NotNull(headers);
+        Assert.StartsWith("<https://media.example.org/EasyNotif/u/", headers["List-Unsubscribe"], StringComparison.Ordinal);
+        Assert.Equal("List-Unsubscribe=One-Click", headers["List-Unsubscribe-Post"]);
+    }
+
+    [Fact]
+    public void ListUnsubscribeHeaders_OverHttp_KeepTheLink_WithoutOneClick()
+    {
+        // RFC 8058 section 3.1: the one-click header requires an HTTPS URI.
+        var headers = UnsubscribeToken.BuildListUnsubscribeHeaders("http://localhost:8099", Secret, UserId, "news");
+
+        Assert.NotNull(headers);
+        Assert.StartsWith("<http://localhost:8099/EasyNotif/u/", headers["List-Unsubscribe"], StringComparison.Ordinal);
+        Assert.False(headers.ContainsKey("List-Unsubscribe-Post"));
+    }
+
     private static readonly DateTimeOffset Issued = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
 
     // The 1.0.x format: base64url("{userId:N}:{category}" ++ HMAC-SHA256(secret, that)).

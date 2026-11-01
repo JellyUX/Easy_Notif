@@ -137,7 +137,8 @@ the last 7 days and the latest sends (with masked addresses).
   set one up, until they close it or follow it.
 - **Unsubscribe**: every campaign email carries a one-click `List-Unsubscribe` header and a footer
   link to a small confirmation page, as long as the public server URL is set. Without it, emails
-  carry neither, and the Settings tab says so. Changes take effect immediately.
+  carry neither, and the Settings tab says so. With an `http://` URL, the header and the link stay
+  but the header is not one-click (RFC 8058 requires https). Changes take effect immediately.
 
 ### The weekly recap
 

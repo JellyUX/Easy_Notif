@@ -138,7 +138,8 @@ public static class UnsubscribeToken
     /// <summary>
     /// Builds the <c>List-Unsubscribe</c> / <c>List-Unsubscribe-Post</c> header pair for a
     /// one-click unsubscribe link, or null when the secret is not set or the public server URL is
-    /// missing or not a valid http/https URL (Synthese.md section 7.2). Consumed by
+    /// missing or not a valid http/https URL (Synthese.md section 7.2). Over http, only
+    /// <c>List-Unsubscribe</c> is set: one-click requires https (RFC 8058). Consumed by
     /// <c>GET|POST /EasyNotif/u/{token}</c>.
     /// </summary>
     /// <param name="publicServerUrl">The public base URL of this server.</param>
@@ -159,11 +160,15 @@ public static class UnsubscribeToken
 
         var token = Create(secret, userId, category);
         var url = $"{publicServerUrl.TrimEnd('/')}/EasyNotif/u/{token}";
-        return new Dictionary<string, string>
+        var headers = new Dictionary<string, string> { ["List-Unsubscribe"] = $"<{url}>" };
+
+        // RFC 8058 section 3.1: one-click unsubscribe requires an HTTPS URI.
+        if (url.StartsWith(Uri.UriSchemeHttps + "://", StringComparison.OrdinalIgnoreCase))
         {
-            ["List-Unsubscribe"] = $"<{url}>",
-            ["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-        };
+            headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+        }
+
+        return headers;
     }
 
     /// <summary>

@@ -7,15 +7,21 @@
 # This script therefore removes any catalogue copy and writes a valid, Active meta.json next to
 # the freshly built DLL so the dev build is the one that loads.
 
+#
+# -PluginsDir stages the plugin into another directory (default: docker/plugins, mounted by the
+# test container) and -NoRestart skips the container restart; smoke-test.ps1 uses both.
+
 param(
     [string]$Configuration = "Release",
-    [string]$PluginName = "Jellyfin.Plugin.EasyNotif"
+    [string]$PluginName = "Jellyfin.Plugin.EasyNotif",
+    [string]$PluginsDir = "",
+    [switch]$NoRestart
 )
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
-$pluginsDir = Join-Path $scriptDir "..\plugins"
+if ($PluginsDir) { $pluginsDir = $PluginsDir } else { $pluginsDir = Join-Path $scriptDir "..\plugins" }
 $pluginOutputDir = Join-Path $pluginsDir $PluginName
 $buildOutputDir = "$projectRoot\src\$PluginName\bin\$Configuration\net9.0"
 $builtDll = "$buildOutputDir\$PluginName.dll"
@@ -61,6 +67,11 @@ $meta = [ordered]@{
 $metaPath = Join-Path $pluginOutputDir "meta.json"
 [System.IO.File]::WriteAllText($metaPath, ($meta | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "  meta.json written (version $version, status Active)"
+
+if ($NoRestart) {
+    Write-Host "Done. Plugin staged in $pluginOutputDir"
+    exit 0
+}
 
 Write-Host "Restarting easynotif-test container..."
 docker compose -f "$scriptDir\..\docker-compose.yml" restart jellyfin

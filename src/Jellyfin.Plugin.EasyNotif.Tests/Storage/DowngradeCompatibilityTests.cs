@@ -47,6 +47,7 @@ public sealed class DowngradeCompatibilityTests : IDisposable
                 c.NextRunUtc = next;
                 c.LastError = "IOException: disk";
                 c.LastErrorUtc = next.AddDays(-1);
+                c.PauseNextRun = true;
             });
         }
 

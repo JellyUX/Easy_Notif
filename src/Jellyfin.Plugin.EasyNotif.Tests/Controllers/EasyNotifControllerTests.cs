@@ -1264,6 +1264,40 @@ public sealed class EasyNotifControllerTests
     }
 
     [Fact]
+    public void PutCampaign_ArmsAndDisarmsTheNewsletterPause_AndExposesIt()
+    {
+        var campaigns = SeededCampaigns();
+        var quota = new Mock<IQuotaGuard>();
+        quota.Setup(q => q.Snapshot()).Returns(new QuotaSnapshot(0, 0, 3000, 100, false, false));
+        var sendLog = new Mock<ISendLog>();
+        sendLog.Setup(l => l.LastWebhook()).Returns((default(DateTime?), default(string)));
+        sendLog.Setup(l => l.Recent(It.IsAny<int>())).Returns([]);
+        var controller = BuildController(quota: quota, sendLog: sendLog, campaigns: campaigns);
+
+        Assert.IsType<NoContentResult>(controller.PutCampaign("newsletter", new CampaignUpdate { PauseNextRun = true }));
+        Assert.True(campaigns.Campaigns[0].PauseNextRun);
+        var json = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetCampaigns()).Value);
+        Assert.Contains("\"pauseNextRun\":true", json, StringComparison.Ordinal);
+        var status = JsonSerializer.Serialize(Assert.IsType<OkObjectResult>(controller.GetStatus()).Value);
+        Assert.Contains("\"pauseNextRun\":true", status, StringComparison.Ordinal);
+
+        Assert.IsType<NoContentResult>(controller.PutCampaign("newsletter", new CampaignUpdate { PauseNextRun = false }));
+        Assert.False(campaigns.Campaigns[0].PauseNextRun);
+    }
+
+    [Fact]
+    public void PutCampaign_PauseOnTheWeeklyRecap_Returns400()
+    {
+        var campaigns = SeededCampaigns();
+
+        var result = BuildController(campaigns: campaigns).PutCampaign("weekly-recap", new CampaignUpdate { PauseNextRun = true });
+
+        var bad = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Contains("pause-newsletter-only", JsonSerializer.Serialize(bad.Value), StringComparison.Ordinal);
+        Assert.False(campaigns.Campaigns[1].PauseNextRun);
+    }
+
+    [Fact]
     public async Task RunCampaign_DelegatesToDispatch_MapsFoundToResult()
     {
         var dispatch = new Mock<IDispatchService>();

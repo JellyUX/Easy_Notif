@@ -60,6 +60,13 @@ public sealed class Campaign
     /// <summary>Gets or sets the UTC time of <see cref="LastError"/>, or null.</summary>
     public DateTime? LastErrorUtc { get; set; }
 
+    /// <summary>
+    /// Gets or sets a value indicating whether the next scheduled run is consumed without sending
+    /// (migration guard, newsletter only): its content is marked announced, the window advances and
+    /// the flag clears itself. A manual run ignores it. Additive field: 1.2.x ignores it.
+    /// </summary>
+    public bool PauseNextRun { get; set; }
+
     /// <summary>Returns a detached copy; every field is a value, a string or the immutable <see cref="Schedule"/>.</summary>
     /// <returns>The copy.</returns>
     public Campaign Clone() => (Campaign)MemberwiseClone();

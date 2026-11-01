@@ -398,6 +398,11 @@ public sealed class DispatchService : IDispatchService
         }
 
         var prepared = await _composer.PrepareAsync(campaign, now, cancellationToken).ConfigureAwait(false);
+        if (!manualRun && campaign.PauseNextRun)
+        {
+            return ConsumePausedRun(campaign, prepared, now, tz);
+        }
+
         if (!prepared.ShouldSend)
         {
             var skippedNext = campaign.Schedule.NextRunUtc(now, tz);
@@ -516,6 +521,40 @@ public sealed class DispatchService : IDispatchService
         });
 
         return new CampaignRunResult(campaign.Id, sent, failed, withoutEmail, next) { Found = true };
+    }
+
+    // Migration guard (V3-06): the armed slot sends nothing but consumes its window, so media that a
+    // Jellyfin migration re-created under new ids or a fresh DateCreated never reach a newsletter.
+    // The pause clears itself in the same write that advances the slot.
+    private CampaignRunResult ConsumePausedRun(Campaign campaign, PreparedCampaign prepared, DateTime now, TimeZoneInfo tz)
+    {
+        var next = campaign.Schedule.NextRunUtc(now, tz);
+        _campaigns.Update(campaign.Id, c =>
+        {
+            c.LastSentUtc = now;
+            c.NextRunUtc = next;
+            c.LastError = null;
+            c.LastErrorUtc = null;
+            c.PauseNextRun = false;
+        });
+        MarkAnnounced(campaign.Id, prepared, now);
+
+        _easyNotifLog.Info("dispatch.campaign", new Dictionary<string, object?>
+        {
+            ["campaignId"] = campaign.Id,
+            ["sent"] = 0,
+            ["skipped"] = "migration-pause",
+            ["movies"] = prepared.MovieCount,
+            ["series"] = prepared.SeriesCount,
+            ["nextRunUtc"] = next
+        });
+        _logger.LogInformation(
+            "[EasyNotif] Campaign {CampaignId} paused for this run: {Movies} movies and {Series} series marked announced without sending.",
+            campaign.Id,
+            prepared.MovieCount,
+            prepared.SeriesCount);
+
+        return new CampaignRunResult(campaign.Id, 0, 0, 0, next) { Found = true };
     }
 
     // The window has advanced past this content; a failed write only loses the re-announce guard for

@@ -706,6 +706,118 @@ public sealed class DispatchServiceTests
         Assert.Contains(harness.Log.Entries, e => e.EventType == "dispatch.campaign" && (string?)e.Fields?["skipped"] == "empty-digest");
     }
 
+    // Migration guard (V3-06, DEC-28): items re-created by a Jellyfin migration come back under new
+    // ids or a fresh DateCreated. The paused run consumes that window without sending, so none of
+    // them reaches a later newsletter, and the pause disarms itself.
+    private static Campaign PausedNewsletter()
+    {
+        var campaign = DueNewsletter();
+        campaign.PauseNextRun = true;
+        return campaign;
+    }
+
+    private static PreparedCampaign Digest(List<DateTime> marked, int movies = 3) => new()
+    {
+        ShouldSend = true,
+        Render = _ => new EmailContent("S", "<p>B</p>", "B"),
+        MovieCount = movies,
+        MarkAnnounced = marked.Add
+    };
+
+    [Fact]
+    public async Task RunDueAsync_PausedNewsletter_SendsNothing_ConsumesTheWindow_AndDisarms()
+    {
+        var harness = new Harness([PausedNewsletter()]);
+        harness.Recipients(Alice, Bob);
+        var marked = new List<DateTime>();
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(Digest(marked));
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Sent);
+        Assert.Equal([Now], marked);
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.False(campaign.PauseNextRun);
+        Assert.Equal(Now, campaign.LastSentUtc);
+        Assert.True(campaign.NextRunUtc > Now);
+        Assert.Contains(harness.Log.Entries, e => e.EventType == "dispatch.campaign"
+            && (string?)e.Fields?["skipped"] == "migration-pause"
+            && (int?)e.Fields?["movies"] == 3);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_AfterThePausedRun_TheNextSlotSendsNormally()
+    {
+        var harness = new Harness([PausedNewsletter()]);
+        harness.Recipients(Alice, Bob);
+        var marked = new List<DateTime>();
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(Digest(marked));
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var next = harness.Campaigns.Get("newsletter")!.NextRunUtc!.Value;
+        harness.Clock = next.AddMinutes(1);
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Equal(2, harness.Sent.Count);
+        Assert.Equal([Now, next.AddMinutes(1)], marked);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_PausedNewsletter_WithAnEmptyDigest_StillDisarms()
+    {
+        var harness = new Harness([PausedNewsletter()]);
+        harness.Recipients(Alice);
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ReturnsAsync(new PreparedCampaign { ShouldSend = false, SkipReason = "empty-digest", Render = _ => null });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Sent);
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.False(campaign.PauseNextRun);
+        Assert.True(campaign.NextRunUtc > Now);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_PausedNewsletter_TransportNotConfigured_StaysArmed()
+    {
+        var harness = new Harness([PausedNewsletter()], new PluginConfiguration { FromEmail = "from@example.org" });
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.True(campaign.PauseNextRun);
+        Assert.Equal(Now.AddMinutes(-1), campaign.NextRunUtc);
+    }
+
+    [Fact]
+    public async Task RunDueAsync_PausedNewsletter_PrepareThrows_StaysArmed()
+    {
+        var harness = new Harness([PausedNewsletter()]);
+        harness.Composer.Setup(c => c.PrepareAsync(It.IsAny<Campaign>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>(), It.IsAny<bool>()))
+            .ThrowsAsync(new InvalidOperationException("library down"));
+
+        await harness.Service.RunDueAsync(CancellationToken.None);
+
+        var campaign = harness.Campaigns.Get("newsletter")!;
+        Assert.True(campaign.PauseNextRun);
+        Assert.NotNull(campaign.LastError);
+    }
+
+    [Fact]
+    public async Task RunCampaignNowAsync_IgnoresThePause_AndKeepsItArmed()
+    {
+        var harness = new Harness([PausedNewsletter()]);
+        harness.Recipients(Alice, Bob);
+
+        await harness.Service.RunCampaignNowAsync("newsletter", CancellationToken.None);
+
+        Assert.Equal(2, harness.Sent.Count);
+        Assert.True(harness.Campaigns.Get("newsletter")!.PauseNextRun);
+    }
+
     [Fact]
     public async Task PreviewAsync_SendsOneMailToTheGivenAddress_WithoutAdvancing()
     {

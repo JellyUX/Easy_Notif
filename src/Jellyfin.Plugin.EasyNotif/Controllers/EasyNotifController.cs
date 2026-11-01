@@ -659,7 +659,8 @@ public class EasyNotifController : ControllerBase
                 nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
                 lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
                 lastError = c.LastError,
-                lastErrorUtc = c.LastErrorUtc
+                lastErrorUtc = c.LastErrorUtc,
+                pauseNextRun = c.PauseNextRun
             }),
             drains = _drains.Snapshot().ToDictionary(d => d.Key, d => new
             {
@@ -1099,6 +1100,7 @@ public class EasyNotifController : ControllerBase
         nextRunUtc = c.NextRunUtc,
         lastError = c.LastError,
         lastErrorUtc = c.LastErrorUtc,
+        pauseNextRun = c.PauseNextRun,
         lastSentLocal = ToConfiguredLocal(c.LastSentUtc, tz),
         nextRunLocal = ToConfiguredLocal(c.NextRunUtc, tz),
         timeZone = tz.Id,
@@ -1158,6 +1160,11 @@ public class EasyNotifController : ControllerBase
                 }
             }
 
+            if (body?.PauseNextRun == true && existing.Type != CampaignType.Newsletter)
+            {
+                return BadRequest(new { error = "pause-newsletter-only" });
+            }
+
             var tz = RecurrenceSchedule.ResolveTimeZone(_config.Get().SchedulerTimeZone);
             var enabling = body?.Enabled == true && !existing.Enabled;
             var scheduleChanged = schedule is not null && !schedule.Equals(existing.Schedule);
@@ -1186,6 +1193,11 @@ public class EasyNotifController : ControllerBase
                     c.Schedule = schedule;
                 }
 
+                if (body?.PauseNextRun is { } pause)
+                {
+                    c.PauseNextRun = pause;
+                }
+
                 if (scheduleChanged || enabling)
                 {
                     c.NextRunUtc = c.Enabled ? c.Schedule.NextRunUtc(DateTime.UtcNow, tz) : c.NextRunUtc;
@@ -1202,7 +1214,8 @@ public class EasyNotifController : ControllerBase
                 ["campaignId"] = id,
                 ["enabled"] = body?.Enabled,
                 ["mailLanguage"] = body?.MailLanguage,
-                ["scheduleChanged"] = scheduleChanged
+                ["scheduleChanged"] = scheduleChanged,
+                ["pauseNextRun"] = body?.PauseNextRun
             });
             return NoContent();
         });
@@ -1769,6 +1782,12 @@ public sealed class CampaignUpdate
 
     /// <summary>Gets or sets the new recurrence.</summary>
     public ScheduleUpdate? Schedule { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the next scheduled run is consumed without sending (migration guard,
+    /// newsletter only).
+    /// </summary>
+    public bool? PauseNextRun { get; set; }
 }
 
 /// <summary>A recurrence in a campaign update request.</summary>

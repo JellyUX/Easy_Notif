@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://github.com/JellyUX/Easy_Notif/actions/workflows/ci.yml/badge.svg" alt="Build">
   <img src="https://img.shields.io/github/v/release/JellyUX/Easy_Notif" alt="Version">
-  <img src="https://img.shields.io/badge/Jellyfin-10.11.10%2B-orange" alt="Jellyfin">
+  <img src="https://img.shields.io/badge/Jellyfin-10.11.10%2B%20%7C%2012.x-orange" alt="Jellyfin">
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License">
 </p>
 
@@ -43,10 +43,12 @@ Part of the [JellyUX](https://github.com/JellyUX) plugin family.
 
 ## Requirements
 
-- **Jellyfin 10.11.10 or newer** (10.11.x line).
+- **Jellyfin 10.11.10 or later 10.11.x, or 12.x** (tested on 10.11.10 and 12.4).
 - The **[File Transformation plugin](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation)**,
   used to inject the per-user settings panel, the series bell and the invitation banner into the
-  web client. Without it they do not appear; the rest of the plugin still works.
+  web client. Without it they do not appear; the rest of the plugin still works. Install it from
+  its catalogue: Jellyfin picks the build that matches your server (3.0.0 on 10.11.10, a later 3.x
+  on 12). Reinstall or update it after every Jellyfin upgrade.
 - A **[Resend](https://resend.com)** account (free tier is enough) and a domain you can add DNS
   records to. You will publish SPF, DKIM and DMARC records for a dedicated sending sub-domain, and
   create an API key with **Sending access** scoped to that sub-domain.
@@ -63,6 +65,35 @@ Part of the [JellyUX](https://github.com/JellyUX) plugin family.
    ```
 2. **Plugins > Catalog**, install **Easy Notif**, restart Jellyfin.
 3. Open **Dashboard > Plugins > Easy Notif**.
+
+## Upgrading to Jellyfin 12
+
+The same release runs on 10.11 and 12. Follow these steps in order:
+
+1. **Update Easy Notif** to 1.3.0 or later while the server still runs 10.11.
+2. **Pause the newsletter.** On the **Campaigns** tab, newsletter card, tick **Send nothing on the
+   next scheduled run** and save; the **Status** tab then shows "nothing will be sent". The next
+   scheduled run goes by without sending anything (what was added before it is never announced),
+   then the box unticks itself. If Jellyfin is still scanning the library when that run comes,
+   tick it again. **Run now** ignores it: do not use it during the upgrade.
+3. **Back up Easy Notif by hand.** Jellyfin's own backup covers neither of these, copy both:
+   - the data directory `<jellyfin-data>/Jellyfin.Plugin.EasyNotif/` (`/config/data/...` in the
+     official Docker image): preferences, followed series, history, secrets;
+   - the settings file `<jellyfin-config>/plugins/configurations/Jellyfin.Plugin.EasyNotif.xml`
+     (`/config/plugins/configurations/...` in Docker): sender, time zone, quotas.
+4. **Remove the plugins**, as the Jellyfin 12.0 release notes ask. Uninstalling does not delete
+   the data directory or the settings file: keep them.
+5. **Mount your media at the same paths** before the first start in 12. On that start, Jellyfin
+   deletes the items whose file it cannot find when the library folder is reachable.
+6. **Start Jellyfin 12**, then install Easy Notif and File Transformation again from the catalogue
+   and restart. Both must show **Active** under **Plugins**; without File Transformation the
+   settings panel and the bell do not appear, and a warning says so at the top of the Easy Notif
+   config page.
+7. **Check the Status tab.** Series that Jellyfin no longer finds are counted as orphaned
+   subscriptions.
+
+Keep the time between steps 4 and 6 short: while Easy Notif is not installed, the unsubscribe
+links of the emails already sent answer 404.
 
 ## Configuration
 
@@ -209,6 +240,10 @@ edits their own address and choices in their Jellyfin settings.
 Uninstalling the plugin does **not** delete this directory: the data stays on the server until the
 administrator deletes it. To remove everything: uninstall the plugin and delete that directory. The
 server is then exactly as it was before.
+
+Once the plugin is uninstalled, the unsubscribe links of the emails already sent (valid 180 days)
+answer 404. Before a permanent uninstall, disable every campaign so that no new email carries such
+a link.
 
 ## Development
 

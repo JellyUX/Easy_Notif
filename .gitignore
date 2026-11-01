@@ -47,6 +47,7 @@ docker/*
 !docker/scripts/
 docker/scripts/*
 !docker/scripts/deploy-plugin.ps1
+!docker/scripts/smoke-test.ps1
 !docker/plugins/
 docker/plugins/*
 !docker/plugins/.gitkeep

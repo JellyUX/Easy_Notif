@@ -241,10 +241,13 @@
             cSection.appendChild(_statusTable(dict,
                 ['status.col.campaign', 'status.col.enabled', 'status.col.nextRun', 'status.col.lastSent', 'status.col.lastError'],
                 campaigns.map(function (c) {
+                    var nextRun = c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never');
                     return { cells: [
                         c.id || '',
                         c.enabled ? { text: _t(dict, 'common.yes'), pill: 'ok' } : { text: _t(dict, 'common.no'), pill: 'off' },
-                        c.nextRunLocal || _fmtDateTime(c.nextRunUtc) || _t(dict, 'campaigns.never'),
+                        c.pauseNextRun
+                            ? { text: nextRun + ' (' + _t(dict, 'status.pausedNextRun') + ')', warn: true }
+                            : nextRun,
                         c.lastSentLocal || _fmtDateTime(c.lastSentUtc) || _t(dict, 'campaigns.never'),
                         c.lastError
                             ? { text: (_fmtDateTime(c.lastErrorUtc) || '') + ' UTC ' + c.lastError, warn: true }
@@ -1185,6 +1188,23 @@
         enabledRow.appendChild(enabledLabel);
         root.appendChild(enabledRow);
 
+        if (campaign.type === 'Newsletter') {
+            var pauseRow = document.createElement('div');
+            pauseRow.className = 'enotif-campaign-row';
+            var pauseLabel = document.createElement('label');
+            pauseLabel.className = 'checkboxContainer';
+            var pause = document.createElement('input');
+            pause.type = 'checkbox';
+            pause.className = 'enotif-campaign-pause';
+            pause.checked = !!campaign.pauseNextRun;
+            var pauseText = document.createElement('span');
+            pauseText.textContent = _t(dict, 'campaigns.pauseNextRun');
+            pauseLabel.appendChild(pause);
+            pauseLabel.appendChild(pauseText);
+            pauseRow.appendChild(pauseLabel);
+            root.appendChild(pauseRow);
+        }
+
         var lang = _select('enotif-campaign-lang', [{ value: 'fr', label: 'Francais' }, { value: 'en', label: 'English' }]);
         lang.value = campaign.mailLanguage || 'fr';
         root.appendChild(_labeledRow('', 'campaigns.language', lang));
@@ -1301,6 +1321,10 @@
             templateId: root.querySelector('.enotif-campaign-template').value,
             schedule: _scheduleFromForm(state)
         };
+        var pause = root.querySelector('.enotif-campaign-pause');
+        if (pause) {
+            body.pauseNextRun = pause.checked;
+        }
 
         window.Dashboard.showLoadingMsg();
         _putJson('admin/campaigns/' + id, body).then(function () {

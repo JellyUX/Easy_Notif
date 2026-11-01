@@ -185,6 +185,25 @@ describe('_buildStatus', () => {
         expect(el.textContent).toContain('2026-09-14 09:00');
     });
 
+    it('flags a paused next newsletter run in the campaigns table', () => {
+        const el = _buildStatus(dict, {
+            configured: true,
+            fileTransformation: true,
+            quota: {},
+            lastWebhookUtc: null,
+            recent: [],
+            campaigns: [
+                { id: 'newsletter', enabled: true, nextRunLocal: '2026-11-02 09:00', pauseNextRun: true },
+                { id: 'weekly-recap', enabled: true, nextRunLocal: '2026-11-03 08:00', pauseNextRun: false }
+            ]
+        });
+
+        const flagged = el.querySelectorAll('td.enotif-warn');
+        expect(flagged.length).toBe(1);
+        expect(flagged[0].textContent).toBe('2026-11-02 09:00 (' + dict['status.pausedNextRun'] + ')');
+        expect(el.textContent).toContain('2026-11-03 08:00');
+    });
+
     it('shows the warning when warn80 is set', () => {
         const el = _buildStatus(dict, {
             configured: true,

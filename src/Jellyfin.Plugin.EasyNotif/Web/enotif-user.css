@@ -64,6 +64,7 @@
 .enotif-notice {
     margin-top: 1em;
     opacity: 0.8;
+    text-align: center;
 }
 
 .enotif-series-bell-active .detailButton-icon {

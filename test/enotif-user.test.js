@@ -316,6 +316,13 @@ describe('DICT', () => {
         expect(Object.keys(DICT.fr).sort()).toEqual(Object.keys(DICT.en).sort());
     });
 
+    it('does not promise that the address is deleted on uninstall', () => {
+        expect(DICT.en['panel.notice']).not.toMatch(/uninstall|removed|deleted when/i);
+        expect(DICT.fr['panel.notice']).not.toMatch(/désinstall/i);
+        expect(DICT.en['panel.notice']).toContain('until the administrator deletes it');
+        expect(DICT.fr['panel.notice']).toContain("jusqu'à ce que l'administrateur les efface");
+    });
+
     it('translates the test button per locale', () => {
         expect(_t('fr', 'panel.test')).toBe('Envoyer un test');
         expect(_t('en', 'panel.test')).toBe('Send a test');

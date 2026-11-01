@@ -237,6 +237,23 @@ public sealed class TemplateStoreTests : IDisposable
         Assert.Equal("unknown-key", store.Validate("generic", "<p>{{title}}</p>").Reason);
     }
 
+    [Theory]
+    [InlineData("newsletter", "fr")]
+    [InlineData("newsletter", "en")]
+    [InlineData("weekly-recap", "fr")]
+    [InlineData("weekly-recap", "en")]
+    [InlineData("series-episodes", "fr")]
+    [InlineData("series-episodes", "en")]
+    [InlineData("generic", "fr")]
+    [InlineData("generic", "en")]
+    public void BaseTemplates_DoNotPromiseDeletionOnUninstall(string id, string lang)
+    {
+        var content = Build().Get(id, lang);
+
+        Assert.DoesNotContain("uninstall", content, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("désinstall", content, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         try

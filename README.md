@@ -189,8 +189,24 @@ keeps in Jellyfin's image cache like any other cached image. Contact addresses g
 (United States) to send the mail; nothing is sent to any other third party. Addresses and user ids
 are masked in the logs.
 
-To remove everything: uninstall the plugin and delete that directory. The server is then exactly as
-it was before.
+What is stored about users, and for how long:
+
+| Data | File | Kept |
+|---|---|---|
+| Contact address, categories, newsletter libraries | `preferences.json` | until the user clears it or the administrator deletes the file |
+| Followed series | `series-notify.json` | until the user unfollows or the administrator deletes the file |
+| Viewing history (titles watched, every user, for the weekly recap) | `playback-history.json` | 90 days |
+| Send log (masked address, user id, subject, status) | `send-log.jsonl` | last 500 entries |
+| Incidents | `incidents.json` | 7 days |
+| Activity logs (addresses and ids masked) | `logs/` | the Jellyfin activity log retention, 30 days by default |
+| Unsubscribe links in sent emails | (signed, not stored) | valid 180 days |
+
+Only the server administrators can read these files (file system, admin page). Each user sees and
+edits their own address and choices in their Jellyfin settings.
+
+Uninstalling the plugin does **not** delete this directory: the data stays on the server until the
+administrator deletes it. To remove everything: uninstall the plugin and delete that directory. The
+server is then exactly as it was before.
 
 ## Development
 

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import enotifConfig from '../src/Jellyfin.Plugin.EasyNotif/Web/config.js';
 
 import enStrings from '../src/Jellyfin.Plugin.EasyNotif/Web/strings/en.json';
@@ -9,7 +10,7 @@ const {
     _manualBody, _manualRecipients, _validateManual, _manualPayload, _validateAnnouncement, _announcementView, _previewSrcdoc, _manualResult, _manualBatchView, _fmtBytes,
     _filterLogLines,
     _scheduleFieldsForKind, _validateSchedule, _scheduleFromForm, _fmtSchedule, _fmtDateTime,
-    _previewResult, _tplOptions, _campaignTemplateBaseId, _publicUrlWarning,
+    _previewResult, _tplOptions, _campaignTemplateBaseId, _publicUrlWarning, _templateLacksUnsubscribe,
     PLUGIN_ID
 } = enotifConfig;
 
@@ -75,6 +76,35 @@ describe('_publicUrlWarning', () => {
             expect(enStrings[key]).toBeTruthy();
             expect(frStrings[key]).toBeTruthy();
         });
+    });
+});
+
+describe('_templateLacksUnsubscribe', () => {
+    it('flags a body that never outputs the unsubscribe link', () => {
+        expect(_templateLacksUnsubscribe('<p>{{heading}}</p>')).toBe(true);
+        expect(_templateLacksUnsubscribe('{{#if unsubscribeUrl}}<p>bye</p>{{/if}}')).toBe(true);
+        expect(_templateLacksUnsubscribe('')).toBe(true);
+        expect(_templateLacksUnsubscribe(null)).toBe(true);
+    });
+
+    it('accepts the escaped, spaced and raw forms', () => {
+        expect(_templateLacksUnsubscribe('<a href="{{unsubscribeUrl}}">x</a>')).toBe(false);
+        expect(_templateLacksUnsubscribe('<a href="{{ unsubscribeUrl }}">x</a>')).toBe(false);
+        expect(_templateLacksUnsubscribe('{{{unsubscribeUrl}}}')).toBe(false);
+    });
+
+    it('stays silent for every base template, so an intact clone gets no warning', () => {
+        ['newsletter', 'weekly-recap', 'series-episodes', 'generic'].forEach((id) => {
+            ['fr', 'en'].forEach((lang) => {
+                const path = `src/Jellyfin.Plugin.EasyNotif/Templates/${id}-${lang}.html`;
+                expect(_templateLacksUnsubscribe(readFileSync(path, 'utf8'))).toBe(false);
+            });
+        });
+    });
+
+    it('has the warning translated', () => {
+        expect(enStrings['templates.warn.noUnsubscribe']).toBeTruthy();
+        expect(frStrings['templates.warn.noUnsubscribe']).toBeTruthy();
     });
 });
 

@@ -238,6 +238,7 @@
   "templates.base.fixed": "Template des mails de nouveaux épisodes, en lecture seule et non clonable.",
   "templates.base.generic": "Template d'habillage des emails manuels, en lecture seule et non clonable.",
   "templates.saved": "Enregistré.",
+  "templates.warn.noUnsubscribe": "Ce template n’affiche pas {{unsubscribeUrl}} : ses emails n’auront pas de lien de désabonnement dans le corps.",
   "templates.error.script": "Une balise script n’est pas autorisée dans un template.",
   "templates.error.tooLarge": "Ce template est trop volumineux (64 Ko maximum).",
   "templates.error.unknownKey": "Placeholder inconnu : {key}",

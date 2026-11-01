@@ -238,6 +238,7 @@
   "templates.base.fixed": "This template is used for the new-episode emails. It is read-only and cannot be cloned.",
   "templates.base.generic": "This template lays out the manual emails. It is read-only and cannot be cloned.",
   "templates.saved": "Saved.",
+  "templates.warn.noUnsubscribe": "This template does not show {{unsubscribeUrl}}: its emails will have no unsubscribe link in the body.",
   "templates.error.script": "A script tag is not allowed in a template.",
   "templates.error.tooLarge": "This template is too large (max 64 KB).",
   "templates.error.unknownKey": "Unknown placeholder: {key}",

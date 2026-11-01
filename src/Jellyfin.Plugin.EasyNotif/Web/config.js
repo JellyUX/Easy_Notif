@@ -53,6 +53,12 @@
         return /^http:\/\//i.test(url) ? 'settings.publicUrl.warnHttp' : null;
     }
 
+    // True when a template body never outputs {{unsubscribeUrl}} (or its raw form): its emails
+    // would carry no unsubscribe link in the body. A warning only; the save still goes through.
+    function _templateLacksUnsubscribe(content) {
+        return !/\{\{\{?\s*unsubscribeUrl\s*\}/.test(content || '');
+    }
+
     function _buildPrefRow(dict, row) {
         var emailCell = row.hasEmail
             ? _escHtml(row.maskedEmail)
@@ -637,6 +643,7 @@
         _t: _t,
         _secretHint: _secretHint,
         _publicUrlWarning: _publicUrlWarning,
+        _templateLacksUnsubscribe: _templateLacksUnsubscribe,
         _buildPrefRow: _buildPrefRow,
         _buildStatus: _buildStatus,
         _incidentBanner: _incidentBanner,
@@ -1412,8 +1419,21 @@
 
     function _tplResult(key, isError) {
         var el = _el('enotifTplResult');
+        el.classList.remove('enotif-warn');
         el.classList.toggle('enotif-status-error', !!isError);
         el.textContent = _t(dict, key);
+    }
+
+    // Appends the non-blocking "no unsubscribe link" warning to the result line of a custom template.
+    function _tplWarnUnsubscribe() {
+        if (!tplCurrent || !tplCurrent.custom || !_templateLacksUnsubscribe(_el('enotifTplBody').value)) {
+            return;
+        }
+        var el = _el('enotifTplResult');
+        el.classList.remove('enotif-status-error');
+        el.classList.add('enotif-warn');
+        var warning = _t(dict, 'templates.warn.noUnsubscribe');
+        el.textContent = el.textContent ? el.textContent + ' ' + warning : warning;
     }
 
     // Maps a failed template request to a specific, red error line. Reads the JSON error body
@@ -1421,6 +1441,7 @@
     // message when it is not available.
     function _tplError(err) {
         var el = _el('enotifTplResult');
+        el.classList.remove('enotif-warn');
         el.classList.add('enotif-status-error');
         var byError = {
             'script': 'templates.error.script',
@@ -1493,6 +1514,10 @@
             Content: _el('enotifTplBody').value
         }).then(function (r) {
             _el('enotifTplPreview').srcdoc = (r && r.html) || '';
+            if (tplCurrent.custom) {
+                _tplResult('', false);
+                _tplWarnUnsubscribe();
+            }
         }).catch(function (err) {
             console.error('[EasyNotif Config] could not preview a template:', err);
         });
@@ -1506,6 +1531,7 @@
         _putJson('admin/templates/' + encodeURIComponent(id) + '?lang=' + lang, { Content: _el('enotifTplBody').value })
             .then(function () {
                 _tplResult('templates.saved', false);
+                _tplWarnUnsubscribe();
             })
             .catch(function (err) {
                 console.error('[EasyNotif Config] could not save a template:', err);

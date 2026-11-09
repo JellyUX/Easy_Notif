@@ -1,3 +1,13 @@
+## [2.0.0](https://github.com/JellyUX/Easy_Notif/compare/v1.3.0...v2.0.0) (2026-11-09)
+
+### ⚠ BREAKING CHANGES
+
+* requires Jellyfin 12.0 or later
+
+### build
+
+* target Jellyfin 12 on .NET 10 ([6a274a5](https://github.com/JellyUX/Easy_Notif/commit/6a274a5fbedaa7e73fb3939e72ed55ec960567e4))
+
 ## [1.3.0](https://github.com/JellyUX/Easy_Notif/compare/v1.2.0...v1.3.0) (2026-11-01)
 
 ### Features

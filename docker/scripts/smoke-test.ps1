@@ -1,6 +1,6 @@
 # Smoke test against a real, disposable Jellyfin container.
 # Run from the project root:
-#   powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 10.11.10
+#   powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 12.4
 #   powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 12.4 -Keep
 #
 # Steps: start jellyfin/jellyfin:<version> with no host mount, complete the startup wizard through

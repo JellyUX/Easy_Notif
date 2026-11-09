@@ -17,12 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # global.json selects the .NET 10 SDK, which still builds the net9.0 target. The 9.0 install
-      # only provides the runtime the net9.0 test project runs on.
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
-          dotnet-version: 9.0.x
 
       - name: Restore
         run: dotnet restore --locked-mode
@@ -59,16 +56,6 @@ jobs:
           path: coverage/**/coverage.cobertura.xml
           if-no-files-found: error
 
-      # A Jellyfin 12 server runs on .NET 10 and loads the published net9.0 DLL as is. LatestMajor
-      # moves the test host to the newest installed runtime; Major would stay on the installed 9.0.
-      # The diagnostic log proves which runtime the test host actually loaded.
-      - name: Test on the .NET 10 runtime
-        env:
-          DOTNET_ROLL_FORWARD: LatestMajor
-        run: |
-          dotnet test --no-build --configuration Release --diag diag/test.txt
-          grep -hoE 'Microsoft\.NETCore\.App/10\.[0-9.]+' diag/test.host.*.txt | sort -u | grep . || { echo "test host did not run on .NET 10"; exit 1; }
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
@@ -82,11 +69,11 @@ jobs:
       - name: Run Vitest
         run: npm test
 
-  # Throwaway copy compiled against Jellyfin 12 (net10.0, derived from JellyfinVersion in
-  # Directory.Build.props). It publishes nothing and the release job does not wait for it. The
-  # committed lock files pin 10.11.10 / net9.0, so this job restores into a lock file under obj/.
+  # Throwaway copy compiled against the latest stable Jellyfin 12.x; the main job builds the
+  # declared minimum, 12.0.0. It publishes nothing and the release job does not wait for it. The
+  # committed lock files pin 12.0.0, so this job restores into a lock file under obj/.
   compat-12:
-    name: Build & Test (Jellyfin 12)
+    name: Build & Test (latest Jellyfin 12)
     runs-on: ubuntu-latest
     env:
       JELLYFIN_PROPS: -p:JellyfinVersion=12.4.0 -p:NuGetLockFilePath=obj/packages.compat.lock.json

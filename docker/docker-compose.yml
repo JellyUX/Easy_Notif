@@ -5,7 +5,7 @@ name: easynotif
 
 services:
   jellyfin:
-    image: jellyfin/jellyfin:10.11.11
+    image: jellyfin/jellyfin:12.4
     container_name: easynotif-test
     environment:
       - JELLYFIN_PublishedServerUrl=http://localhost:${JELLYFIN_PORT:-8099}

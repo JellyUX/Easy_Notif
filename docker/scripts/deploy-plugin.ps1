@@ -23,7 +23,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent (Split-Path -Parent $scriptDir)
 if ($PluginsDir) { $pluginsDir = $PluginsDir } else { $pluginsDir = Join-Path $scriptDir "..\plugins" }
 $pluginOutputDir = Join-Path $pluginsDir $PluginName
-$buildOutputDir = "$projectRoot\src\$PluginName\bin\$Configuration\net9.0"
+$buildOutputDir = "$projectRoot\src\$PluginName\bin\$Configuration\net10.0"
 $builtDll = "$buildOutputDir\$PluginName.dll"
 
 Write-Host "Building $PluginName ($Configuration)..."
@@ -54,7 +54,7 @@ $meta = [ordered]@{
     name       = "Easy Notif"
     overview   = ""
     owner      = "Samuellct"
-    targetAbi  = "10.11.10.0"
+    targetAbi  = "12.0.0.0"
     timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.0000000Z")
     version    = $version
     status     = "Active"

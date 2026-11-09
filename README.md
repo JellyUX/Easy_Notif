@@ -3,7 +3,7 @@
 <p align="center">
   <img src="https://github.com/JellyUX/Easy_Notif/actions/workflows/ci.yml/badge.svg" alt="Build">
   <img src="https://img.shields.io/github/v/release/JellyUX/Easy_Notif" alt="Version">
-  <img src="https://img.shields.io/badge/Jellyfin-10.11.10%2B%20%7C%2012.x-orange" alt="Jellyfin">
+  <img src="https://img.shields.io/badge/Jellyfin-12.x-orange" alt="Jellyfin">
   <img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License">
 </p>
 
@@ -43,12 +43,13 @@ Part of the [JellyUX](https://github.com/JellyUX) plugin family.
 
 ## Requirements
 
-- **Jellyfin 10.11.10 or later 10.11.x, or 12.x** (tested on 10.11.10 and 12.4).
+- **Jellyfin 12.0 or later 12.x** (tested on 12.4). Servers on Jellyfin 10.11 stay on Easy Notif
+  1.3.0, the last release for 10.11: Jellyfin keeps offering it to them and hides 2.x.
 - The **[File Transformation plugin](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation)**,
   used to inject the per-user settings panel, the series bell and the invitation banner into the
   web client. Without it they do not appear; the rest of the plugin still works. Install it from
-  its catalogue: Jellyfin picks the build that matches your server (3.0.0 on 10.11.10, a later 3.x
-  on 12). Reinstall or update it after every Jellyfin upgrade.
+  its catalogue: Jellyfin picks the build that matches your server. Reinstall or update it after
+  every Jellyfin upgrade.
 - A **[Resend](https://resend.com)** account (free tier is enough) and a domain you can add DNS
   records to. You will publish SPF, DKIM and DMARC records for a dedicated sending sub-domain, and
   create an API key with **Sending access** scoped to that sub-domain.
@@ -68,9 +69,9 @@ Part of the [JellyUX](https://github.com/JellyUX) plugin family.
 
 ## Upgrading to Jellyfin 12
 
-The same release runs on 10.11 and 12. Follow these steps in order:
+Easy Notif 1.3.0 runs on 10.11 and 12; 2.0.0 and later need 12. Follow these steps in order:
 
-1. **Update Easy Notif** to 1.3.0 or later while the server still runs 10.11.
+1. **Update Easy Notif** to 1.3.0 while the server still runs 10.11.
 2. **Pause the newsletter.** On the **Campaigns** tab, newsletter card, tick **Send nothing on the
    next scheduled run** and save; the **Status** tab then shows "nothing will be sent". The next
    scheduled run goes by without sending anything (what was added before it is never announced),
@@ -86,7 +87,8 @@ The same release runs on 10.11 and 12. Follow these steps in order:
 5. **Mount your media at the same paths** before the first start in 12. On that start, Jellyfin
    deletes the items whose file it cannot find when the library folder is reachable.
 6. **Start Jellyfin 12**, then install Easy Notif and File Transformation again from the catalogue
-   and restart. Both must show **Active** under **Plugins**; without File Transformation the
+   and restart. The catalogue now offers Easy Notif 2.x. Both must show **Active** under
+   **Plugins**; without File Transformation the
    settings panel and the bell do not appear, and a warning says so at the top of the Easy Notif
    config page.
 7. **Check the Status tab.** Series that Jellyfin no longer finds are counted as orphaned
@@ -253,7 +255,6 @@ a link.
 Jellyfin container. It needs Docker and Windows PowerShell; run it from the repository root:
 
 ```powershell
-powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 10.11.10
 powershell -File docker/scripts/smoke-test.ps1 -JellyfinVersion 12.4
 ```
 
